@@ -1,15 +1,27 @@
-[package]
-name = "veritas"
-version = "0.1.0"
-edition = "2021"
+# [package]
+# name = "veritas"
+# version = "0.1.0"
+# edition = "2021"
+# authors = ["Quellen <quellen@step.finance>"]
 
-[dependencies]
+[workspace]
+members = ["crates/*"]
+
+[workspace.lints]
+clippy.unwrap_used = "deny"
+
+[workspace.dependencies]
 step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "https://github.com/step-finance/step-common-rust.git", rev = "c11cd1372c9b38fde63863f8c30f0936e92d6616" }
-
 solana-transaction-status = "=2.0.13"
 solana-program = "=2.0.13"
 solana-sdk = "=2.0.13"
 solana-client = "=2.0.13"
+lapin = "2.0.3"
+tokio = { version = "1.43.0", features = ["full"] }
+anyhow = "1.0.95"
+clap = { version = "4.5.27", features = ["env", "derive"] }
+dotenvy = "0.15.7"
+clickhouse = { version = "0.13.1", features = ["native-tls"] }
 
 [patch.crates-io]
 solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }

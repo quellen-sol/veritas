@@ -1,0 +1,22 @@
+[package]
+name = "veritas"
+version = "0.1.0"
+edition = "2021"
+authors = ["Quellen <quellen@step.finance>"]
+
+[lints]
+workspace = true
+
+[dependencies]
+veritas-sdk = { path = "../sdk" }
+step-ingestooor-sdk = { workspace = true }
+solana-transaction-status = { workspace = true }
+solana-program = { workspace = true }
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+lapin = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+clickhouse = { workspace = true }
