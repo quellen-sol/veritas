@@ -12,7 +12,7 @@ pub struct Args {
     #[clap(flatten)]
     pub clickhouse: ClickhouseArgs,
 
-    #[clap(long, env, default_value_t = false)]
+    #[clap(long, env)]
     pub enable_db_writes: bool,
 }
 
@@ -38,6 +38,9 @@ pub struct ClickhouseArgs {
 
     #[clap(long, env)]
     pub clickhouse_password: Option<String>,
+
+    #[clap(long, env)]
+    pub clickhouse_database: String,
 }
 
 #[tokio::main]
@@ -58,6 +61,31 @@ async fn main() -> Result<()> {
     amqp_manager.assert_amqp_topology().await?;
     let amqp_task = amqp_manager.spawn_amqp_listener().await?;
     tasks.push(amqp_task);
+
+    // Connect to clickhouse
+    let _client = if args.enable_db_writes {
+        let ClickhouseArgs {
+            clickhouse_user,
+            clickhouse_url,
+            clickhouse_password,
+            clickhouse_database,
+        } = &args.clickhouse;
+
+        let mut client = clickhouse::Client::default()
+            .with_url(clickhouse_url)
+            .with_user(clickhouse_user)
+            .with_database(clickhouse_database);
+
+        if let Some(password) = clickhouse_password {
+            client = client.with_password(password);
+        }
+
+        log::info!("Created Clickhouse client");
+
+        Some(client)
+    } else {
+        None
+    };
 
     // Wait for all tasks to finish
     futures::future::join_all(tasks).await;
