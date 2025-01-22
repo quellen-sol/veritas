@@ -1,8 +1,12 @@
 use amqp::AMQPManager;
 use anyhow::Result;
 use clap::Parser;
+use lapin::message::Delivery;
+use price_points_liquidity::task::spawn_price_points_liquidity_task;
+use step_ingestooor_sdk::dooot::Dooot;
 
 mod amqp;
+mod price_points_liquidity;
 
 #[derive(Parser)]
 pub struct Args {
@@ -52,14 +56,18 @@ async fn main() -> Result<()> {
     let mut tasks = vec![];
 
     // Connect to amqp
-    let amqp_manager = AMQPManager::new(
-        args.amqp.amqp_url,
-        args.amqp.ingestooor_dooot_exchange,
-        args.amqp.amqp_debug_user,
-    )
-    .await?;
+    let AMQPArgs {
+        amqp_url,
+        ingestooor_dooot_exchange,
+        amqp_debug_user,
+    } = args.amqp;
+    let amqp_manager =
+        AMQPManager::new(amqp_url, ingestooor_dooot_exchange, amqp_debug_user).await?;
     amqp_manager.assert_amqp_topology().await?;
-    let amqp_task = amqp_manager.spawn_amqp_listener().await?;
+
+    let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+
+    let amqp_task = amqp_manager.spawn_amqp_listener(d_tx).await?;
     tasks.push(amqp_task);
 
     // Connect to clickhouse
@@ -86,6 +94,9 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+
+    let ppl_task = spawn_price_points_liquidity_task(d_rx).await?;
+    tasks.push(ppl_task);
 
     // Wait for all tasks to finish
     futures::future::join_all(tasks).await;

@@ -7247,6 +7247,8 @@ dependencies = [
  "futures",
  "lapin",
  "log",
+ "serde",
+ "serde_json",
  "solana-client",
  "solana-program 2.0.13",
  "solana-sdk",

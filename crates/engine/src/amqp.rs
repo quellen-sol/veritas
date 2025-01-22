@@ -1,14 +1,16 @@
 use anyhow::Result;
 use futures::StreamExt;
 use lapin::{
+    message::Delivery,
     options::{
-        BasicAckOptions, BasicConsumeOptions, ExchangeDeclareOptions, QueueBindOptions,
-        QueueDeclareOptions,
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
+        QueueBindOptions, QueueDeclareOptions,
     },
     types::{AMQPValue, FieldTable},
     Channel, Connection, ConnectionProperties,
 };
-use tokio::task::JoinHandle;
+use step_ingestooor_sdk::dooot::Dooot;
+use tokio::{sync::mpsc::Sender, task::JoinHandle};
 
 pub struct AMQPManager {
     channel: Channel,
@@ -49,36 +51,64 @@ impl AMQPManager {
         })
     }
 
-    pub async fn spawn_amqp_listener(&self) -> Result<JoinHandle<()>> {
+    #[allow(clippy::unwrap_used)]
+    pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
         let mut consumer = self
             .channel
             .basic_consume(
                 &self.queue_name,
-                "veritas-dooot",
+                &self.queue_name,
                 BasicConsumeOptions::default(),
                 FieldTable::default(),
             )
             .await?;
 
+        log::info!("Spawning AMQP consumer");
         let handle = tokio::spawn(async move {
             while let Some(delivery) = consumer.next().await {
                 match delivery {
                     Ok(delivery) => {
-                        log::info!("Received message: {:?}", delivery);
-                        delivery.ack(BasicAckOptions::default()).await.unwrap();
+                        // log::info!("Received message: {:?}", delivery);
+                        let data = &delivery.data;
+                        let dooots = data
+                            .split(|b| *b == b'\n')
+                            .map(serde_json::from_slice)
+                            .collect::<Result<Vec<Dooot>, _>>();
+                        match dooots {
+                            Ok(dooots) => {
+                                for dooot in dooots {
+                                    if matches!(
+                                        dooot,
+                                        Dooot::SwapEvent(_)
+                                            | Dooot::ClobFillGlobal(_)
+                                            | Dooot::ClobOrderBookGlobal(_)
+                                            | Dooot::MintUnderlyingsGlobal(_)
+                                    ) {
+                                        msg_tx.send(dooot).await.unwrap();
+                                    }
+                                }
+                                delivery.ack(BasicAckOptions::default()).await.unwrap();
+                            }
+                            Err(e) => {
+                                log::error!("Error parsing dooot: {:?}", e);
+                                delivery.nack(BasicNackOptions::default()).await.unwrap();
+                            }
+                        }
                     }
                     Err(e) => {
                         panic!("Error receiving message: {:?}", e);
                     }
                 }
             }
+
+            log::warn!("AMQP listener shutting down. Consumer stream finished.");
         });
 
         Ok(handle)
     }
 
     pub async fn assert_amqp_topology(&self) -> Result<()> {
-        log::info!("Asserting AMQP topology");
+        log::info!("Asserting AMQP topology...");
 
         log::info!("Declaring DLX {}", self.dlx_name);
         // Declare DLX
