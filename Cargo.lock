@@ -2276,6 +2276,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "fixedbitset"
+version = "0.5.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1d674e81391d1e1ab681a28d99df07927c6d4aa5b027d7da16ba32d1d21ecd99"
+
+[[package]]
 name = "flate2"
 version = "1.0.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3920,6 +3926,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2fd23b938276f14057220b707937bcb42fa76dda7560e57a2da30cb52d557937"
 dependencies = [
  "num",
+]
+
+[[package]]
+name = "petgraph"
+version = "0.7.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3672b37090dbd86368a4145bc067582552b29c27377cad4e0a306c97f9bd7772"
+dependencies = [
+ "fixedbitset",
+ "indexmap 2.7.1",
 ]
 
 [[package]]
@@ -7247,6 +7263,8 @@ dependencies = [
  "futures",
  "lapin",
  "log",
+ "petgraph",
+ "rust_decimal",
  "serde",
  "serde_json",
  "solana-client",
@@ -7261,6 +7279,10 @@ dependencies = [
 [[package]]
 name = "veritas-sdk"
 version = "0.1.0"
+dependencies = [
+ "petgraph",
+ "tokio",
+]
 
 [[package]]
 name = "version_check"

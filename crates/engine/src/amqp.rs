@@ -1,7 +1,6 @@
 use anyhow::Result;
 use futures::StreamExt;
 use lapin::{
-    message::Delivery,
     options::{
         BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
         QueueBindOptions, QueueDeclareOptions,

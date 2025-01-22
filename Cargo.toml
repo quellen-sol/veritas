@@ -27,6 +27,8 @@ env_logger = "0.11.6"
 log = "0.4.25"
 serde = { version = "1.0.217", features = ["derive"] }
 serde_json = "1.0.137"
+petgraph = "0.7.1"
+rust_decimal = { version = "1.34.3", features = ["maths"] }
 
 [patch.crates-io]
 solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }

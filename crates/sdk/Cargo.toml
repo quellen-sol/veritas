@@ -3,7 +3,9 @@ name = "veritas-sdk"
 version = "0.1.0"
 edition = "2021"
 
-[dependencies]
-
 [lints]
 workspace = true
+
+[dependencies]
+petgraph = { workspace = true }
+tokio = { workspace = true }
