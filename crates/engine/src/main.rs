@@ -5,6 +5,7 @@ use anyhow::Result;
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
+use tokio::sync::RwLock;
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 mod amqp;
@@ -97,7 +98,7 @@ async fn main() -> Result<()> {
         None
     };
 
-    let mint_price_graph = Arc::new(MintPricingGraph::new());
+    let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
 
     let ppl_task = spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone()).await?;
     tasks.push(ppl_task);

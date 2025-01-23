@@ -9,3 +9,4 @@ workspace = true
 [dependencies]
 petgraph = { workspace = true }
 tokio = { workspace = true }
+rust_decimal = { workspace = true }
