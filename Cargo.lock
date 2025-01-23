@@ -7280,6 +7280,7 @@ dependencies = [
 name = "veritas-sdk"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "petgraph",
  "rust_decimal",
  "tokio",

@@ -10,3 +10,4 @@ workspace = true
 petgraph = { workspace = true }
 tokio = { workspace = true }
 rust_decimal = { workspace = true }
+chrono = { workspace = true }
