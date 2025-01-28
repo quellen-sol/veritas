@@ -5,7 +5,6 @@ use anyhow::Result;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
-use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;

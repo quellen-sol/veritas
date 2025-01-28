@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use chrono::NaiveDateTime;
-use petgraph::{dot::Dot, Graph};
+use petgraph::Graph;
 use rust_decimal::Decimal;
-use tokio::sync::{Mutex, RwLock};
+use tokio::sync::RwLock;
 
 pub type MintPricingGraph = Graph<MintNode, Arc<RwLock<MintEdge>>>;
 

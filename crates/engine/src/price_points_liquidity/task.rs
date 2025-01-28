@@ -1,19 +1,19 @@
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
-use petgraph::{dot::Dot, graph::NodeIndex, visit::EdgeRef};
+use petgraph::visit::EdgeRef;
 use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::{Dooot, SwapEventDooot};
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        Mutex, RwLock,
+        RwLock,
     },
     task::JoinHandle,
 };
 use veritas_sdk::{
-    constants::{STEP_MINT, USDC_FEED_ACCOUNT_ID, USDC_MINT, WSOL_MINT},
-    ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, EDGE_SIZE, NODE_SIZE},
+    constants::{USDC_FEED_ACCOUNT_ID, USDC_MINT},
+    ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph},
 };
 
 use crate::calculator::task::CalculatorUpdate;

@@ -26,7 +26,7 @@ pub fn spawn_calculator_task(
     let mut current_usdc_price = None;
     let mut usdc_graph_index = None;
 
-    let task = tokio::spawn(async move {
+    tokio::spawn(async move {
         while let Some(update) = calculator_receiver.recv().await {
             match update {
                 CalculatorUpdate::USDCPrice(price, idx) => {
@@ -56,9 +56,7 @@ pub fn spawn_calculator_task(
                 }
             }
         }
-    });
-
-    task
+    })
 }
 
 /// v0.5 ALGORITHM
