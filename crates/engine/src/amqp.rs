@@ -2,8 +2,8 @@ use anyhow::Result;
 use futures::StreamExt;
 use lapin::{
     options::{
-        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, ExchangeDeclareOptions,
-        QueueBindOptions, QueueDeclareOptions,
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicQosOptions,
+        ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions,
     },
     types::{AMQPValue, FieldTable},
     Channel, Connection, ConnectionProperties,
@@ -18,6 +18,7 @@ pub struct AMQPManager {
     dlx_name: String,
     dlq_name: String,
     is_debug: bool,
+    prefetch: u16,
 }
 
 impl AMQPManager {
@@ -25,6 +26,7 @@ impl AMQPManager {
         url: String,
         dooot_exchange: String,
         debug_user: Option<String>,
+        prefetch: u16,
     ) -> Result<Self> {
         let client = Connection::connect(&url, ConnectionProperties::default()).await?;
         let channel = client.create_channel().await?;
@@ -47,7 +49,15 @@ impl AMQPManager {
             dlx_name,
             dlq_name,
             is_debug,
+            prefetch,
         })
+    }
+
+    pub async fn set_prefetch(&self) -> Result<()> {
+        self.channel
+            .basic_qos(self.prefetch, BasicQosOptions::default())
+            .await?;
+        Ok(())
     }
 
     #[allow(clippy::unwrap_used)]
@@ -76,15 +86,7 @@ impl AMQPManager {
                         match dooots {
                             Ok(dooots) => {
                                 for dooot in dooots {
-                                    if matches!(
-                                        dooot,
-                                        Dooot::SwapEvent(_)
-                                            | Dooot::ClobFillGlobal(_)
-                                            | Dooot::ClobOrderBookGlobal(_)
-                                            | Dooot::MintUnderlyingsGlobal(_)
-                                    ) {
-                                        msg_tx.send(dooot).await.unwrap();
-                                    }
+                                    msg_tx.send(dooot).await.unwrap();
                                 }
                                 delivery.ack(BasicAckOptions::default()).await.unwrap();
                             }

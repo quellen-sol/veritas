@@ -2,13 +2,16 @@ use std::sync::Arc;
 
 use amqp::AMQPManager;
 use anyhow::Result;
+use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
+use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 mod amqp;
+mod calculator;
 mod price_points_liquidity;
 
 #[derive(Parser)]
@@ -30,6 +33,9 @@ pub struct AMQPArgs {
 
     #[clap(long, env)]
     pub amqp_debug_user: Option<String>,
+
+    #[clap(long, env)]
+    pub amqp_prefetch: u16,
 
     #[clap(long, env)]
     pub ingestooor_dooot_exchange: String,
@@ -63,9 +69,16 @@ async fn main() -> Result<()> {
         amqp_url,
         ingestooor_dooot_exchange,
         amqp_debug_user,
+        amqp_prefetch,
     } = args.amqp;
-    let amqp_manager =
-        AMQPManager::new(amqp_url, ingestooor_dooot_exchange, amqp_debug_user).await?;
+    let amqp_manager = AMQPManager::new(
+        amqp_url,
+        ingestooor_dooot_exchange,
+        amqp_debug_user,
+        amqp_prefetch,
+    )
+    .await?;
+    amqp_manager.set_prefetch().await?;
     amqp_manager.assert_amqp_topology().await?;
 
     let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
@@ -99,9 +112,15 @@ async fn main() -> Result<()> {
     };
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+    let (calculator_sender, calculator_receiver) =
+        tokio::sync::mpsc::channel::<CalculatorUpdate>(1000);
 
-    let ppl_task = spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone()).await?;
+    let ppl_task =
+        spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone(), calculator_sender)?;
     tasks.push(ppl_task);
+
+    let calculator_task = spawn_calculator_task(calculator_receiver, mint_price_graph.clone());
+    tasks.push(calculator_task);
 
     // Wait for all tasks to finish
     futures::future::join_all(tasks).await;

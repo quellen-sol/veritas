@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 authors = ["Quellen <quellen@step.finance>"]
 
+[features]
+debug-graph = ["veritas-sdk/debug-graph"]
+
 [lints]
 workspace = true
 
