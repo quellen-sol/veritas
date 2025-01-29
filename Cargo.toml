@@ -11,7 +11,7 @@ codegen-units = 1
 panic = "abort"
 
 [workspace.dependencies]
-step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "https://github.com/step-finance/step-common-rust.git", rev = "d5385a0117b9423bb6f1f25ea10faf054c586bfb" }
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "d5385a0117b9423bb6f1f25ea10faf054c586bfb" }
 solana-transaction-status = "=2.0.13"
 solana-program = "=2.0.13"
 solana-sdk = "=2.0.13"
