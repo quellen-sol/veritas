@@ -1,0 +1,190 @@
+version: 2.1
+
+orbs:
+  aws-ecr: circleci/aws-ecr@9.3.2
+  aws-ecs: circleci/aws-ecs@3.2.0
+  aws-cli: circleci/aws-cli@5.1.0
+
+executors:
+  custom:
+    machine:
+      image: ubuntu-2204:2024.04.4
+      docker_layer_caching: true
+    resource_class: xlarge
+
+jobs:
+  lint-test-build:
+    docker:
+      - image: rust:1.78
+    resource_class: xlarge
+    steps:
+      - checkout
+      - run: echo $PWD
+      - restore_cache:
+          keys:
+            - v2-cargo-cache-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+            - v2-cargo-cache-{{ .Branch }}-
+            - v2-cargo-cache-
+      - run:
+          name: "Install prereqs"
+          command: "apt-get update && apt-get install -y pkg-config libssl-dev git openssh-client libclang-dev protobuf-compiler"
+      - run:
+          name: "Install rustfmt"
+          command: "rustup component add rustfmt && rustup component add clippy"
+      - run:
+          name: "Format rust code"
+          command: "cargo fmt --all -- --check"
+      - add_ssh_keys:
+          fingerprints:
+            - "SHA256:JNM7M2vDYYXuIiTFU3dtgRdBZrT6+uASFIwZ2DFL9z4"
+      - run:
+          name: "Check rust code"
+          command: "cargo clippy --release -- -D warnings --warn clippy::all"
+      - run:
+          name: "Unit tests"
+          command: "cargo test --release"
+      - run:
+          name: "Build check"
+          command: "cargo check --release"
+      - save_cache:
+          paths:
+            - /usr/local/cargo/registry
+            - /usr/local/cargo/git
+            - target/release
+          key: v2-cargo-cache-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+
+workflows:
+  run-pipeline:
+    jobs:
+      # Lint, test and build checks
+      - lint-test-build:
+          filters:
+            branches:
+              ignore:
+                - main
+                - develop
+                - replay-pre
+                - replay-live
+
+      # Build and push image to ECR
+      - aws-ecr/build_and_push_image:
+          executor: custom
+          auth:
+            - aws-cli/setup
+          repo: step-veritas
+          region: eu-north-1
+          tag: ${CIRCLE_BRANCH},${CIRCLE_BRANCH}-<< pipeline.number >>,${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          context: aws-account
+          pre-steps:
+            - add_ssh_keys:
+                fingerprints:
+                  - "SHA256:JNM7M2vDYYXuIiTFU3dtgRdBZrT6+uASFIwZ2DFL9z4"
+            - run:
+                name: "ssh agent"
+                command: "eval $(ssh-agent)"
+          #below should work as default=$SSH_AUTH_SOCK but isn't for some reason
+          #this will break in the future if that id_rsa file is named differently
+          #due to a circleci or key change
+          extra_build_args: "--ssh default=/home/circleci/.ssh/id_rsa_464f187ab7117fc1e5fd43b2731dd300"
+          filters:
+            branches:
+              only:
+                - main
+                - develop
+                - replay-pre
+                - replay-live
+
+      # Pre update (no hold required)
+      - aws-ecs/deploy-service-update:
+          cluster: "pre-indexer-cluster"
+          family: "pre-veritas"
+          service-name: "pre-veritas-service"
+          container-env-var-updates: container=pre-veritas-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          container-image-name-updates: container=pre-veritas-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          enable-circuit-breaker: true
+          force-new-deployment: true
+          context: aws-account
+          requires:
+            - aws-ecr/build_and_push_image
+          filters:
+            branches:
+              only:
+                - develop
+
+      # Replay Pre hold and update
+      - hold-replay-pre:
+          type: approval
+          requires:
+            - aws-ecr/build_and_push_image
+          filters:
+            branches:
+              only:
+                - replay-pre
+      - aws-ecs/deploy-service-update:
+          cluster: "pre-indexer-cluster"
+          family: "pre-veritas-replay"
+          service-name: "pre-veritas-replay-service"
+          container-env-var-updates: container=pre-veritas-replay-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          container-image-name-updates: container=pre-veritas-replay-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          enable-circuit-breaker: true
+          force-new-deployment: true
+          context: aws-account
+          requires:
+            - aws-ecr/build_and_push_image
+            - hold-replay-pre
+          filters:
+            branches:
+              only:
+                - replay-pre
+
+      # Replay Live hold and update
+      - hold-replay-live:
+          type: approval
+          requires:
+            - aws-ecr/build_and_push_image
+          filters:
+            branches:
+              only:
+                - replay-live
+      - aws-ecs/deploy-service-update:
+          cluster: "live-indexer-cluster"
+          family: "live-veritas-replay"
+          service-name: "live-veritas-replay-service"
+          container-env-var-updates: container=live-veritas-replay-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          container-image-name-updates: container=live-veritas-replay-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          enable-circuit-breaker: true
+          force-new-deployment: true
+          context: aws-account
+          requires:
+            - aws-ecr/build_and_push_image
+            - hold-replay-live
+          filters:
+            branches:
+              only:
+                - replay-live
+
+      # Live hold and update
+      - hold-live:
+          type: approval
+          requires:
+            - aws-ecr/build_and_push_image
+          filters:
+            branches:
+              only:
+                - main
+      - aws-ecs/deploy-service-update:
+          cluster: "live-indexer-cluster"
+          family: "live-veritas"
+          service-name: "live-veritas-service"
+          container-env-var-updates: container=live-veritas-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          container-image-name-updates: container=live-veritas-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
+          enable-circuit-breaker: true
+          force-new-deployment: true
+          context: aws-account
+          requires:
+            - aws-ecr/build_and_push_image
+            - hold-live
+          filters:
+            branches:
+              only:
+                - main
