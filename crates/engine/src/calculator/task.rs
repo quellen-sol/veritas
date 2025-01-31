@@ -39,8 +39,15 @@ pub fn spawn_calculator_task(
                     current_usdc_price = Some(price);
                     usdc_graph_index = Some(idx);
                     let g_read = graph.read().await;
-                    // log::info!("Got read lock");
-                    let dooots = calculate_token_price(&g_read, idx, price, idx).await;
+
+                    let dooots = match calculate_token_price(&g_read, idx, price, idx).await {
+                        Ok(dooots) => dooots,
+                        Err(e) => {
+                            log::error!("Error calculating token price: {e}");
+                            continue;
+                        }
+                    };
+
                     amqp_manager.publish_dooots(dooots).await;
                 }
                 CalculatorUpdate::UpdatedTokenPrice(token) => {
@@ -76,17 +83,17 @@ pub async fn calculate_token_price(
     token: NodeIndex,
     usdc_price: Decimal,
     usdc_idx: NodeIndex,
-) -> Vec<Dooot> {
+) -> Result<Vec<Dooot>> {
     let mut dooots = Vec::new();
     let this_token = graph
         .node_weight(token)
-        .expect("Token should exist in graph!!");
+        .context("Token should exist in graph!!")?;
     let mut per_token_prices = HashMap::new();
     let local_neighbors = graph.neighbors_directed(token, petgraph::Direction::Outgoing);
     for neighbor in local_neighbors {
         let neighbor_token = graph
             .node_weight(neighbor)
-            .expect("Neighbor should exist in graph!!");
+            .context("Neighbor should exist in graph!!")?;
         let mint_entry = per_token_prices
             .entry(&neighbor_token.mint)
             .or_insert(vec![]);
@@ -107,6 +114,12 @@ pub async fn calculate_token_price(
         let len = Decimal::from(mint_entry.len());
         let average_price = (total / len) * usdc_price;
 
+        log::info!(
+            "Calculated price for {}: {}",
+            neighbor_token.mint,
+            average_price
+        );
+
         dooots.push(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
             mint: neighbor_token.mint.clone(),
             price_usd: average_price,
@@ -114,5 +127,5 @@ pub async fn calculate_token_price(
         }));
     }
 
-    dooots
+    Ok(dooots)
 }

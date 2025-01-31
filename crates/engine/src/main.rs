@@ -76,6 +76,7 @@ async fn main() -> Result<()> {
             ingestooor_dooot_exchange,
             amqp_debug_user,
             amqp_prefetch,
+            args.enable_db_writes,
         )
         .await?,
     );

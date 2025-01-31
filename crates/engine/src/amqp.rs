@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result};
 use futures::StreamExt;
 use lapin::{
     options::{
@@ -18,6 +18,7 @@ pub struct AMQPManager {
     dlq_name: String,
     is_debug: bool,
     prefetch: u16,
+    db_writes: bool,
 }
 
 impl AMQPManager {
@@ -26,6 +27,7 @@ impl AMQPManager {
         dooot_exchange: String,
         debug_user: Option<String>,
         prefetch: u16,
+        db_writes: bool,
     ) -> Result<Self> {
         let client = Connection::connect(&url, ConnectionProperties::default()).await?;
         let channel = client.create_channel().await?;
@@ -49,15 +51,20 @@ impl AMQPManager {
             dlq_name,
             is_debug,
             prefetch,
+            db_writes,
         })
     }
 
-    #[allow(clippy::unwrap_used)]
-    pub async fn publish_dooots(&self, dooots: Vec<Dooot>) {
+    pub async fn publish_dooots(&self, dooots: Vec<Dooot>) -> Result<()> {
+        if !self.db_writes {
+            return Ok(());
+        }
+
         let payload = dooots
             .into_iter()
-            .map(|d| serde_json::to_string(&d).unwrap())
-            .collect::<Vec<String>>()
+            .map(|d| serde_json::to_string(&d))
+            .collect::<Result<Vec<String>, _>>()
+            .context("Error serializing dooots")?
             .join("\n")
             .into_bytes();
 
@@ -69,18 +76,19 @@ impl AMQPManager {
                 &payload,
                 BasicProperties::default(),
             )
-            .await
-            .unwrap();
+            .await?;
+
+        Ok(())
     }
 
     pub async fn set_prefetch(&self) -> Result<()> {
         self.channel
             .basic_qos(self.prefetch, BasicQosOptions::default())
             .await?;
+
         Ok(())
     }
 
-    #[allow(clippy::unwrap_used)]
     pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
         let mut consumer = self
             .channel
@@ -93,37 +101,40 @@ impl AMQPManager {
             .await?;
 
         log::info!("Spawning AMQP consumer");
-        let handle = tokio::spawn(async move {
-            while let Some(delivery) = consumer.next().await {
-                match delivery {
-                    Ok(delivery) => {
-                        // log::info!("Received message: {:?}", delivery);
-                        let data = &delivery.data;
-                        let dooots = data
-                            .split(|b| *b == b'\n')
-                            .map(serde_json::from_slice)
-                            .collect::<Result<Vec<Dooot>, _>>();
-                        match dooots {
-                            Ok(dooots) => {
-                                for dooot in dooots {
-                                    msg_tx.send(dooot).await.unwrap();
+        let handle = tokio::spawn(
+            #[allow(clippy::unwrap_used)]
+            async move {
+                while let Some(delivery) = consumer.next().await {
+                    match delivery {
+                        Ok(delivery) => {
+                            // log::info!("Received message: {:?}", delivery);
+                            let data = &delivery.data;
+                            let dooots = data
+                                .split(|b| *b == b'\n')
+                                .map(serde_json::from_slice)
+                                .collect::<Result<Vec<Dooot>, _>>();
+                            match dooots {
+                                Ok(dooots) => {
+                                    for dooot in dooots {
+                                        msg_tx.send(dooot).await.unwrap();
+                                    }
+                                    delivery.ack(BasicAckOptions::default()).await.unwrap();
                                 }
-                                delivery.ack(BasicAckOptions::default()).await.unwrap();
-                            }
-                            Err(e) => {
-                                log::error!("Error parsing dooot: {:?}", e);
-                                delivery.nack(BasicNackOptions::default()).await.unwrap();
+                                Err(e) => {
+                                    log::error!("Error parsing dooot: {:?}", e);
+                                    delivery.nack(BasicNackOptions::default()).await.unwrap();
+                                }
                             }
                         }
-                    }
-                    Err(e) => {
-                        panic!("Error receiving message: {:?}", e);
+                        Err(e) => {
+                            panic!("Error receiving message: {:?}", e);
+                        }
                     }
                 }
-            }
 
-            log::warn!("AMQP listener shutting down. Consumer stream finished.");
-        });
+                log::warn!("AMQP listener shutting down. Consumer stream finished.");
+            },
+        );
 
         Ok(handle)
     }
