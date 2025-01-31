@@ -2,15 +2,14 @@ use anyhow::Result;
 use futures::StreamExt;
 use lapin::{
     options::{
-        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicQosOptions,
-        ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions,
+        BasicAckOptions, BasicConsumeOptions, BasicNackOptions, BasicPublishOptions,
+        BasicQosOptions, ExchangeDeclareOptions, QueueBindOptions, QueueDeclareOptions,
     },
     types::{AMQPValue, FieldTable},
-    Channel, Connection, ConnectionProperties,
+    BasicProperties, Channel, Connection, ConnectionProperties,
 };
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::{sync::mpsc::Sender, task::JoinHandle};
-
 pub struct AMQPManager {
     channel: Channel,
     dooot_exchange: String,
@@ -51,6 +50,27 @@ impl AMQPManager {
             is_debug,
             prefetch,
         })
+    }
+
+    #[allow(clippy::unwrap_used)]
+    pub async fn publish_dooots(&self, dooots: Vec<Dooot>) {
+        let payload = dooots
+            .into_iter()
+            .map(|d| serde_json::to_string(&d).unwrap())
+            .collect::<Vec<String>>()
+            .join("\n")
+            .into_bytes();
+
+        self.channel
+            .basic_publish(
+                &self.dooot_exchange,
+                "TokenPriceGlobal",
+                BasicPublishOptions::default(),
+                &payload,
+                BasicProperties::default(),
+            )
+            .await
+            .unwrap();
     }
 
     pub async fn set_prefetch(&self) -> Result<()> {

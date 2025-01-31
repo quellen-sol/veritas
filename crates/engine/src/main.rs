@@ -70,13 +70,15 @@ async fn main() -> Result<()> {
         amqp_debug_user,
         amqp_prefetch,
     } = args.amqp;
-    let amqp_manager = AMQPManager::new(
-        amqp_url,
-        ingestooor_dooot_exchange,
-        amqp_debug_user,
-        amqp_prefetch,
-    )
-    .await?;
+    let amqp_manager = Arc::new(
+        AMQPManager::new(
+            amqp_url,
+            ingestooor_dooot_exchange,
+            amqp_debug_user,
+            amqp_prefetch,
+        )
+        .await?,
+    );
     amqp_manager.set_prefetch().await?;
     amqp_manager.assert_amqp_topology().await?;
 
@@ -118,7 +120,11 @@ async fn main() -> Result<()> {
         spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone(), calculator_sender)?;
     tasks.push(ppl_task);
 
-    let calculator_task = spawn_calculator_task(calculator_receiver, mint_price_graph.clone());
+    let calculator_task = spawn_calculator_task(
+        calculator_receiver,
+        amqp_manager.clone(),
+        mint_price_graph.clone(),
+    );
     tasks.push(calculator_task);
 
     // Wait for all tasks to finish

@@ -3,13 +3,17 @@
 use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use petgraph::graph::{Node, NodeIndex};
 use rust_decimal::Decimal;
+use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::{
     sync::{mpsc::Receiver, RwLock},
     task::JoinHandle,
 };
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+
+use crate::amqp::AMQPManager;
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
@@ -21,6 +25,7 @@ pub enum CalculatorUpdate {
 
 pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
+    amqp_manager: Arc<AMQPManager>,
     graph: Arc<RwLock<MintPricingGraph>>,
 ) -> JoinHandle<()> {
     let mut current_usdc_price = None;
@@ -35,7 +40,8 @@ pub fn spawn_calculator_task(
                     usdc_graph_index = Some(idx);
                     let g_read = graph.read().await;
                     // log::info!("Got read lock");
-                    calculate_token_price(&g_read, idx, price, idx).await.ok();
+                    let dooots = calculate_token_price(&g_read, idx, price, idx).await;
+                    amqp_manager.publish_dooots(dooots).await;
                 }
                 CalculatorUpdate::UpdatedTokenPrice(token) => {
                     // TODO: impl
@@ -70,16 +76,17 @@ pub async fn calculate_token_price(
     token: NodeIndex,
     usdc_price: Decimal,
     usdc_idx: NodeIndex,
-) -> Result<()> {
+) -> Vec<Dooot> {
+    let mut dooots = Vec::new();
     let this_token = graph
         .node_weight(token)
-        .context("Token should exist in graph!!")?;
+        .expect("Token should exist in graph!!");
     let mut per_token_prices = HashMap::new();
     let local_neighbors = graph.neighbors_directed(token, petgraph::Direction::Outgoing);
     for neighbor in local_neighbors {
         let neighbor_token = graph
             .node_weight(neighbor)
-            .context("Neighbor should exist in graph!!")?;
+            .expect("Neighbor should exist in graph!!");
         let mint_entry = per_token_prices
             .entry(&neighbor_token.mint)
             .or_insert(vec![]);
@@ -100,12 +107,12 @@ pub async fn calculate_token_price(
         let len = Decimal::from(mint_entry.len());
         let average_price = (total / len) * usdc_price;
 
-        log::info!(
-            "Average (unweighted) price of {}: {:.9}",
-            neighbor_token.mint,
-            average_price
-        );
+        dooots.push(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+            mint: neighbor_token.mint.clone(),
+            price_usd: average_price,
+            time: Utc::now().naive_utc(),
+        }));
     }
 
-    Ok(())
+    dooots
 }
