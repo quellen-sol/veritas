@@ -13,8 +13,8 @@ use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
-    /// Price of USDC (from oracle) and index in the graph
-    USDCPrice(Decimal, NodeIndex),
+    /// Price of USD (from oracle) and index in the graph
+    USDPrice(Decimal, NodeIndex),
     /// Mint to recalculate final price for
     UpdatedTokenPrice(NodeIndex),
 }
@@ -29,7 +29,7 @@ pub fn spawn_calculator_task(
     tokio::spawn(async move {
         while let Some(update) = calculator_receiver.recv().await {
             match update {
-                CalculatorUpdate::USDCPrice(price, idx) => {
+                CalculatorUpdate::USDPrice(price, idx) => {
                     log::info!("CALCULATOR - Oracle price for USDC: {price}");
                     current_usdc_price = Some(price);
                     usdc_graph_index = Some(idx);
@@ -98,7 +98,7 @@ pub async fn calculate_token_price(
         // log::info!("All prices: {:?}", mint_entry);
         let total = mint_entry.iter().sum::<Decimal>();
         let len = Decimal::from(mint_entry.len());
-        let average_price = total / len;
+        let average_price = (total / len) * usdc_price;
 
         log::info!(
             "Average (unweighted) price of {}: {:.9}",
