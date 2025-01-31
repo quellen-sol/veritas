@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::{Dooot, MintUnderlyingsGlobalDooot, SwapEventDooot};
@@ -91,11 +91,19 @@ pub fn spawn_price_points_liquidity_task(
 
                         let out_per_in = out_amount / in_amount;
 
-                        let mut mint_edge =
+                        let mint_edge_res =
                             access_or_add_edge(out_mint_ix, in_mint_ix, graph.clone(), |e| {
                                 e.market == Some(market.clone())
                             })
                             .await;
+
+                        let mut mint_edge = match mint_edge_res {
+                            Ok(edge) => edge,
+                            Err(e) => {
+                                log::error!("Error accessing or adding edge: {}", e);
+                                continue;
+                            }
+                        };
 
                         mint_edge.last_updated = time;
                         mint_edge.market.replace(market);
@@ -134,11 +142,19 @@ pub fn spawn_price_points_liquidity_task(
                         let parent_mint_ix = indicies[0];
                         for (i, _) in all_mints.iter().enumerate().skip(1) {
                             let mint_ix = indicies[i];
-                            let mut edge =
+                            let edge_res =
                                 access_or_add_edge(mint_ix, parent_mint_ix, graph.clone(), |e| {
                                     e.market == Some(discriminant_id.clone())
                                 })
                                 .await;
+
+                            let mut edge = match edge_res {
+                                Ok(edge) => edge,
+                                Err(e) => {
+                                    log::error!("Error accessing or adding edge: {}", e);
+                                    continue;
+                                }
+                            };
 
                             edge.last_updated = time;
                             edge.liquidity.replace(MintLiquidity {
@@ -172,11 +188,19 @@ pub fn spawn_price_points_liquidity_task(
                                 let mint_a_ix = indicies[0];
                                 let mint_b_ix = indicies[1];
 
-                                let mut edge =
+                                let edge_res =
                                     access_or_add_edge(mint_a_ix, mint_b_ix, graph.clone(), |e| {
                                         e.market == Some(discriminant_id.clone())
                                     })
                                     .await;
+
+                                let mut edge = match edge_res {
+                                    Ok(edge) => edge,
+                                    Err(e) => {
+                                        log::error!("Error accessing or adding edge: {}", e);
+                                        continue;
+                                    }
+                                };
 
                                 edge.last_updated = time;
                                 edge.liquidity.replace(MintLiquidity {
@@ -276,7 +300,7 @@ pub async fn access_or_add_edge<P>(
     ix_b: NodeIndex,
     graph: WrappedMintPricingGraph,
     edge_predicate: P,
-) -> OwnedRwLockWriteGuard<MintEdge>
+) -> Result<OwnedRwLockWriteGuard<MintEdge>>
 where
     P: Fn(&MintEdge) -> bool,
 {
@@ -293,9 +317,9 @@ where
     if let Some(edge_ix) = edge_ix {
         let edge = g_read
             .edge_weight(edge_ix)
-            .expect("UNREACHABLE - EdgeIndex should exist in graph!")
+            .context("UNREACHABLE - EdgeIndex should exist in graph!")?
             .clone();
-        edge.write_owned().await
+        Ok(edge.write_owned().await)
     } else {
         drop(g_read);
         let mut g_write = graph.write().await;
@@ -303,6 +327,6 @@ where
 
         g_write.add_edge(ix_a, ix_b, new_edge.clone());
 
-        new_edge.write_owned().await
+        Ok(new_edge.write_owned().await)
     }
 }
