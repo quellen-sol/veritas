@@ -5,13 +5,17 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use chrono::Utc;
 use petgraph::graph::{Node, NodeIndex};
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
+use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::{
     sync::{mpsc::Receiver, RwLock},
     task::JoinHandle,
 };
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::{
+    ppl_graph::graph::MintPricingGraph,
+    utils::decimal_cache::{DecimalCache, MintDecimals},
+};
 
 use crate::amqp::AMQPManager;
 
@@ -26,21 +30,33 @@ pub enum CalculatorUpdate {
 pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     amqp_manager: Arc<AMQPManager>,
+    clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
+    mut decimals_cache: HashMap<String, u8>,
 ) -> JoinHandle<()> {
     let mut current_usdc_price = None;
     let mut usdc_graph_index = None;
 
+    log::info!("Spawning Calculator task...");
     tokio::spawn(async move {
         while let Some(update) = calculator_receiver.recv().await {
             match update {
                 CalculatorUpdate::USDPrice(price, idx) => {
-                    log::info!("CALCULATOR - Oracle price for USDC: {price}");
+                    log::info!("Oracle price for USDC: {price}");
                     current_usdc_price = Some(price);
                     usdc_graph_index = Some(idx);
                     let g_read = graph.read().await;
 
-                    let dooots = match calculate_token_price(&g_read, idx, price, idx).await {
+                    let dooots = match calculate_token_price(
+                        &g_read,
+                        clickhouse_client.clone(),
+                        &mut decimals_cache,
+                        idx,
+                        price,
+                        idx,
+                    )
+                    .await
+                    {
                         Ok(dooots) => dooots,
                         Err(e) => {
                             log::error!("Error calculating token price: {e}");
@@ -80,8 +96,10 @@ pub fn spawn_calculator_task(
 /// TODO: Recursively search neighbors (how to hold temporary prices?)
 pub async fn calculate_token_price(
     graph: &MintPricingGraph,
+    clickhouse_client: Arc<clickhouse::Client>,
+    decimals_cache: &mut DecimalCache,
     token: NodeIndex,
-    usdc_price: Decimal,
+    usdc_price_usd: Decimal,
     usdc_idx: NodeIndex,
 ) -> Result<Vec<Dooot>> {
     let mut dooots = Vec::new();
@@ -97,6 +115,24 @@ pub async fn calculate_token_price(
         let mint_entry = per_token_prices
             .entry(&neighbor_token.mint)
             .or_insert(vec![]);
+
+        get_mint_decimals(
+            &[&this_token.mint, &neighbor_token.mint],
+            decimals_cache,
+            clickhouse_client.clone(),
+        )
+        .await?;
+
+        let this_decimals = *decimals_cache.get(&this_token.mint).context(format!(
+            "decimals expected from get_mint_decimals. Is CH missing {}?",
+            &this_token.mint
+        ))? as i16;
+        let neighbor_decimals = *decimals_cache.get(&neighbor_token.mint).context(format!(
+            "decimals expected from get_mint_decimals. Is CH missing {}?",
+            &neighbor_token.mint
+        ))? as i16;
+        let decimal_factor = Decimal::from(10).powi((neighbor_decimals - this_decimals) as i64);
+
         let edges = graph.edges_connecting(token, neighbor);
         for edge in edges {
             let w = edge.weight().read().await;
@@ -112,7 +148,7 @@ pub async fn calculate_token_price(
         // log::info!("All prices: {:?}", mint_entry);
         let total = mint_entry.iter().sum::<Decimal>();
         let len = Decimal::from(mint_entry.len());
-        let average_price = (total / len) * usdc_price;
+        let average_price = (total / len) * usdc_price_usd * decimal_factor;
 
         log::info!(
             "Calculated price for {}: {}",
@@ -128,4 +164,54 @@ pub async fn calculate_token_price(
     }
 
     Ok(dooots)
+}
+
+pub async fn get_mint_decimals(
+    mints: &[&str],
+    decimals_cache: &mut HashMap<String, u8>,
+    clickhouse_client: Arc<clickhouse::Client>,
+) -> Result<Vec<MintDecimals>> {
+    let mut decimal_vals = Vec::with_capacity(mints.len());
+    let mut mints_to_query = Vec::with_capacity(mints.len());
+
+    for mint in mints {
+        let decimals = decimals_cache.get(*mint).cloned();
+        if let Some(decimals) = decimals {
+            let dec_val = MintDecimals {
+                mint: mint.to_string(),
+                decimals: Some(decimals),
+            };
+
+            decimal_vals.push(dec_val);
+        } else {
+            mints_to_query.push(mint);
+        }
+    }
+
+    if !mints_to_query.is_empty() {
+        let dec_query_res = clickhouse_client
+            .query(
+                "
+                    SELECT
+                        base58Encode(reinterpretAsString(mint)) as mint,
+                        anyLastMerge(decimals) AS decimals
+                    FROM lookup_mint_info lmi
+                    WHERE mint in ?
+                    GROUP BY mint
+                ",
+            )
+            .bind(&mints_to_query)
+            .fetch_all::<MintDecimals>()
+            .await?;
+
+        for dec in &dec_query_res {
+            if let Some(decimals) = dec.decimals {
+                decimals_cache.insert(dec.mint.clone(), decimals);
+            }
+        }
+
+        decimal_vals.extend(dec_query_res);
+    }
+
+    Ok(decimal_vals)
 }

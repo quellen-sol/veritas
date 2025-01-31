@@ -14,3 +14,6 @@ petgraph = { workspace = true }
 tokio = { workspace = true }
 rust_decimal = { workspace = true }
 chrono = { workspace = true }
+clickhouse = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

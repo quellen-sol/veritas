@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use amqp::AMQPManager;
 use anyhow::Result;
@@ -89,29 +89,24 @@ async fn main() -> Result<()> {
     tasks.push(amqp_task);
 
     // Connect to clickhouse
-    let _client = if args.enable_db_writes {
-        let ClickhouseArgs {
-            clickhouse_user,
-            clickhouse_url,
-            clickhouse_password,
-            clickhouse_database,
-        } = &args.clickhouse;
+    let ClickhouseArgs {
+        clickhouse_user,
+        clickhouse_url,
+        clickhouse_password,
+        clickhouse_database,
+    } = &args.clickhouse;
 
-        let mut client = clickhouse::Client::default()
-            .with_url(clickhouse_url)
-            .with_user(clickhouse_user)
-            .with_database(clickhouse_database);
+    let mut clickhouse_client = clickhouse::Client::default()
+        .with_url(clickhouse_url)
+        .with_user(clickhouse_user)
+        .with_database(clickhouse_database);
 
-        if let Some(password) = clickhouse_password {
-            client = client.with_password(password);
-        }
+    if let Some(password) = clickhouse_password {
+        clickhouse_client = clickhouse_client.with_password(password);
+    }
 
-        log::info!("Created Clickhouse client");
-
-        Some(client)
-    } else {
-        None
-    };
+    let clickhouse_client = Arc::new(clickhouse_client);
+    log::info!("Created Clickhouse client");
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let (calculator_sender, calculator_receiver) =
@@ -124,7 +119,9 @@ async fn main() -> Result<()> {
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         amqp_manager.clone(),
+        clickhouse_client.clone(),
         mint_price_graph.clone(),
+        HashMap::new(),
     );
     tasks.push(calculator_task);
 
