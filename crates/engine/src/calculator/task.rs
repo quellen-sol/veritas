@@ -66,22 +66,30 @@ pub fn spawn_calculator_task(
 
                     amqp_manager.publish_dooots(dooots).await;
                 }
-                CalculatorUpdate::UpdatedTokenPrice(token) => {
+                CalculatorUpdate::UpdatedTokenPrice(_token) => {
                     // TODO: impl
-                    // let (Some(usdc_price), Some(usdc_idx)) = (current_usdc_price, usdc_graph_index)
-                    // else {
-                    //     log::error!("USDC price and graph index not set, cannot recalc atm");
-                    //     continue;
-                    // };
-                    // let g_read = graph.read().await;
-                    // log::info!("Got read lock");
-                    // let Ok(new_price) = calculate_token_price(&g_read, token, usdc_price, usdc_idx)
-                    //     .await
-                    //     .inspect_err(|e| log::error!("{e}"))
-                    // else {
-                    //     continue;
-                    // };
-                    // log::info!("Calculated new price: {new_price}");
+                    let (Some(usdc_price), Some(usdc_idx)) = (current_usdc_price, usdc_graph_index)
+                    else {
+                        log::error!("USDC price and graph index not set, cannot recalc atm");
+                        continue;
+                    };
+                    let g_read = graph.read().await;
+                    let Ok(new_price) = calculate_token_price(
+                        &g_read,
+                        clickhouse_client.clone(),
+                        &mut decimals_cache,
+                        usdc_idx, // TODO: use `token`
+                        usdc_price,
+                        usdc_idx,
+                    )
+                    .await
+                    .inspect_err(|e| log::error!("{e}")) else {
+                        continue;
+                    };
+
+                    log::info!("Calculated new prices: {new_price:?}");
+
+                    amqp_manager.publish_dooots(new_price).await;
                 }
             }
         }

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use amqp::AMQPManager;
 use anyhow::Result;
@@ -7,7 +7,7 @@ use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::{ppl_graph::graph::MintPricingGraph, utils::decimal_cache::build_decimal_cache};
 
 mod amqp;
 mod calculator;
@@ -116,12 +116,14 @@ async fn main() -> Result<()> {
         spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone(), calculator_sender)?;
     tasks.push(ppl_task);
 
+    let decimals_cache = build_decimal_cache(clickhouse_client.clone()).await?;
+
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         amqp_manager.clone(),
         clickhouse_client.clone(),
         mint_price_graph.clone(),
-        HashMap::new(),
+        decimals_cache,
     );
     tasks.push(calculator_task);
 

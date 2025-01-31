@@ -211,6 +211,8 @@ pub fn spawn_price_points_liquidity_task(
                 // Quick debug dump of the graph
                 #[cfg(feature = "debug-graph")]
                 {
+                    use petgraph::dot::Dot;
+                    use std::fs;
                     let g_read = graph.read().await;
                     let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
                     fs::write("./graph.dot", formatted_dot_str).unwrap();
