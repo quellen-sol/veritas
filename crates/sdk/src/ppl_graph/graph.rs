@@ -1,11 +1,12 @@
 use std::sync::Arc;
 
 use chrono::NaiveDateTime;
-use petgraph::Graph;
+use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
-pub type MintPricingGraph = Graph<MintNode, Arc<RwLock<MintEdge>>>;
+pub type MintPricingGraph = Graph<MintNode, Arc<RwLock<MintEdge>>, Directed>;
+pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintNode {
@@ -22,10 +23,11 @@ impl std::fmt::Debug for MintNode {
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
+#[derive(Default)]
 pub struct MintEdge {
     pub this_per_that: Option<Decimal>,
     pub market: Option<String>,
-    pub liquidity: Option<u128>,
+    pub liquidity: Option<MintLiquidity>,
     pub last_updated: NaiveDateTime,
 }
 
@@ -33,6 +35,19 @@ pub struct MintEdge {
 impl std::fmt::Debug for MintEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.this_per_that)
+    }
+}
+
+#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
+pub struct MintLiquidity {
+    pub mints: Vec<String>,
+    pub liquidity: Vec<Decimal>,
+}
+
+#[cfg(feature = "debug-graph")]
+impl std::fmt::Debug for MintLiquidity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.liquidity)
     }
 }
 
@@ -48,7 +63,7 @@ pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 impl MintEdge {
     pub fn new(
         ratio: Option<Decimal>,
-        liquidity: Option<u128>,
+        liquidity: Option<MintLiquidity>,
         market: Option<String>,
         last_updated: NaiveDateTime,
     ) -> Self {

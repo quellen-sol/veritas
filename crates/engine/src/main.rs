@@ -7,7 +7,7 @@ use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::{ppl_graph::graph::MintPricingGraph, utils::decimal_cache::build_decimal_cache};
 
 mod amqp;
 mod calculator;
@@ -70,13 +70,16 @@ async fn main() -> Result<()> {
         amqp_debug_user,
         amqp_prefetch,
     } = args.amqp;
-    let amqp_manager = AMQPManager::new(
-        amqp_url,
-        ingestooor_dooot_exchange,
-        amqp_debug_user,
-        amqp_prefetch,
-    )
-    .await?;
+    let amqp_manager = Arc::new(
+        AMQPManager::new(
+            amqp_url,
+            ingestooor_dooot_exchange,
+            amqp_debug_user,
+            amqp_prefetch,
+            args.enable_db_writes,
+        )
+        .await?,
+    );
     amqp_manager.set_prefetch().await?;
     amqp_manager.assert_amqp_topology().await?;
 
@@ -86,29 +89,24 @@ async fn main() -> Result<()> {
     tasks.push(amqp_task);
 
     // Connect to clickhouse
-    let _client = if args.enable_db_writes {
-        let ClickhouseArgs {
-            clickhouse_user,
-            clickhouse_url,
-            clickhouse_password,
-            clickhouse_database,
-        } = &args.clickhouse;
+    let ClickhouseArgs {
+        clickhouse_user,
+        clickhouse_url,
+        clickhouse_password,
+        clickhouse_database,
+    } = &args.clickhouse;
 
-        let mut client = clickhouse::Client::default()
-            .with_url(clickhouse_url)
-            .with_user(clickhouse_user)
-            .with_database(clickhouse_database);
+    let mut clickhouse_client = clickhouse::Client::default()
+        .with_url(clickhouse_url)
+        .with_user(clickhouse_user)
+        .with_database(clickhouse_database);
 
-        if let Some(password) = clickhouse_password {
-            client = client.with_password(password);
-        }
+    if let Some(password) = clickhouse_password {
+        clickhouse_client = clickhouse_client.with_password(password);
+    }
 
-        log::info!("Created Clickhouse client");
-
-        Some(client)
-    } else {
-        None
-    };
+    let clickhouse_client = Arc::new(clickhouse_client);
+    log::info!("Created Clickhouse client");
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let (calculator_sender, calculator_receiver) =
@@ -118,7 +116,15 @@ async fn main() -> Result<()> {
         spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone(), calculator_sender)?;
     tasks.push(ppl_task);
 
-    let calculator_task = spawn_calculator_task(calculator_receiver, mint_price_graph.clone());
+    let decimals_cache = build_decimal_cache(clickhouse_client.clone()).await?;
+
+    let calculator_task = spawn_calculator_task(
+        calculator_receiver,
+        amqp_manager.clone(),
+        clickhouse_client.clone(),
+        mint_price_graph.clone(),
+        decimals_cache,
+    );
     tasks.push(calculator_task);
 
     // Wait for all tasks to finish
