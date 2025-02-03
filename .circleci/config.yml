@@ -15,7 +15,7 @@ executors:
 jobs:
   lint-test-build:
     docker:
-      - image: rust:1.78
+      - image: rust:1.82
     resource_class: xlarge
     steps:
       - checkout
@@ -63,8 +63,6 @@ workflows:
               ignore:
                 - main
                 - develop
-                - replay-pre
-                - replay-live
 
       # Build and push image to ECR
       - aws-ecr/build_and_push_image:
@@ -91,8 +89,6 @@ workflows:
               only:
                 - main
                 - develop
-                - replay-pre
-                - replay-live
 
       # Pre update (no hold required)
       - aws-ecs/deploy-service-update:
@@ -110,58 +106,6 @@ workflows:
             branches:
               only:
                 - develop
-
-      # Replay Pre hold and update
-      - hold-replay-pre:
-          type: approval
-          requires:
-            - aws-ecr/build_and_push_image
-          filters:
-            branches:
-              only:
-                - replay-pre
-      - aws-ecs/deploy-service-update:
-          cluster: "pre-indexer-cluster"
-          family: "pre-veritas-replay"
-          service-name: "pre-veritas-replay-service"
-          container-env-var-updates: container=pre-veritas-replay-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
-          container-image-name-updates: container=pre-veritas-replay-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
-          enable-circuit-breaker: true
-          force-new-deployment: true
-          context: aws-account
-          requires:
-            - aws-ecr/build_and_push_image
-            - hold-replay-pre
-          filters:
-            branches:
-              only:
-                - replay-pre
-
-      # Replay Live hold and update
-      - hold-replay-live:
-          type: approval
-          requires:
-            - aws-ecr/build_and_push_image
-          filters:
-            branches:
-              only:
-                - replay-live
-      - aws-ecs/deploy-service-update:
-          cluster: "live-indexer-cluster"
-          family: "live-veritas-replay"
-          service-name: "live-veritas-replay-service"
-          container-env-var-updates: container=live-veritas-replay-container,name=STEP_VERSION,value=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
-          container-image-name-updates: container=live-veritas-replay-container,tag=${CIRCLE_BRANCH}-<< pipeline.number >>-${CIRCLE_SHA1}
-          enable-circuit-breaker: true
-          force-new-deployment: true
-          context: aws-account
-          requires:
-            - aws-ecr/build_and_push_image
-            - hold-replay-live
-          filters:
-            branches:
-              only:
-                - replay-live
 
       # Live hold and update
       - hold-live:
