@@ -118,12 +118,16 @@ async fn main() -> Result<()> {
 
     let decimals_cache = build_decimal_cache(clickhouse_client.clone()).await?;
 
+    let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+    let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(d_rx).await?;
+    tasks.push(dooot_publisher_task);
+
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
-        amqp_manager.clone(),
         clickhouse_client.clone(),
         mint_price_graph.clone(),
-        decimals_cache,
+        Arc::new(RwLock::new(decimals_cache)),
+        Arc::new(d_tx),
     );
     tasks.push(calculator_task);
 

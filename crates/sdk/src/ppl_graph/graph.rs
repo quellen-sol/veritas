@@ -18,7 +18,12 @@ pub struct MintNode {
 #[cfg(feature = "debug-graph")]
 impl std::fmt::Debug for MintNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:.4}", self.mint)
+        let price = self
+            .usd_price
+            .as_ref()
+            .map(|p| p.extract_price())
+            .unwrap_or(&Decimal::ZERO);
+        write!(f, "{:.5} {:.4}", self.mint, price)
     }
 }
 
@@ -36,7 +41,7 @@ pub struct MintEdge {
 #[cfg(feature = "debug-graph")]
 impl std::fmt::Debug for MintEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.this_per_that)
+        write!(f, "{:?} {:?}", self.this_per_that, self.liquidity)
     }
 }
 

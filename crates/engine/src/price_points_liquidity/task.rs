@@ -35,6 +35,7 @@ pub fn spawn_price_points_liquidity_task(
         #[allow(clippy::unwrap_used)]
         async move {
             while let Some(dooot) = msg_rx.recv().await {
+                log::info!("Received dooot");
                 match dooot {
                     Dooot::SwapEvent(swap) => {
                         let SwapEventDooot {
