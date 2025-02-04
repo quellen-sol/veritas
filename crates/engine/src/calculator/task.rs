@@ -1,9 +1,10 @@
-#![allow(unused)]
-
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    sync::Arc,
+};
 
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{NaiveDateTime, Utc};
 use petgraph::graph::{Node, NodeIndex};
 use rust_decimal::{Decimal, MathematicalOps};
 use serde::Deserialize;
@@ -13,7 +14,7 @@ use tokio::{
     task::JoinHandle,
 };
 use veritas_sdk::{
-    ppl_graph::graph::MintPricingGraph,
+    ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
     utils::decimal_cache::{DecimalCache, MintDecimals},
 };
 
@@ -22,9 +23,15 @@ use crate::amqp::AMQPManager;
 #[derive(Debug)]
 pub enum CalculatorUpdate {
     /// Price of USD (from oracle) and index in the graph
-    USDPrice(Decimal, NodeIndex),
-    /// Mint to recalculate final price for
-    UpdatedTokenPrice(NodeIndex),
+    OracleUSDPrice(Decimal, NodeIndex),
+    /// A relation going **OUT FROM** this token has changed,
+    /// recalc everything from this
+    ///
+    /// PPL Thread will normally send two updates "at once",
+    /// so this will cause a recalc in both directions,
+    /// but the algo should treat a single update as
+    /// recalc'ing recursive neighbors pointing **AWAY FROM** this
+    NewTokenRatio(NodeIndex),
 }
 
 pub fn spawn_calculator_task(
@@ -34,26 +41,36 @@ pub fn spawn_calculator_task(
     graph: Arc<RwLock<MintPricingGraph>>,
     mut decimals_cache: HashMap<String, u8>,
 ) -> JoinHandle<()> {
-    let mut current_usdc_price = None;
-    let mut usdc_graph_index = None;
-
     log::info!("Spawning Calculator task...");
+
     tokio::spawn(async move {
         while let Some(update) = calculator_receiver.recv().await {
             match update {
-                CalculatorUpdate::USDPrice(price, idx) => {
+                CalculatorUpdate::OracleUSDPrice(price, idx) => {
                     log::info!("Oracle price for USDC: {price}");
-                    current_usdc_price = Some(price);
-                    usdc_graph_index = Some(idx);
                     let g_read = graph.read().await;
 
-                    let dooots = match calculate_token_price(
+                    // Add usd_price to this node,
+                    // Separate block to drop the write lock at end,
+                    // since `calculate_token_price` will grab a read
+                    {
+                        let node = g_read
+                            .node_weight(idx)
+                            .expect("This node should already exist!")
+                            .clone();
+                        let mut node = node.write().await;
+                        node.usd_price.replace(USDPriceWithSource::Oracle(price));
+                    }
+                    let mut visited = HashSet::with_capacity(g_read.node_count());
+                    let mut dooots = Vec::with_capacity(g_read.node_count());
+
+                    match calculate_token_price(
                         &g_read,
                         clickhouse_client.clone(),
                         &mut decimals_cache,
                         idx,
-                        price,
-                        idx,
+                        &mut visited,
+                        &mut dooots,
                     )
                     .await
                     {
@@ -64,114 +81,197 @@ pub fn spawn_calculator_task(
                         }
                     };
 
-                    amqp_manager.publish_dooots(dooots).await;
+                    amqp_manager.publish_dooots(dooots).await.unwrap();
                 }
-                CalculatorUpdate::UpdatedTokenPrice(_token) => {
+                CalculatorUpdate::NewTokenRatio(token) => {
                     // TODO: impl
-                    let (Some(usdc_price), Some(usdc_idx)) = (current_usdc_price, usdc_graph_index)
-                    else {
-                        log::error!("USDC price and graph index not set, cannot recalc atm");
-                        continue;
-                    };
+                    // let (Some(usdc_price), Some(usdc_idx)) = (current_usdc_price, usdc_graph_index)
+                    // else {
+                    //     log::error!("USDC price and graph index not set, cannot recalc atm");
+                    //     continue;
+                    // };
                     let g_read = graph.read().await;
+                    let mut visited = HashSet::with_capacity(g_read.node_count());
+                    let mut dooots = Vec::with_capacity(g_read.node_count());
+
                     let Ok(new_price) = calculate_token_price(
                         &g_read,
                         clickhouse_client.clone(),
                         &mut decimals_cache,
-                        usdc_idx, // TODO: use `token`
-                        usdc_price,
-                        usdc_idx,
+                        token,
+                        &mut visited,
+                        &mut dooots,
                     )
                     .await
                     .inspect_err(|e| log::error!("{e}")) else {
                         continue;
                     };
 
-                    log::info!("Calculated new prices: {new_price:?}");
-
-                    amqp_manager.publish_dooots(new_price).await;
+                    amqp_manager.publish_dooots(dooots).await.unwrap();
                 }
             }
         }
     })
 }
 
-/// v0.5 ALGORITHM
+/// v1.0 ALGORITHM
 ///
 /// When one token is updated here, look at all neighbors OUTGOING, and calc price for them ONLY
 /// Next iteration will address looking deeper than 1 level of neighbors
 ///
 /// TODO: Recursively search neighbors (how to hold temporary prices?)
+///
+/// Notes:
+/// - Dominator algorithms can locate "popular" tokens
+///
+/// Many other algos for finding liq paths https://docs.rs/petgraph/latest/petgraph/algo/index.html#modules
 pub async fn calculate_token_price(
     graph: &MintPricingGraph,
     clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: &mut DecimalCache,
     token: NodeIndex,
-    usdc_price_usd: Decimal,
-    usdc_idx: NodeIndex,
-) -> Result<Vec<Dooot>> {
-    let mut dooots = Vec::new();
+    visted_nodes: &mut HashSet<NodeIndex>,
+    dooots: &mut Vec<Dooot>,
+) -> Result<()> {
     let this_token = graph
         .node_weight(token)
-        .context("Token should exist in graph!!")?;
-    let mut per_token_prices = HashMap::new();
-    let local_neighbors = graph.neighbors_directed(token, petgraph::Direction::Outgoing);
-    for neighbor in local_neighbors {
+        .context("Token should exist in graph!!")?
+        .clone();
+
+    visted_nodes.insert(token);
+
+    // Just grab what we need from locks quickly, then drop
+    // Even if that means consuming more mem
+    let this_token = this_token.read().await;
+    let Some(this_price) = this_token.usd_price.clone() else {
+        return Ok(());
+    };
+    let this_price = this_price.extract_price();
+
+    let this_mint = this_token.mint.clone();
+    drop(this_token);
+
+    let neighbors = graph.neighbors_directed(token, petgraph::Direction::Outgoing);
+    for neighbor in neighbors {
+        if visted_nodes.contains(&neighbor) {
+            continue;
+        }
         let neighbor_token = graph
             .node_weight(neighbor)
-            .context("Neighbor should exist in graph!!")?;
-        let mint_entry = per_token_prices
-            .entry(&neighbor_token.mint)
-            .or_insert(vec![]);
+            .context("Neighbor should exist in graph!!")?
+            .clone();
+        let r_neighbor = neighbor_token.read().await;
+
+        if matches!(r_neighbor.usd_price, Some(USDPriceWithSource::Oracle(_))) {
+            continue;
+        }
+
+        let neighbor_mint = r_neighbor.mint.clone();
+        drop(r_neighbor);
 
         get_mint_decimals(
-            &[&this_token.mint, &neighbor_token.mint],
+            &[&this_mint, &neighbor_mint],
             decimals_cache,
             clickhouse_client.clone(),
         )
         .await?;
 
-        let this_decimals = *decimals_cache.get(&this_token.mint).context(format!(
+        let this_decimals = *decimals_cache.get(&this_mint).context(format!(
             "decimals expected from get_mint_decimals. Is CH missing {}?",
-            &this_token.mint
+            &this_mint
         ))? as i16;
-        let neighbor_decimals = *decimals_cache.get(&neighbor_token.mint).context(format!(
+        let neighbor_decimals = *decimals_cache.get(&neighbor_mint).context(format!(
             "decimals expected from get_mint_decimals. Is CH missing {}?",
-            &neighbor_token.mint
+            &neighbor_mint
         ))? as i16;
         let decimal_factor = Decimal::from(10).powi((neighbor_decimals - this_decimals) as i64);
 
-        let edges = graph.edges_connecting(token, neighbor);
-        for edge in edges {
-            let w = edge.weight().read().await;
-            let Some(this_per_that) = w.this_per_that else {
-                // No price set yet, skip
-                continue;
-            };
+        let Some((w_ratio, _liq)) = get_liq_weighted_price_ratio(token, neighbor, graph).await
+        else {
+            log::warn!("Unable to get weighted ratio between {this_mint} -> {neighbor_mint}");
+            continue;
+        };
 
-            mint_entry.push(this_per_that);
-        }
+        let final_price = this_price * w_ratio * decimal_factor;
 
-        // Just do an average for now
-        // log::info!("All prices: {:?}", mint_entry);
-        let total = mint_entry.iter().sum::<Decimal>();
-        let len = Decimal::from(mint_entry.len());
-        let average_price = (total / len) * usdc_price_usd * decimal_factor;
+        let mut w_neighbor = neighbor_token.write().await;
+        w_neighbor
+            .usd_price
+            .replace(USDPriceWithSource::Relation(final_price.clone()));
+        drop(w_neighbor);
 
-        log::info!(
-            "Calculated price for {}: {}",
-            neighbor_token.mint,
-            average_price
-        );
-
-        dooots.push(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            mint: neighbor_token.mint.clone(),
-            price_usd: average_price,
+        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
             time: Utc::now().naive_utc(),
-        }));
+            mint: neighbor_mint,
+            price_usd: final_price,
+        });
+
+        dooots.push(price_dooot);
+
+        visted_nodes.insert(neighbor);
+
+        Box::pin(
+            calculate_token_price(
+                graph,
+                clickhouse_client.clone(),
+                decimals_cache,
+                neighbor,
+                visted_nodes,
+                dooots,
+            )
+            .await,
+        );
     }
 
-    Ok(dooots)
+    Ok(())
+}
+
+/// From A -> B, directed
+///
+/// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
+///
+/// Returns (weighted_price, total_liquidity)
+pub async fn get_liq_weighted_price_ratio(
+    a: NodeIndex,
+    b: NodeIndex,
+    graph: &MintPricingGraph,
+) -> Option<(Decimal, Decimal)> {
+    let node_a = graph.node_weight(a)?.clone();
+    let mint_a = &node_a.read().await.mint;
+
+    let edges_iter = graph.edges_connecting(a, b);
+
+    let mut curr_ratio = Decimal::ONE;
+    let mut curr_numerator = Decimal::ONE;
+    let mut curr_denominator = Decimal::ONE;
+    let mut total_liq = Decimal::ZERO;
+
+    for edge in edges_iter {
+        let e_read = edge.weight().read().await;
+        let (Some(liq), Some(ratio)) = (&e_read.liquidity, &e_read.this_per_that) else {
+            // No liq value or ratio
+            continue;
+        };
+
+        let liq_val = liq.get_liq_for_mint(&mint_a).ok()?;
+
+        total_liq += liq_val;
+
+        // Canceling out old averaging terms, see formula
+        let factor_numerator = curr_denominator * (curr_numerator + (liq_val * ratio));
+        let factor_denominator = (curr_numerator + liq_val) * (curr_numerator);
+
+        curr_numerator *= factor_numerator;
+        curr_denominator *= factor_denominator;
+
+        curr_ratio = curr_numerator / curr_denominator;
+    }
+
+    if curr_ratio == Decimal::ONE {
+        return None;
+    }
+
+    Some((curr_ratio, total_liq))
 }
 
 pub async fn get_mint_decimals(

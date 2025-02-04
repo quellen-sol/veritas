@@ -31,7 +31,7 @@ pub async fn build_decimal_cache(
         FROM lookup_mint_info lmi
         GROUP BY mint
         HAVING decimals > 0
-        AND mint NOT LIKE '%pump';
+        AND mint NOT LIKE '%pump'
     ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<MintDecimals>()?;

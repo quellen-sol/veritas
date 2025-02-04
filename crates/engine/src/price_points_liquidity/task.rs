@@ -52,6 +52,7 @@ pub fn spawn_price_points_liquidity_task(
                             continue;
                         }
 
+                        // Extra debugging check. This will only consider USDC swaps
                         // if in_mint_pubkey != USDC_MINT && out_mint_pubkey != USDC_MINT {
                         //     // Only process USDC-based swaps for now
                         //     continue;
@@ -109,8 +110,8 @@ pub fn spawn_price_points_liquidity_task(
                         mint_edge.market.replace(market);
                         mint_edge.this_per_that.replace(out_per_in);
 
-                        let in_update = CalculatorUpdate::UpdatedTokenPrice(in_mint_ix);
-                        let out_update = CalculatorUpdate::UpdatedTokenPrice(out_mint_ix);
+                        let in_update = CalculatorUpdate::NewTokenRatio(in_mint_ix);
+                        let out_update = CalculatorUpdate::NewTokenRatio(out_mint_ix);
                         calculator_sender.send(in_update).await.unwrap();
                         calculator_sender.send(out_update).await.unwrap();
                     }
@@ -220,7 +221,7 @@ pub fn spawn_price_points_liquidity_task(
                         let ix = mint_indicies.get(USDC_MINT).cloned();
                         if let Some(ix) = ix {
                             calculator_sender
-                                .send(CalculatorUpdate::USDPrice(price, ix))
+                                .send(CalculatorUpdate::OracleUSDPrice(price, ix))
                                 .await
                                 .unwrap();
                         } else {
@@ -280,9 +281,10 @@ pub async fn get_or_add_mint_indicies(
                 None => graph.write().await,
             };
 
-            let ix = write_lock.add_node(MintNode {
+            let ix = write_lock.add_node(Arc::new(RwLock::new(MintNode {
                 mint: mint.to_string(),
-            });
+                usd_price: None,
+            })));
 
             mint_indicies.insert(mint.to_string(), ix);
 
