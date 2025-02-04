@@ -94,7 +94,7 @@ pub fn spawn_calculator_task(
                     let mut visited = HashSet::with_capacity(g_read.node_count());
                     let mut dooots = Vec::with_capacity(g_read.node_count());
 
-                    let Ok(new_price) = calculate_token_price(
+                    match calculate_token_price(
                         &g_read,
                         clickhouse_client.clone(),
                         &mut decimals_cache,
@@ -103,8 +103,12 @@ pub fn spawn_calculator_task(
                         &mut dooots,
                     )
                     .await
-                    .inspect_err(|e| log::error!("{e}")) else {
-                        continue;
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::error!("Error calculating token price: {e}");
+                            continue;
+                        }
                     };
 
                     amqp_manager.publish_dooots(dooots).await.unwrap();
@@ -193,6 +197,7 @@ pub async fn calculate_token_price(
         };
 
         let final_price = this_price * w_ratio * decimal_factor;
+        log::info!("Calculated price for {neighbor_mint}: {final_price}");
 
         let mut w_neighbor = neighbor_token.write().await;
         w_neighbor
@@ -210,17 +215,15 @@ pub async fn calculate_token_price(
 
         visted_nodes.insert(neighbor);
 
-        Box::pin(
-            calculate_token_price(
-                graph,
-                clickhouse_client.clone(),
-                decimals_cache,
-                neighbor,
-                visted_nodes,
-                dooots,
-            )
-            .await,
-        );
+        Box::pin(calculate_token_price(
+            graph,
+            clickhouse_client.clone(),
+            decimals_cache,
+            neighbor,
+            visted_nodes,
+            dooots,
+        ))
+        .await?;
     }
 
     Ok(())
