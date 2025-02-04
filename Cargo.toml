@@ -1,6 +1,38 @@
-[package]
-name = "veritas"
-version = "0.1.0"
-edition = "2021"
+[workspace]
+members = ["crates/*"]
+resolver = "2"
 
-[dependencies]
+[workspace.lints]
+clippy.unwrap_used = "deny"
+
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[workspace.dependencies]
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "d4bc06aef2706d1f4dde3574818e792db8f97b58" }
+solana-transaction-status = "=2.0.13"
+solana-program = "=2.0.13"
+solana-sdk = "=2.0.13"
+solana-client = "=2.0.13"
+lapin = "2.0.3"
+tokio = { version = "1.43.0", features = ["full"] }
+anyhow = "1.0.95"
+clap = { version = "4.5.27", features = ["env", "derive"] }
+dotenvy = "0.15.7"
+clickhouse = { version = "0.13.1", features = ["native-tls"] }
+futures = "0.3.31"
+env_logger = "0.11.6"
+log = "0.4.25"
+serde = { version = "1.0.217", features = ["derive"] }
+serde_json = "1.0.137"
+petgraph = "0.7.1"
+rust_decimal = { version = "1.34.3", features = ["maths"] }
+chrono = "0.4.39"
+
+[patch.crates-io]
+solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
+solana-program = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
+solana-sdk = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
+solana-client = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }

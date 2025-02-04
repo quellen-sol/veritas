@@ -1,0 +1,19 @@
+[package]
+name = "veritas-sdk"
+version = "0.1.0"
+edition = "2021"
+
+[features]
+debug-graph = []
+
+[lints]
+workspace = true
+
+[dependencies]
+petgraph = { workspace = true }
+tokio = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
+clickhouse = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true }

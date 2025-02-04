@@ -1,0 +1,33 @@
+[package]
+name = "veritas"
+version = "0.1.0"
+edition = "2021"
+authors = ["Quellen <quellen@step.finance>"]
+
+[features]
+debug-graph = ["veritas-sdk/debug-graph"]
+
+[lints]
+workspace = true
+
+[dependencies]
+veritas-sdk = { path = "../sdk" }
+step-ingestooor-sdk = { workspace = true }
+solana-transaction-status = { workspace = true }
+solana-program = { workspace = true }
+solana-sdk = { workspace = true }
+solana-client = { workspace = true }
+lapin = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }
+clap = { workspace = true }
+dotenvy = { workspace = true }
+clickhouse = { workspace = true }
+futures = { workspace = true }
+log = { workspace = true }
+env_logger = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+petgraph = { workspace = true }
+rust_decimal = { workspace = true }
+chrono = { workspace = true }
