@@ -17,3 +17,4 @@ chrono = { workspace = true }
 clickhouse = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+log = { workspace = true }

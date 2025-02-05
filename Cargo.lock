@@ -7231,6 +7231,7 @@ name = "veritas"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "bs58 0.5.1",
  "chrono",
  "clap 4.5.27",
  "clickhouse",
@@ -7259,6 +7260,7 @@ dependencies = [
  "anyhow",
  "chrono",
  "clickhouse",
+ "log",
  "petgraph",
  "rust_decimal",
  "serde",

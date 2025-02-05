@@ -8,14 +8,16 @@ pub type DecimalCache = HashMap<String, u8>;
 
 #[derive(Deserialize, clickhouse::Row)]
 pub struct MintDecimals {
-    pub mint: String,
+    pub mint_pubkey: String,
     pub decimals: Option<u8>,
 }
 
 pub async fn build_decimal_cache(
     clickhouse_client: Arc<clickhouse::Client>,
 ) -> Result<DecimalCache> {
-    let mut decimal_cache = DecimalCache::new();
+    log::info!("Building decimal cache...");
+    // Allow for 100M mints
+    let mut decimal_cache = DecimalCache::with_capacity(100_000_000);
 
     // Set a couple hard-coded values first
     decimal_cache.insert(USDC_MINT.to_string(), 6);
@@ -38,9 +40,12 @@ pub async fn build_decimal_cache(
 
     while let Some(row) = cursor.next().await? {
         if let Some(decimals) = row.decimals {
-            decimal_cache.insert(row.mint, decimals);
+            log::debug!("Adding mint to decimal cache: {}", row.mint_pubkey);
+            decimal_cache.insert(row.mint_pubkey, decimals);
         }
     }
+
+    log::info!("Decimal cache built with {} mints", decimal_cache.len());
 
     Ok(decimal_cache)
 }

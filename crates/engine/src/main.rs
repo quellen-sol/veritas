@@ -86,11 +86,6 @@ async fn main() -> Result<()> {
     amqp_manager.set_prefetch().await?;
     amqp_manager.assert_amqp_topology().await?;
 
-    let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
-
-    let amqp_task = amqp_manager.spawn_amqp_listener(d_tx).await?;
-    tasks.push(amqp_task);
-
     // Connect to clickhouse
     let ClickhouseArgs {
         clickhouse_user,
@@ -117,16 +112,20 @@ async fn main() -> Result<()> {
     let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
+    let (amqp_dooot_tx, amqp_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+    let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
+    tasks.push(amqp_task);
+
     let ppl_task = spawn_price_points_liquidity_task(
-        d_rx,
+        amqp_dooot_rx,
         mint_price_graph.clone(),
         calculator_sender,
         decimal_cache.clone(),
     )?;
     tasks.push(ppl_task);
 
-    let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
-    let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(d_rx).await?;
+    let (publish_dooot_tx, publish_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+    let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await?;
     tasks.push(dooot_publisher_task);
 
     let calculator_task = spawn_calculator_task(
@@ -134,7 +133,7 @@ async fn main() -> Result<()> {
         clickhouse_client.clone(),
         mint_price_graph.clone(),
         decimal_cache.clone(),
-        Arc::new(d_tx),
+        Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
     );
     tasks.push(calculator_task);

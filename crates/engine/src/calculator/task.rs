@@ -96,27 +96,27 @@ pub fn spawn_calculator_task(
                         //     log::error!("USDC price and graph index not set, cannot recalc atm");
                         //     continue;
                         // };
-                        let g_read = graph.read().await;
-                        let mut visited = HashSet::with_capacity(g_read.node_count());
+                        // let g_read = graph.read().await;
+                        // let mut visited = HashSet::with_capacity(g_read.node_count());
 
-                        let now = Instant::now();
-                        match calculate_token_price(
-                            &g_read,
-                            clickhouse_client.clone(),
-                            decimals_cache,
-                            token,
-                            &mut visited,
-                            dooot_tx,
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                // log::info!("Graph recalc took {:?}", now.elapsed());
-                            }
-                            Err(e) => {
-                                log::error!("Error calculating token price: {e}");
-                            }
-                        }
+                        // let now = Instant::now();
+                        // match calculate_token_price(
+                        //     &g_read,
+                        //     clickhouse_client.clone(),
+                        //     decimals_cache,
+                        //     token,
+                        //     &mut visited,
+                        //     dooot_tx,
+                        // )
+                        // .await
+                        // {
+                        //     Ok(_) => {
+                        //         // log::info!("Graph recalc took {:?}", now.elapsed());
+                        //     }
+                        //     Err(e) => {
+                        //         log::error!("Error calculating token price: {e}");
+                        //     }
+                        // }
                     }
                 }
 
@@ -317,7 +317,7 @@ pub async fn get_mint_decimals(
         let decimals = d_read.get(*mint).cloned();
         if let Some(decimals) = decimals {
             let dec_val = MintDecimals {
-                mint: mint.to_string(),
+                mint_pubkey: mint.to_string(),
                 decimals: Some(decimals),
             };
 
@@ -330,19 +330,25 @@ pub async fn get_mint_decimals(
     drop(d_read);
 
     if !mints_to_query.is_empty() {
+        let query_mints_bytes = mints_to_query
+            .iter()
+            .map(|s| bs58::decode(s).into_vec().unwrap().try_into().unwrap())
+            .collect::<Vec<[u8; 32]>>();
         let query_start = Instant::now();
         let dec_query_res = clickhouse_client
             .query(
                 "
                     SELECT
-                        base58Encode(reinterpretAsString(mint)) as mint,
+                        base58Encode(reinterpretAsString(mint)) as mint_pubkey,
                         anyLastMerge(decimals) AS decimals
                     FROM lookup_mint_info lmi
-                    WHERE mint in ?
+                    WHERE mint in (
+                        SELECT arrayJoin(arrayMap(x -> base58Decode(x), ?))
+                    )
                     GROUP BY mint
                 ",
             )
-            .bind(&mints_to_query)
+            .bind(mints_to_query)
             .fetch_all::<MintDecimals>()
             .await?;
         log::info!("CH query done in {:?}", query_start.elapsed());
@@ -354,7 +360,7 @@ pub async fn get_mint_decimals(
                     Some(g) => g,
                     None => decimals_cache.write().await,
                 };
-                write_guard.insert(dec.mint.clone(), decimals);
+                write_guard.insert(dec.mint_pubkey.clone(), decimals);
 
                 d_write = Some(write_guard);
             }
