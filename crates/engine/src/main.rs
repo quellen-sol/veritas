@@ -66,26 +66,6 @@ async fn main() -> Result<()> {
 
     let mut tasks = vec![];
 
-    // Connect to amqp
-    let AMQPArgs {
-        amqp_url,
-        ingestooor_dooot_exchange,
-        amqp_debug_user,
-        amqp_prefetch,
-    } = args.amqp;
-    let amqp_manager = Arc::new(
-        AMQPManager::new(
-            amqp_url,
-            ingestooor_dooot_exchange,
-            amqp_debug_user,
-            amqp_prefetch,
-            args.enable_db_writes,
-        )
-        .await?,
-    );
-    amqp_manager.set_prefetch().await?;
-    amqp_manager.assert_amqp_topology().await?;
-
     // Connect to clickhouse
     let ClickhouseArgs {
         clickhouse_user,
@@ -106,11 +86,32 @@ async fn main() -> Result<()> {
     let clickhouse_client = Arc::new(clickhouse_client);
     log::info!("Created Clickhouse client");
 
+    let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
+    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
+
+    // Connect to amqp
+    let AMQPArgs {
+        amqp_url,
+        ingestooor_dooot_exchange,
+        amqp_debug_user,
+        amqp_prefetch,
+    } = args.amqp;
+    let amqp_manager = Arc::new(
+        AMQPManager::new(
+            amqp_url,
+            ingestooor_dooot_exchange,
+            amqp_debug_user,
+            amqp_prefetch,
+            args.enable_db_writes,
+        )
+        .await?,
+    );
+    amqp_manager.set_prefetch().await?;
+    amqp_manager.assert_amqp_topology().await?;
+
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let (calculator_sender, calculator_receiver) =
         tokio::sync::mpsc::channel::<CalculatorUpdate>(1000);
-    let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
-    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
     let (amqp_dooot_tx, amqp_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
     let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;

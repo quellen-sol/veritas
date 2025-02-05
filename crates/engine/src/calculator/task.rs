@@ -73,6 +73,7 @@ pub fn spawn_calculator_task(
                         }
                         let mut visited = HashSet::with_capacity(g_read.node_count());
 
+                        let now = Instant::now();
                         match calculate_token_price(
                             &g_read,
                             clickhouse_client.clone(),
@@ -83,7 +84,9 @@ pub fn spawn_calculator_task(
                         )
                         .await
                         {
-                            Ok(_) => {}
+                            Ok(_) => {
+                                log::info!("Token price calc took {:?}", now.elapsed());
+                            }
                             Err(e) => {
                                 log::error!("Error calculating token price: {e}");
                             }
@@ -194,20 +197,32 @@ pub async fn calculate_token_price(
         .await?;
 
         let d_read = decimals_cache.read().await;
-        let this_decimals = *d_read.get(&this_mint).context(format!(
-            "decimals expected from get_mint_decimals. Is CH missing {}?",
-            &this_mint
-        ))? as i16;
-        let neighbor_decimals = *d_read.get(&neighbor_mint).context(format!(
-            "decimals expected from get_mint_decimals. Is CH missing {}?",
-            &neighbor_mint
-        ))? as i16;
+        let Some(&this_decimals) = d_read.get(&this_mint) else {
+            log::error!(
+                "decimals expected from get_mint_decimals. Is CH missing {}?",
+                &this_mint
+            );
+            continue;
+        };
+        let Some(&neighbor_decimals) = d_read.get(&neighbor_mint) else {
+            log::error!(
+                "decimals expected from get_mint_decimals. Is CH missing {}?",
+                &neighbor_mint
+            );
+            continue;
+        };
         drop(d_read);
-        let decimal_factor = Decimal::from(10).powi((neighbor_decimals - this_decimals) as i64);
+        let decimal_factor =
+            Decimal::from(10).powi(((neighbor_decimals as i16) - (this_decimals as i16)) as i64);
 
-        let Some((w_ratio, _liq)) =
-            get_liq_weighted_price_ratio(token, neighbor, graph, this_decimals, decimal_factor)
-                .await
+        let Some((w_ratio, _liq)) = get_liq_weighted_price_ratio(
+            token,
+            neighbor,
+            graph,
+            this_decimals as i16,
+            decimal_factor,
+        )
+        .await
         else {
             // log::warn!("Unable to get weighted ratio between {this_mint} -> {neighbor_mint}");
             continue;
@@ -285,14 +300,7 @@ pub async fn get_liq_weighted_price_ratio(
         total_liq += liq_val;
         cm_weighted_price += liq_val * ratio * decimal_factor;
 
-        // // Canceling out old averaging terms, see formula
-        // let factor_numerator = curr_denominator * (curr_numerator + (liq_val * ratio * decimal_factor));
-        // let factor_denominator = (curr_numerator + liq_val) * (curr_numerator);
 
-        // curr_numerator *= factor_numerator;
-        // curr_denominator *= factor_denominator;
-
-        // curr_ratio = curr_numerator / curr_denominator;
     }
 
     if total_liq == Decimal::ZERO {
