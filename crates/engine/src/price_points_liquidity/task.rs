@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use anyhow::{Context, Result};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use step_ingestooor_sdk::dooot::{Dooot, MintUnderlyingsGlobalDooot, SwapEventDooot};
+use step_ingestooor_sdk::dooot::{
+    Dooot, MintInfoDooot, MintUnderlyingsGlobalDooot, SwapEventDooot,
+};
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
@@ -14,6 +16,7 @@ use tokio::{
 use veritas_sdk::{
     constants::{USDC_FEED_ACCOUNT_ID, USDC_MINT},
     ppl_graph::graph::{MintEdge, MintLiquidity, MintNode, WrappedMintPricingGraph},
+    utils::decimal_cache::DecimalCache,
 };
 
 use crate::calculator::task::CalculatorUpdate;
@@ -24,6 +27,7 @@ pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
     graph: WrappedMintPricingGraph,
     calculator_sender: Sender<CalculatorUpdate>,
+    decimal_cache: Arc<RwLock<DecimalCache>>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -228,6 +232,15 @@ pub fn spawn_price_points_liquidity_task(
                                 .unwrap();
                         } else {
                             log::error!("USDC not in graph, cannot recalc atm");
+                        }
+                    }
+                    Dooot::MintInfo(info) => {
+                        let MintInfoDooot { mint, decimals, .. } = info;
+
+                        if let Some(decimals) = decimals {
+                            let mint_str = mint.to_string();
+                            let mut decimal_cache_write = decimal_cache.write().await;
+                            decimal_cache_write.insert(mint_str, decimals as u8);
                         }
                     }
                     _ => {

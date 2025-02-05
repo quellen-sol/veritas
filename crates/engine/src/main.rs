@@ -114,12 +114,16 @@ async fn main() -> Result<()> {
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let (calculator_sender, calculator_receiver) =
         tokio::sync::mpsc::channel::<CalculatorUpdate>(1000);
+    let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
+    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
-    let ppl_task =
-        spawn_price_points_liquidity_task(d_rx, mint_price_graph.clone(), calculator_sender)?;
+    let ppl_task = spawn_price_points_liquidity_task(
+        d_rx,
+        mint_price_graph.clone(),
+        calculator_sender,
+        decimal_cache.clone(),
+    )?;
     tasks.push(ppl_task);
-
-    let decimals_cache = build_decimal_cache(clickhouse_client.clone()).await?;
 
     let (d_tx, d_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(d_rx).await?;
@@ -129,7 +133,7 @@ async fn main() -> Result<()> {
         calculator_receiver,
         clickhouse_client.clone(),
         mint_price_graph.clone(),
-        Arc::new(RwLock::new(decimals_cache)),
+        decimal_cache.clone(),
         Arc::new(d_tx),
         args.max_calculator_subtasks,
     );
