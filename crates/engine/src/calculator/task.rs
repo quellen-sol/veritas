@@ -8,7 +8,7 @@ use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        RwLock,
+        RwLock, Semaphore,
     },
     task::JoinHandle,
 };
@@ -37,11 +37,18 @@ pub fn spawn_calculator_task(
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Arc<Sender<Dooot>>,
+    max_calculator_subtasks: u8,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator task...");
 
     tokio::spawn(async move {
+        // Semaphore to limit the number of concurrent calculator tasks
+        // Belongs to the parent task
+        let semaphore = Arc::new(Semaphore::new(max_calculator_subtasks as usize));
         while let Some(update) = calculator_receiver.recv().await {
+            // Can we progress?
+            let permit = semaphore.acquire().await.unwrap();
+
             let graph = graph.clone();
             let clickhouse_client = clickhouse_client.clone();
             let decimals_cache = decimals_cache.clone();
@@ -76,7 +83,7 @@ pub fn spawn_calculator_task(
                         )
                         .await
                         {
-                            Ok(dooots) => dooots,
+                            Ok(_) => {}
                             Err(e) => {
                                 log::error!("Error calculating token price: {e}");
                             }
@@ -104,7 +111,7 @@ pub fn spawn_calculator_task(
                         .await
                         {
                             Ok(_) => {
-                                log::info!("Graph recalc took {:?}", now.elapsed());
+                                // log::info!("Graph recalc took {:?}", now.elapsed());
                             }
                             Err(e) => {
                                 log::error!("Error calculating token price: {e}");
@@ -112,7 +119,16 @@ pub fn spawn_calculator_task(
                         }
                     }
                 }
-            });
+
+                // Release the permit
+                // This is going to happen anyway, but for clarity
+                // drop(permit);
+            })
+            .await
+            .unwrap();
+
+            // Release the permit
+            drop(permit);
         }
     })
 }
@@ -150,7 +166,6 @@ pub async fn calculate_token_price(
         return Ok(());
     };
     let this_price = this_price.extract_price();
-
     let this_mint = this_token.mint.clone();
     drop(this_token);
 
@@ -163,12 +178,11 @@ pub async fn calculate_token_price(
             .node_weight(neighbor)
             .context("Neighbor should exist in graph!!")?
             .clone();
-        let r_neighbor = neighbor_token.read().await;
 
+        let r_neighbor = neighbor_token.read().await;
         if matches!(r_neighbor.usd_price, Some(USDPriceWithSource::Oracle(_))) {
             continue;
         }
-
         let neighbor_mint = r_neighbor.mint.clone();
         drop(r_neighbor);
 
@@ -180,7 +194,6 @@ pub async fn calculate_token_price(
         .await?;
 
         let d_read = decimals_cache.read().await;
-
         let this_decimals = *d_read.get(&this_mint).context(format!(
             "decimals expected from get_mint_decimals. Is CH missing {}?",
             &this_mint
@@ -247,7 +260,9 @@ pub async fn get_liq_weighted_price_ratio(
     decimal_factor: Decimal,
 ) -> Option<(Decimal, Decimal)> {
     let node_a = graph.node_weight(a)?.clone();
-    let mint_a = &node_a.read().await.mint;
+    let r_node_a = node_a.read().await;
+    let mint_a = r_node_a.mint.clone();
+    drop(r_node_a);
 
     let edges_iter = graph.edges_connecting(a, b);
 
@@ -265,7 +280,7 @@ pub async fn get_liq_weighted_price_ratio(
         };
 
         let liq_val =
-            liq.get_liq_for_mint(mint_a).ok()? / Decimal::from(10).powi(decimals_a as i64);
+            liq.get_liq_for_mint(&mint_a).ok()? / Decimal::from(10).powi(decimals_a as i64);
 
         total_liq += liq_val;
         cm_weighted_price += liq_val * ratio * decimal_factor;
@@ -315,6 +330,7 @@ pub async fn get_mint_decimals(
     drop(d_read);
 
     if !mints_to_query.is_empty() {
+        let query_start = Instant::now();
         let dec_query_res = clickhouse_client
             .query(
                 "
@@ -329,6 +345,7 @@ pub async fn get_mint_decimals(
             .bind(&mints_to_query)
             .fetch_all::<MintDecimals>()
             .await?;
+        log::info!("CH query done in {:?}", query_start.elapsed());
 
         let mut d_write = None;
         for dec in &dec_query_res {

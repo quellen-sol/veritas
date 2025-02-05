@@ -35,7 +35,6 @@ pub fn spawn_price_points_liquidity_task(
         #[allow(clippy::unwrap_used)]
         async move {
             while let Some(dooot) = msg_rx.recv().await {
-                log::info!("Received dooot");
                 match dooot {
                     Dooot::SwapEvent(swap) => {
                         let SwapEventDooot {
@@ -111,10 +110,12 @@ pub fn spawn_price_points_liquidity_task(
                         mint_edge.market.replace(market);
                         mint_edge.this_per_that.replace(out_per_in);
 
-                        let in_update = CalculatorUpdate::NewTokenRatio(in_mint_ix);
                         let out_update = CalculatorUpdate::NewTokenRatio(out_mint_ix);
-                        calculator_sender.send(in_update).await.unwrap();
                         calculator_sender.send(out_update).await.unwrap();
+
+                        // Don't send in_update for now
+                        // let in_update = CalculatorUpdate::NewTokenRatio(in_mint_ix);
+                        // calculator_sender.send(in_update).await.unwrap();
                     }
                     Dooot::MintUnderlyingsGlobal(mu_dooot) => {
                         let MintUnderlyingsGlobalDooot {

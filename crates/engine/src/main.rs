@@ -23,6 +23,9 @@ pub struct Args {
 
     #[clap(long, env)]
     pub enable_db_writes: bool,
+
+    #[clap(long, env, default_value = "10")]
+    pub max_calculator_subtasks: u8,
 }
 
 #[derive(Parser)]
@@ -128,6 +131,7 @@ async fn main() -> Result<()> {
         mint_price_graph.clone(),
         Arc::new(RwLock::new(decimals_cache)),
         Arc::new(d_tx),
+        args.max_calculator_subtasks,
     );
     tasks.push(calculator_task);
 
