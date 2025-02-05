@@ -154,8 +154,11 @@ pub async fn calculate_token_price(
 
         // Just do an average for now
         // log::info!("All prices: {:?}", mint_entry);
-        let total = mint_entry.iter().sum::<Decimal>();
         let len = Decimal::from(mint_entry.len());
+        if len == Decimal::ZERO {
+            continue;
+        }
+        let total = mint_entry.iter().sum::<Decimal>();
         let average_price = (total / len) * usdc_price_usd * decimal_factor;
 
         log::info!(
