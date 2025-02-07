@@ -1,4 +1,11 @@
-use std::{collections::HashSet, sync::Arc, time::Instant};
+use std::{
+    collections::HashSet,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
 use anyhow::{Context, Result};
 use chrono::Utc;
@@ -44,10 +51,18 @@ pub fn spawn_calculator_task(
     tokio::spawn(async move {
         // Semaphore to limit the number of concurrent calculator tasks
         // Belongs to the parent task
-        let semaphore = Arc::new(Semaphore::new(max_calculator_subtasks as usize));
+        let task_counter = Arc::new(AtomicU8::new(0));
         while let Some(update) = calculator_receiver.recv().await {
             // Can we progress?
-            let permit = semaphore.acquire().await.unwrap();
+            let task_counter = task_counter.clone();
+            let mut current_count = task_counter.load(Ordering::Relaxed);
+            while current_count >= max_calculator_subtasks {
+                // Noop, wait for a task to finish
+                tokio::time::sleep(Duration::from_millis(1)).await;
+                current_count = task_counter.load(Ordering::Relaxed);
+            }
+
+            task_counter.fetch_add(1, Ordering::Relaxed);
 
             let graph = graph.clone();
             let clickhouse_client = clickhouse_client.clone();
@@ -73,7 +88,7 @@ pub fn spawn_calculator_task(
                         }
                         let mut visited = HashSet::with_capacity(g_read.node_count());
 
-                        let now = Instant::now();
+                        // let now = Instant::now();
                         match calculate_token_price(
                             &g_read,
                             clickhouse_client.clone(),
@@ -85,7 +100,7 @@ pub fn spawn_calculator_task(
                         .await
                         {
                             Ok(_) => {
-                                log::info!("Token price calc took {:?}", now.elapsed());
+                                // log::info!("Token price calc took {:?}", now.elapsed());
                             }
                             Err(e) => {
                                 log::error!("Error calculating token price: {e}");
@@ -123,15 +138,10 @@ pub fn spawn_calculator_task(
                     }
                 }
 
-                // Release the permit
-                // This is going to happen anyway, but for clarity
-                // drop(permit);
+                task_counter.fetch_sub(1, Ordering::Relaxed);
             })
             .await
             .unwrap();
-
-            // Release the permit
-            drop(permit);
         }
     })
 }
@@ -163,7 +173,7 @@ pub async fn calculate_token_price(
     visted_nodes.insert(token);
 
     // Just grab what we need from locks quickly, then drop
-    // Even if that means consuming more mem
+    // Even if that means consuming more mem, clone away
     let this_token = this_token.read().await;
     let Some(this_price) = this_token.usd_price.clone() else {
         return Ok(());
@@ -198,17 +208,18 @@ pub async fn calculate_token_price(
 
         let d_read = decimals_cache.read().await;
         let Some(&this_decimals) = d_read.get(&this_mint) else {
-            log::error!(
-                "decimals expected from get_mint_decimals. Is CH missing {}?",
-                &this_mint
-            );
-            continue;
+            // Can't calculate price for this token, nor its neighbors, return
+            // log::error!(
+            //     "decimals expected from get_mint_decimals. Is CH missing {}?",
+            //     &this_mint
+            // );
+            return Ok(());
         };
         let Some(&neighbor_decimals) = d_read.get(&neighbor_mint) else {
-            log::error!(
-                "decimals expected from get_mint_decimals. Is CH missing {}?",
-                &neighbor_mint
-            );
+            // log::error!(
+            //     "decimals expected from get_mint_decimals. Is CH missing {}?",
+            //     &neighbor_mint
+            // );
             continue;
         };
         drop(d_read);
@@ -248,15 +259,15 @@ pub async fn calculate_token_price(
 
         visted_nodes.insert(neighbor);
 
-        Box::pin(calculate_token_price(
-            graph,
-            clickhouse_client.clone(),
-            decimals_cache.clone(),
-            neighbor,
-            visted_nodes,
-            dooot_tx.clone(),
-        ))
-        .await?;
+        // Box::pin(calculate_token_price(
+        //     graph,
+        //     clickhouse_client.clone(),
+        //     decimals_cache.clone(),
+        //     neighbor,
+        //     visted_nodes,
+        //     dooot_tx.clone(),
+        // ))
+        // .await?;
     }
 
     Ok(())
@@ -281,9 +292,6 @@ pub async fn get_liq_weighted_price_ratio(
 
     let edges_iter = graph.edges_connecting(a, b);
 
-    // let mut curr_ratio = Decimal::ONE;
-    // let mut curr_numerator = Decimal::ONE;
-    // let mut curr_denominator = Decimal::ONE;
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
 
@@ -299,8 +307,6 @@ pub async fn get_liq_weighted_price_ratio(
 
         total_liq += liq_val;
         cm_weighted_price += liq_val * ratio * decimal_factor;
-
-
     }
 
     if total_liq == Decimal::ZERO {
@@ -338,11 +344,7 @@ pub async fn get_mint_decimals(
     drop(d_read);
 
     if !mints_to_query.is_empty() {
-        let query_mints_bytes = mints_to_query
-            .iter()
-            .map(|s| bs58::decode(s).into_vec().unwrap().try_into().unwrap())
-            .collect::<Vec<[u8; 32]>>();
-        let query_start = Instant::now();
+        // let query_start = Instant::now();
         let dec_query_res = clickhouse_client
             .query(
                 "
@@ -359,7 +361,7 @@ pub async fn get_mint_decimals(
             .bind(mints_to_query)
             .fetch_all::<MintDecimals>()
             .await?;
-        log::info!("CH query done in {:?}", query_start.elapsed());
+        // log::info!("CH query done in {:?}", query_start.elapsed());
 
         let mut d_write = None;
         for dec in &dec_query_res {

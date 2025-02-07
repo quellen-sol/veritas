@@ -122,6 +122,7 @@ async fn main() -> Result<()> {
         mint_price_graph.clone(),
         calculator_sender,
         decimal_cache.clone(),
+        clickhouse_client.clone(),
     )?;
     tasks.push(ppl_task);
 

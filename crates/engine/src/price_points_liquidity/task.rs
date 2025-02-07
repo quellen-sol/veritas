@@ -19,7 +19,7 @@ use veritas_sdk::{
     utils::decimal_cache::DecimalCache,
 };
 
-use crate::calculator::task::CalculatorUpdate;
+use crate::calculator::task::{get_mint_decimals, CalculatorUpdate};
 
 type MintIndiciesMap = HashMap<String, NodeIndex>;
 
@@ -28,6 +28,7 @@ pub fn spawn_price_points_liquidity_task(
     graph: WrappedMintPricingGraph,
     calculator_sender: Sender<CalculatorUpdate>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
+    clickhouse_client: Arc<clickhouse::Client>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -83,6 +84,34 @@ pub fn spawn_price_points_liquidity_task(
                             // Disallow aggregator swaps for now
                             continue;
                         };
+
+                        let Ok(decimals) = get_mint_decimals(
+                            &[&in_mint_pubkey, &out_mint_pubkey],
+                            decimal_cache.clone(),
+                            clickhouse_client.clone(),
+                        )
+                        .await
+                        else {
+                            continue;
+                        };
+
+                        let in_decimals = decimals
+                            .iter()
+                            .find(|d| d.mint_pubkey == in_mint_pubkey)
+                            .and_then(|d| d.decimals);
+                        let out_decimals = decimals
+                            .iter()
+                            .find(|d| d.mint_pubkey == out_mint_pubkey)
+                            .and_then(|d| d.decimals);
+
+                        // TODO: Remove once mint table is completely populated & migrated
+                        // For now, skip mints that don't have decimals in cache or DB
+                        if in_decimals.is_none() || out_decimals.is_none() {
+                            // log::error!(
+                            //     "Cannot find decimals for mint: {in_mint_pubkey} or {out_mint_pubkey}"
+                            // );
+                            continue;
+                        }
 
                         let indicies = get_or_add_mint_indicies(
                             &[&in_mint_pubkey, &out_mint_pubkey],
