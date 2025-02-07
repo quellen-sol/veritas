@@ -6393,7 +6393,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "step-common-rust"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=18924e466e8bacd4d31cf0f28444f9a698ad25fe#18924e466e8bacd4d31cf0f28444f9a698ad25fe"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6413,7 +6413,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-clickhouse-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=18924e466e8bacd4d31cf0f28444f9a698ad25fe#18924e466e8bacd4d31cf0f28444f9a698ad25fe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6423,7 +6423,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=18924e466e8bacd4d31cf0f28444f9a698ad25fe#18924e466e8bacd4d31cf0f28444f9a698ad25fe"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6434,7 +6434,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-sdk"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=18924e466e8bacd4d31cf0f28444f9a698ad25fe#18924e466e8bacd4d31cf0f28444f9a698ad25fe"
 dependencies = [
  "anyhow",
  "async-trait",
