@@ -4,18 +4,21 @@ use std::{
         atomic::{AtomicU8, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
 use chrono::Utc;
 use petgraph::graph::NodeIndex;
 use rust_decimal::{Decimal, MathematicalOps};
-use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
+use step_ingestooor_sdk::{
+    dooot::{Dooot, TokenPriceGlobalDooot},
+    utils::simple_stack::SimpleStack,
+};
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        RwLock, Semaphore,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -35,7 +38,7 @@ pub enum CalculatorUpdate {
     /// so this will cause a recalc in both directions,
     /// but the algo should treat a single update as
     /// recalc'ing recursive neighbors pointing **AWAY FROM** this
-    NewTokenRatio(NodeIndex),
+    NewTokenRatio(Decimal, NodeIndex),
 }
 
 pub fn spawn_calculator_task(
@@ -49,11 +52,8 @@ pub fn spawn_calculator_task(
     log::info!("Spawning Calculator task...");
 
     tokio::spawn(async move {
-        // Semaphore to limit the number of concurrent calculator tasks
-        // Belongs to the parent task
         let task_counter = Arc::new(AtomicU8::new(0));
         while let Some(update) = calculator_receiver.recv().await {
-            // Can we progress?
             let task_counter = task_counter.clone();
             let mut current_count = task_counter.load(Ordering::Relaxed);
             while current_count >= max_calculator_subtasks {
@@ -72,52 +72,65 @@ pub fn spawn_calculator_task(
             tokio::spawn(async move {
                 match update {
                     CalculatorUpdate::OracleUSDPrice(price, idx) => {
-                        log::info!("Oracle price for USDC: {price}");
-                        let g_read = graph.read().await;
-
-                        // Add usd_price to this node,
-                        // Separate block to drop the write lock at end,
-                        // since `calculate_token_price` will grab a read
-                        {
-                            let node = g_read
-                                .node_weight(idx)
-                                .expect("This node should already exist!")
-                                .clone();
-                            let mut node = node.write().await;
-                            node.usd_price.replace(USDPriceWithSource::Oracle(price));
-                        }
-                        let mut visited = HashSet::with_capacity(g_read.node_count());
-
-                        // let now = Instant::now();
-                        match calculate_token_price(
-                            &g_read,
-                            clickhouse_client.clone(),
-                            decimals_cache,
-                            idx,
-                            &mut visited,
-                            dooot_tx,
-                        )
-                        .await
-                        {
-                            Ok(_) => {
-                                // log::info!("Token price calc took {:?}", now.elapsed());
-                            }
-                            Err(e) => {
-                                log::error!("Error calculating token price: {e}");
-                            }
-                        }
-                    }
-                    CalculatorUpdate::NewTokenRatio(token) => {
-                        // TODO: impl
-                        // let (Some(usdc_price), Some(usdc_idx)) = (current_usdc_price, usdc_graph_index)
-                        // else {
-                        //     log::error!("USDC price and graph index not set, cannot recalc atm");
-                        //     continue;
-                        // };
+                        // log::info!("Oracle price for USDC: {price}");
                         // let g_read = graph.read().await;
-                        // let mut visited = HashSet::with_capacity(g_read.node_count());
 
-                        // let now = Instant::now();
+                        // // Add usd_price to this node,
+                        // // Separate block to drop the write lock at end,
+                        // // since `calculate_token_price` will grab a read
+                        // {
+                        //     let node = g_read
+                        //         .node_weight(idx)
+                        //         .expect("This node should already exist!")
+                        //         .clone();
+                        //     let mut node = node.write().await;
+                        //     node.usd_price.replace(USDPriceWithSource::Oracle(price));
+                        // }
+                        // let mut visited = SimpleStack::with_capacity(g_read.node_count());
+
+                        // // let now = Instant::now();
+                        // match calculate_token_price(
+                        //     &g_read,
+                        //     clickhouse_client.clone(),
+                        //     decimals_cache,
+                        //     idx,
+                        //     &mut visited,
+                        //     dooot_tx,
+                        // )
+                        // .await
+                        // {
+                        //     Ok(_) => {
+                        //         // log::info!("Token price calc took {:?}", now.elapsed());
+                        //     }
+                        //     Err(e) => {
+                        //         log::error!("Error calculating token price: {e}");
+                        //     }
+                        // }
+
+                        // Just emit a price dooot
+                        let g_read = graph.read().await;
+                        let Some(node) = g_read.node_weight(idx).cloned() else {
+                            return;
+                        };
+
+                        let node = node.read().await;
+                        let mint = node.mint.clone();
+                        drop(node);
+                        drop(g_read);
+
+                        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                            mint,
+                            price_usd: price,
+                            time: Utc::now().naive_utc(),
+                        });
+
+                        dooot_tx.send(price_dooot).await.unwrap();
+                    }
+                    CalculatorUpdate::NewTokenRatio(price, token) => {
+                        // let g_read = graph.read().await;
+                        // let mut visited = SimpleStack::with_capacity(g_read.node_count());
+
+                        // // let now = Instant::now();
                         // match calculate_token_price(
                         //     &g_read,
                         //     clickhouse_client.clone(),
@@ -135,7 +148,25 @@ pub fn spawn_calculator_task(
                         //         log::error!("Error calculating token price: {e}");
                         //     }
                         // }
-                    }
+
+                        let g_read = graph.read().await;
+                        let Some(node) = g_read.node_weight(token).cloned() else {
+                            return;
+                        };
+
+                        let node = node.read().await;
+                        let mint = node.mint.clone();
+                        drop(node);
+                        drop(g_read);
+
+                        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                            mint,
+                            price_usd: price,
+                            time: Utc::now().naive_utc(),
+                        });
+
+                        dooot_tx.send(price_dooot).await.unwrap();
+                    } 
                 }
 
                 task_counter.fetch_sub(1, Ordering::Relaxed);
@@ -162,15 +193,19 @@ pub async fn calculate_token_price(
     clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     token: NodeIndex,
-    visted_nodes: &mut HashSet<NodeIndex>,
+    visted_nodes: &mut SimpleStack<NodeIndex>,
     dooot_tx: Arc<Sender<Dooot>>,
 ) -> Result<()> {
+    if visted_nodes.exists(&token) {
+        return Ok(());
+    }
+
+    visted_nodes.push(token);
+
     let this_token = graph
         .node_weight(token)
-        .context("Token should exist in graph!!")?
+        .context("UNREACHABLE - Token should exist in graph!!")?
         .clone();
-
-    visted_nodes.insert(token);
 
     // Just grab what we need from locks quickly, then drop
     // Even if that means consuming more mem, clone away
@@ -178,97 +213,131 @@ pub async fn calculate_token_price(
     let Some(this_price) = this_token.usd_price.clone() else {
         return Ok(());
     };
-    let this_price = this_price.extract_price();
+    let is_oracle_priced = this_price.is_oracle();
     let this_mint = this_token.mint.clone();
     drop(this_token);
 
-    let neighbors = graph.neighbors_directed(token, petgraph::Direction::Outgoing);
+    let mut neighbor_prices_and_liq = vec![];
+
+    let neighbors = graph.neighbors_directed(token, petgraph::Direction::Incoming);
     for neighbor in neighbors {
-        if visted_nodes.contains(&neighbor) {
+        if is_oracle_priced {
+            // Just calculate the neighbors, no need to price this token itself,
+            // since all oracles are "taken for granted"
+            Box::pin(calculate_token_price(
+                graph,
+                clickhouse_client.clone(),
+                decimals_cache.clone(),
+                neighbor,
+                visted_nodes,
+                dooot_tx.clone(),
+            ))
+            .await?;
+
             continue;
         }
+
         let neighbor_token = graph
             .node_weight(neighbor)
-            .context("Neighbor should exist in graph!!")?
+            .context("UNREACHABLE - Neighbor should exist in graph!!")?
             .clone();
 
         let r_neighbor = neighbor_token.read().await;
-        if matches!(r_neighbor.usd_price, Some(USDPriceWithSource::Oracle(_))) {
-            continue;
-        }
+        let neighbor_price = r_neighbor.usd_price.clone();
         let neighbor_mint = r_neighbor.mint.clone();
         drop(r_neighbor);
+        let neighbor_price_is_oracle = neighbor_price.as_ref().is_some_and(|v| v.is_oracle());
 
-        get_mint_decimals(
-            &[&this_mint, &neighbor_mint],
-            decimals_cache.clone(),
-            clickhouse_client.clone(),
-        )
-        .await?;
+        // Filters before we actually go and calculate
+        //
+        // Don't price using an unpriced neighbor (it should be picked up automatically when it's related to an orcale token)
+        if let Some(neighbor_price) = neighbor_price {
+            // Don't price using something that is already in the "pricing stack"
+            // BUT allow pricing using an orcale token, but we won't recurse into that oracle token
+            // Also saves iteration cycles
+            if visted_nodes.exists(&neighbor) && !neighbor_price_is_oracle {
+                continue;
+            }
 
-        let d_read = decimals_cache.read().await;
-        let Some(&this_decimals) = d_read.get(&this_mint) else {
-            // Can't calculate price for this token, nor its neighbors, return
-            // log::error!(
-            //     "decimals expected from get_mint_decimals. Is CH missing {}?",
-            //     &this_mint
-            // );
-            return Ok(());
-        };
-        let Some(&neighbor_decimals) = d_read.get(&neighbor_mint) else {
-            // log::error!(
-            //     "decimals expected from get_mint_decimals. Is CH missing {}?",
-            //     &neighbor_mint
-            // );
-            continue;
-        };
-        drop(d_read);
-        let decimal_factor =
-            Decimal::from(10).powi(((neighbor_decimals as i16) - (this_decimals as i16)) as i64);
+            get_mint_decimals(
+                &[&this_mint, &neighbor_mint],
+                decimals_cache.clone(),
+                clickhouse_client.clone(),
+            )
+            .await?;
 
-        let Some((w_ratio, _liq)) = get_liq_weighted_price_ratio(
-            token,
-            neighbor,
-            graph,
-            this_decimals as i16,
-            decimal_factor,
-        )
-        .await
-        else {
-            // log::warn!("Unable to get weighted ratio between {this_mint} -> {neighbor_mint}");
-            continue;
-        };
+            let d_read = decimals_cache.read().await;
+            let Some(&this_decimals) = d_read.get(&this_mint) else {
+                // Can't calculate price for this token, nor its neighbors, return
+                // log::error!(
+                //     "decimals expected from get_mint_decimals. Is CH missing {}?",
+                //     &this_mint
+                // );
+                return Ok(());
+            };
+            let Some(&neighbor_decimals) = d_read.get(&neighbor_mint) else {
+                // log::error!(
+                //     "decimals expected from get_mint_decimals. Is CH missing {}?",
+                //     &neighbor_mint
+                // );
+                continue;
+            };
+            drop(d_read);
+            let decimal_factor = Decimal::from(10)
+                .powi(((neighbor_decimals as i16) - (this_decimals as i16)) as i64);
 
-        let final_price = this_price * w_ratio;
-        // log::info!("Calculated price for {neighbor_mint}: {final_price}");
+            let Some((w_ratio, liq)) = get_liq_weighted_price_ratio(
+                neighbor,
+                token,
+                graph,
+                neighbor_decimals as i16,
+                decimal_factor,
+            )
+            .await
+            else {
+                // log::warn!("Unable to get weighted ratio between {neighbor_mint} -> {this_mint}");
+                continue;
+            };
 
-        {
-            let mut w_neighbor = neighbor_token.write().await;
-            w_neighbor
-                .usd_price
-                .replace(USDPriceWithSource::Relation(final_price));
+            let neighbor_price = neighbor_price.extract_price();
+            let final_price = neighbor_price * w_ratio;
+            let neighbor_liq_usd = liq * neighbor_price;
+            // log::info!("Calculated price for {neighbor_mint}: {final_price}");
+            neighbor_prices_and_liq.push((
+                neighbor,
+                final_price,
+                neighbor_liq_usd, // Denominated in neighbor tokens, so we'll multiply together to get complete final price
+            ));
         }
 
-        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            time: Utc::now().naive_utc(),
-            mint: neighbor_mint,
-            price_usd: final_price,
-        });
-
-        dooot_tx.send(price_dooot).await?;
-
-        visted_nodes.insert(neighbor);
-
-        // Box::pin(calculate_token_price(
-        //     graph,
-        //     clickhouse_client.clone(),
-        //     decimals_cache.clone(),
-        //     neighbor,
-        //     visted_nodes,
-        //     dooot_tx.clone(),
-        // ))
-        // .await?;
+        if !neighbor_price_is_oracle {
+            // Recurse into our neighbor token to price that as well
+            Box::pin(calculate_token_price(
+                graph,
+                clickhouse_client.clone(),
+                decimals_cache.clone(),
+                neighbor,
+                visted_nodes,
+                dooot_tx.clone(),
+            ))
+            .await?;
+        } else {
+            // Don't recurse into oracle-priced tokens,
+            // causing them to be put on the stack,
+            // and therefore not considered
+            //
+            // Also, if we *do* recurse into them, "unrelated" tokens could end up pricing this one.
+            // This avoid excess calculations as well
+            continue;
+        }
     }
+
+    // Calc final price weighted by all tokens pointing to this.
+    let mut cm_price = Decimal::ZERO;
+    for (n_ix, price, liq) in neighbor_prices_and_liq {}
+
+    // Pop our index off the stack, as we unravel
+    visted_nodes.pop();
 
     Ok(())
 }
@@ -278,6 +347,8 @@ pub async fn calculate_token_price(
 /// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
 ///
 /// Returns (weighted_price, total_liquidity)
+///
+/// # `total_liquidity` is denominated in **`token_a_units`**
 pub async fn get_liq_weighted_price_ratio(
     a: NodeIndex,
     b: NodeIndex,

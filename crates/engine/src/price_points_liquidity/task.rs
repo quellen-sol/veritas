@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use anyhow::{Context, Result};
 use petgraph::{graph::NodeIndex, visit::EdgeRef};
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{
     Dooot, MintInfoDooot, MintUnderlyingsGlobalDooot, SwapEventDooot,
 };
@@ -58,10 +58,10 @@ pub fn spawn_price_points_liquidity_task(
                         }
 
                         // Extra debugging check. This will only consider USDC swaps
-                        // if in_mint_pubkey != USDC_MINT && out_mint_pubkey != USDC_MINT {
-                        //     // Only process USDC-based swaps for now
-                        //     continue;
-                        // }
+                        if in_mint_pubkey != USDC_MINT && out_mint_pubkey != USDC_MINT {
+                            // Only process USDC-based swaps for now
+                            continue;
+                        }
 
                         // // Extra debugging check. This will only consider WSOL swaps
                         // if in_mint_pubkey != WSOL_MINT && out_mint_pubkey != WSOL_MINT {
@@ -106,12 +106,13 @@ pub fn spawn_price_points_liquidity_task(
 
                         // TODO: Remove once mint table is completely populated & migrated
                         // For now, skip mints that don't have decimals in cache or DB
-                        if in_decimals.is_none() || out_decimals.is_none() {
+                        let (Some(in_decimals), Some(out_decimals)) = (in_decimals, out_decimals)
+                        else {
                             // log::error!(
                             //     "Cannot find decimals for mint: {in_mint_pubkey} or {out_mint_pubkey}"
                             // );
                             continue;
-                        }
+                        };
 
                         let indicies = get_or_add_mint_indicies(
                             &[&in_mint_pubkey, &out_mint_pubkey],
@@ -143,8 +144,19 @@ pub fn spawn_price_points_liquidity_task(
                         mint_edge.market.replace(market);
                         mint_edge.this_per_that.replace(out_per_in);
 
-                        let out_update = CalculatorUpdate::NewTokenRatio(out_mint_ix);
-                        calculator_sender.send(out_update).await.unwrap();
+                        let decimal_factor = Decimal::from(10)
+                            .powi(((in_decimals as i16) - (out_decimals as i16)) as i64);
+
+                        let final_price = out_per_in * decimal_factor;
+
+                        let (token_to_update, value) = if out_mint_pubkey == USDC_MINT {
+                            (in_mint_ix, final_price)
+                        } else {
+                            (out_mint_ix, Decimal::ONE / final_price)
+                        };
+
+                        let token_update = CalculatorUpdate::NewTokenRatio(value, token_to_update);
+                        calculator_sender.send(token_update).await.unwrap();
 
                         // Don't send in_update for now
                         // let in_update = CalculatorUpdate::NewTokenRatio(in_mint_ix);

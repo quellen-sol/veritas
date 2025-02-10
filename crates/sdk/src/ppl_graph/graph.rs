@@ -91,6 +91,11 @@ impl USDPriceWithSource {
             USDPriceWithSource::Relation(p) => p,
         }
     }
+
+    #[inline]
+    pub fn is_oracle(&self) -> bool {
+        matches!(self, Self::Oracle(_))
+    }
 }
 
 pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
