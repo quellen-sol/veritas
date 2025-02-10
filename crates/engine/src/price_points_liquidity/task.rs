@@ -163,100 +163,100 @@ pub fn spawn_price_points_liquidity_task(
                         // calculator_sender.send(in_update).await.unwrap();
                     }
                     Dooot::MintUnderlyingsGlobal(mu_dooot) => {
-                        let MintUnderlyingsGlobalDooot {
-                            time,
-                            mint_pubkey,
-                            discriminant_id,
-                            mints,
-                            total_underlying_amounts,
-                            mints_qty_per_one_parent,
-                            ..
-                        } = mu_dooot;
+                        // let MintUnderlyingsGlobalDooot {
+                        //     time,
+                        //     mint_pubkey,
+                        //     discriminant_id,
+                        //     mints,
+                        //     total_underlying_amounts,
+                        //     mints_qty_per_one_parent,
+                        //     ..
+                        // } = mu_dooot;
 
-                        // Two things need to happen with MintUnderlyings:
-                        // 1. Add the PARENT mint to graph and set edges, both price and liq!
-                        // 2. Find the underlying mint edges, and update the liquidity (all directions, between all underlyings)
+                        // // Two things need to happen with MintUnderlyings:
+                        // // 1. Add the PARENT mint to graph and set edges, both price and liq!
+                        // // 2. Find the underlying mint edges, and update the liquidity (all directions, between all underlyings)
 
-                        let mut all_mints = Vec::with_capacity(1 + mints.len());
-                        all_mints.push(mint_pubkey.as_str());
-                        for u_mint in mints.iter() {
-                            all_mints.push(u_mint.as_str());
-                        }
+                        // let mut all_mints = Vec::with_capacity(1 + mints.len());
+                        // all_mints.push(mint_pubkey.as_str());
+                        // for u_mint in mints.iter() {
+                        //     all_mints.push(u_mint.as_str());
+                        // }
 
-                        let indicies =
-                            get_or_add_mint_indicies(&all_mints, graph.clone(), &mut mint_indicies)
-                                .await;
+                        // let indicies =
+                        //     get_or_add_mint_indicies(&all_mints, graph.clone(), &mut mint_indicies)
+                        //         .await;
 
-                        let parent_mint_ix = indicies[0];
-                        for (i, _) in all_mints.iter().enumerate().skip(1) {
-                            let mint_ix = indicies[i];
-                            let edge_res =
-                                access_or_add_edge(mint_ix, parent_mint_ix, graph.clone(), |e| {
-                                    e.market == Some(discriminant_id.clone())
-                                })
-                                .await;
+                        // let parent_mint_ix = indicies[0];
+                        // for (i, _) in all_mints.iter().enumerate().skip(1) {
+                        //     let mint_ix = indicies[i];
+                        //     let edge_res =
+                        //         access_or_add_edge(mint_ix, parent_mint_ix, graph.clone(), |e| {
+                        //             e.market == Some(discriminant_id.clone())
+                        //         })
+                        //         .await;
 
-                            let mut edge = match edge_res {
-                                Ok(edge) => edge,
-                                Err(e) => {
-                                    log::error!("Error accessing or adding edge: {}", e);
-                                    continue;
-                                }
-                            };
+                        //     let mut edge = match edge_res {
+                        //         Ok(edge) => edge,
+                        //         Err(e) => {
+                        //             log::error!("Error accessing or adding edge: {}", e);
+                        //             continue;
+                        //         }
+                        //     };
 
-                            edge.last_updated = time;
-                            edge.liquidity.replace(MintLiquidity {
-                                liquidity: total_underlying_amounts.clone(),
-                                mints: mints.clone(),
-                            });
-                            let price_val = mints_qty_per_one_parent[i - 1];
-                            let price_val_decimal =
-                                Decimal::from_f64(price_val).unwrap_or_else(|| {
-                                    panic!(
-                                        "UNREACHABLE - Cannot parse Decimal from f64: {price_val}"
-                                    )
-                                });
-                            edge.this_per_that.replace(price_val_decimal);
-                        }
+                        //     edge.last_updated = time;
+                        //     edge.liquidity.replace(MintLiquidity {
+                        //         liquidity: total_underlying_amounts.clone(),
+                        //         mints: mints.clone(),
+                        //     });
+                        //     let price_val = mints_qty_per_one_parent[i - 1];
+                        //     let price_val_decimal =
+                        //         Decimal::from_f64(price_val).unwrap_or_else(|| {
+                        //             panic!(
+                        //                 "UNREACHABLE - Cannot parse Decimal from f64: {price_val}"
+                        //             )
+                        //         });
+                        //     edge.this_per_that.replace(price_val_decimal);
+                        // }
 
-                        // Add a liquidity relation between every underlying mint
-                        for mint_a in mints.iter() {
-                            for mint_b in mints.iter() {
-                                if mint_a == mint_b {
-                                    continue;
-                                }
+                        // // Add a liquidity relation between every underlying mint
+                        // for mint_a in mints.iter() {
+                        //     for mint_b in mints.iter() {
+                        //         if mint_a == mint_b {
+                        //             continue;
+                        //         }
 
-                                let indicies = get_or_add_mint_indicies(
-                                    &[mint_a, mint_b],
-                                    graph.clone(),
-                                    &mut mint_indicies,
-                                )
-                                .await;
+                        //         let indicies = get_or_add_mint_indicies(
+                        //             &[mint_a, mint_b],
+                        //             graph.clone(),
+                        //             &mut mint_indicies,
+                        //         )
+                        //         .await;
 
-                                let mint_a_ix = indicies[0];
-                                let mint_b_ix = indicies[1];
+                        //         let mint_a_ix = indicies[0];
+                        //         let mint_b_ix = indicies[1];
 
-                                let edge_res =
-                                    access_or_add_edge(mint_a_ix, mint_b_ix, graph.clone(), |e| {
-                                        e.market == Some(discriminant_id.clone())
-                                    })
-                                    .await;
+                        //         let edge_res =
+                        //             access_or_add_edge(mint_a_ix, mint_b_ix, graph.clone(), |e| {
+                        //                 e.market == Some(discriminant_id.clone())
+                        //             })
+                        //             .await;
 
-                                let mut edge = match edge_res {
-                                    Ok(edge) => edge,
-                                    Err(e) => {
-                                        log::error!("Error accessing or adding edge: {}", e);
-                                        continue;
-                                    }
-                                };
+                        //         let mut edge = match edge_res {
+                        //             Ok(edge) => edge,
+                        //             Err(e) => {
+                        //                 log::error!("Error accessing or adding edge: {}", e);
+                        //                 continue;
+                        //             }
+                        //         };
 
-                                edge.last_updated = time;
-                                edge.liquidity.replace(MintLiquidity {
-                                    mints: mints.clone(),
-                                    liquidity: total_underlying_amounts.clone(),
-                                });
-                            }
-                        }
+                        //         edge.last_updated = time;
+                        //         edge.liquidity.replace(MintLiquidity {
+                        //             mints: mints.clone(),
+                        //             liquidity: total_underlying_amounts.clone(),
+                        //         });
+                        //     }
+                        // }
                     }
                     Dooot::OraclePriceEvent(oracle_price) => {
                         let feed_id = &oracle_price.feed_account_pubkey;
