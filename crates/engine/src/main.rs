@@ -64,8 +64,6 @@ async fn main() -> Result<()> {
     env_logger::init();
     let args = Args::parse();
 
-    let mut tasks = vec![];
-
     // Connect to clickhouse
     let ClickhouseArgs {
         clickhouse_user,
@@ -115,7 +113,6 @@ async fn main() -> Result<()> {
 
     let (amqp_dooot_tx, amqp_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
     let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
-    tasks.push(amqp_task);
 
     let ppl_task = spawn_price_points_liquidity_task(
         amqp_dooot_rx,
@@ -124,11 +121,9 @@ async fn main() -> Result<()> {
         decimal_cache.clone(),
         clickhouse_client.clone(),
     )?;
-    tasks.push(ppl_task);
 
     let (publish_dooot_tx, publish_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await?;
-    tasks.push(dooot_publisher_task);
 
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
@@ -138,10 +133,21 @@ async fn main() -> Result<()> {
         Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
     );
-    tasks.push(calculator_task);
 
-    // Wait for all tasks to finish
-    futures::future::join_all(tasks).await;
+    tokio::select! {
+        _ = amqp_task => {
+            log::error!("AMQP task exited");
+        }
+        _ = ppl_task => {
+            log::error!("PPL task exited");
+        }
+        _ = dooot_publisher_task => {
+            log::error!("Dooot publisher task exited");
+        }
+        _ = calculator_task => {
+            log::error!("Calculator task exited");
+        }
+    }
 
     Ok(())
 }
