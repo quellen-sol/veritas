@@ -9,7 +9,10 @@ use lapin::{
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::{sync::mpsc::Sender, task::JoinHandle};
+use tokio::{
+    sync::mpsc::{Receiver, Sender},
+    task::JoinHandle,
+};
 pub struct AMQPManager {
     channel: Channel,
     dooot_exchange: String,
@@ -53,32 +56,6 @@ impl AMQPManager {
             prefetch,
             db_writes,
         })
-    }
-
-    pub async fn publish_dooots(&self, dooots: Vec<Dooot>) -> Result<()> {
-        if !self.db_writes {
-            return Ok(());
-        }
-
-        let payload = dooots
-            .into_iter()
-            .map(|d| serde_json::to_string(&d))
-            .collect::<Result<Vec<String>, _>>()
-            .context("Error serializing dooots")?
-            .join("\n")
-            .into_bytes();
-
-        self.channel
-            .basic_publish(
-                &self.dooot_exchange,
-                "TokenPriceGlobal",
-                BasicPublishOptions::default(),
-                &payload,
-                BasicProperties::default(),
-            )
-            .await?;
-
-        Ok(())
     }
 
     pub async fn set_prefetch(&self) -> Result<()> {
@@ -135,6 +112,39 @@ impl AMQPManager {
                 log::warn!("AMQP listener shutting down. Consumer stream finished.");
             },
         );
+
+        Ok(handle)
+    }
+
+    #[allow(clippy::unwrap_used)]
+    pub async fn spawn_dooot_publisher(
+        &self,
+        mut dooot_tx: Receiver<Dooot>,
+    ) -> Result<JoinHandle<()>> {
+        let db_writes = self.db_writes;
+        let channel = self.channel.clone();
+        let dooot_exchange = self.dooot_exchange.clone();
+
+        let handle = tokio::spawn(async move {
+            while let Some(dooot) = dooot_tx.recv().await {
+                if !db_writes {
+                    continue;
+                }
+
+                let payload = serde_json::to_string(&dooot).unwrap().into_bytes();
+                channel
+                    .basic_publish(
+                        &dooot_exchange,
+                        "TokenPriceGlobal",
+                        BasicPublishOptions::default(),
+                        &payload,
+                        BasicProperties::default(),
+                    )
+                    .await
+                    .context("Error publishing dooot")
+                    .unwrap();
+            }
+        });
 
         Ok(handle)
     }

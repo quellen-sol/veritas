@@ -1,6 +1,6 @@
 [package]
 name = "veritas-sdk"
-version = "0.1.0"
+version = { workspace = true }
 edition = "2021"
 
 [features]
@@ -17,3 +17,4 @@ chrono = { workspace = true }
 clickhouse = { workspace = true }
 anyhow = { workspace = true }
 serde = { workspace = true }
+log = { workspace = true }

@@ -6393,7 +6393,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "step-common-rust"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479#fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6413,7 +6413,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-clickhouse-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479#fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6423,7 +6423,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479#fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6434,7 +6434,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-sdk"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=d4bc06aef2706d1f4dde3574818e792db8f97b58#d4bc06aef2706d1f4dde3574818e792db8f97b58"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479#fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7228,9 +7228,10 @@ checksum = "f1bddf1187be692e79c5ffeab891132dfb0f236ed36a43c7ed39f1165ee20191"
 
 [[package]]
 name = "veritas"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
+ "bs58 0.5.1",
  "chrono",
  "clap 4.5.27",
  "clickhouse",
@@ -7254,11 +7255,12 @@ dependencies = [
 
 [[package]]
 name = "veritas-sdk"
-version = "0.1.0"
+version = "1.0.0"
 dependencies = [
  "anyhow",
  "chrono",
  "clickhouse",
+ "log",
  "petgraph",
  "rust_decimal",
  "serde",

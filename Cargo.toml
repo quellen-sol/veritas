@@ -1,6 +1,7 @@
 [workspace]
 members = ["crates/*"]
 resolver = "2"
+package.version = "1.0.0"
 
 [workspace.lints]
 clippy.unwrap_used = "deny"
@@ -11,7 +12,7 @@ codegen-units = 1
 panic = "abort"
 
 [workspace.dependencies]
-step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "d4bc06aef2706d1f4dde3574818e792db8f97b58" }
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "fcc8f5ee734e4e5fc7d4b31f6ae86ac2e9e70479" }
 solana-transaction-status = "=2.0.13"
 solana-program = "=2.0.13"
 solana-sdk = "=2.0.13"
@@ -30,6 +31,7 @@ serde_json = "1.0.137"
 petgraph = "0.7.1"
 rust_decimal = { version = "1.34.3", features = ["maths"] }
 chrono = "0.4.39"
+bs58 = "0.5.1"
 
 [patch.crates-io]
 solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
