@@ -149,6 +149,10 @@ pub fn spawn_price_points_liquidity_task(
 
                         let final_price = out_per_in * decimal_factor;
 
+                        if final_price.is_zero() {
+                            continue;
+                        }
+
                         let (token_to_update, value) = if out_mint_pubkey == USDC_MINT {
                             (in_mint_ix, final_price)
                         } else {
