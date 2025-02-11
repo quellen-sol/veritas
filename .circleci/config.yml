@@ -61,7 +61,7 @@ workflows:
           filters:
             branches:
               ignore:
-                - main
+                - master
                 - develop
 
       # Build and push image to ECR
@@ -87,7 +87,7 @@ workflows:
           filters:
             branches:
               only:
-                - main
+                - master
                 - develop
 
       # Pre update (no hold required)
@@ -115,7 +115,7 @@ workflows:
           filters:
             branches:
               only:
-                - main
+                - master
       - aws-ecs/deploy-service-update:
           cluster: "live-indexer-cluster"
           family: "live-veritas"
@@ -131,4 +131,4 @@ workflows:
           filters:
             branches:
               only:
-                - main
+                - master
