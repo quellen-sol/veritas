@@ -7,7 +7,10 @@ use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
-use veritas_sdk::{ppl_graph::graph::MintPricingGraph, utils::decimal_cache::build_decimal_cache};
+use veritas_sdk::{
+    ppl_graph::graph::MintPricingGraph,
+    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache},
+};
 
 mod amqp;
 mod calculator;
@@ -89,6 +92,9 @@ async fn main() -> Result<()> {
     let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
+    let lp_cache = build_lp_cache(clickhouse_client.clone()).await?;
+    let lp_cache = Arc::new(RwLock::new(lp_cache));
+
     // Connect to amqp
     let AMQPArgs {
         amqp_url,
@@ -122,6 +128,7 @@ async fn main() -> Result<()> {
         mint_price_graph.clone(),
         calculator_sender,
         decimal_cache.clone(),
+        lp_cache.clone(),
         clickhouse_client.clone(),
     )?;
     tasks.push(ppl_task);
@@ -135,6 +142,7 @@ async fn main() -> Result<()> {
         clickhouse_client.clone(),
         mint_price_graph.clone(),
         decimal_cache.clone(),
+        lp_cache.clone(),
         Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
     );

@@ -24,7 +24,7 @@ use tokio::{
 };
 use veritas_sdk::{
     ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
-    utils::decimal_cache::{DecimalCache, MintDecimals},
+    utils::{decimal_cache::{DecimalCache, MintDecimals}, lp_cache::LpCache},
 };
 
 #[derive(Debug)]
@@ -46,6 +46,7 @@ pub fn spawn_calculator_task(
     clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
+    lp_cache: Arc<RwLock<LpCache>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
 ) -> JoinHandle<()> {
@@ -72,41 +73,6 @@ pub fn spawn_calculator_task(
             tokio::spawn(async move {
                 match update {
                     CalculatorUpdate::OracleUSDPrice(price, idx) => {
-                        // log::info!("Oracle price for USDC: {price}");
-                        // let g_read = graph.read().await;
-
-                        // // Add usd_price to this node,
-                        // // Separate block to drop the write lock at end,
-                        // // since `calculate_token_price` will grab a read
-                        // {
-                        //     let node = g_read
-                        //         .node_weight(idx)
-                        //         .expect("This node should already exist!")
-                        //         .clone();
-                        //     let mut node = node.write().await;
-                        //     node.usd_price.replace(USDPriceWithSource::Oracle(price));
-                        // }
-                        // let mut visited = SimpleStack::with_capacity(g_read.node_count());
-
-                        // // let now = Instant::now();
-                        // match calculate_token_price(
-                        //     &g_read,
-                        //     clickhouse_client.clone(),
-                        //     decimals_cache,
-                        //     idx,
-                        //     &mut visited,
-                        //     dooot_tx,
-                        // )
-                        // .await
-                        // {
-                        //     Ok(_) => {
-                        //         // log::info!("Token price calc took {:?}", now.elapsed());
-                        //     }
-                        //     Err(e) => {
-                        //         log::error!("Error calculating token price: {e}");
-                        //     }
-                        // }
-
                         // Just emit a price dooot
                         let g_read = graph.read().await;
                         let Some(node) = g_read.node_weight(idx).cloned() else {
@@ -356,37 +322,38 @@ pub async fn get_liq_weighted_price_ratio(
     decimals_a: i16,
     decimal_factor: Decimal,
 ) -> Option<(Decimal, Decimal)> {
-    let node_a = graph.node_weight(a)?.clone();
-    let r_node_a = node_a.read().await;
-    let mint_a = r_node_a.mint.clone();
-    drop(r_node_a);
+    // let node_a = graph.node_weight(a)?.clone();
+    // let r_node_a = node_a.read().await;
+    // let mint_a = r_node_a.mint.clone();
+    // drop(r_node_a);
 
-    let edges_iter = graph.edges_connecting(a, b);
+    // let edges_iter = graph.edges_connecting(a, b);
 
-    let mut cm_weighted_price = Decimal::ZERO;
-    let mut total_liq = Decimal::ZERO;
+    // let mut cm_weighted_price = Decimal::ZERO;
+    // let mut total_liq = Decimal::ZERO;
 
-    for edge in edges_iter {
-        let e_read = edge.weight().read().await;
-        let (Some(liq), Some(ratio)) = (&e_read.liquidity, &e_read.this_per_that) else {
-            // No liq value or ratio
-            continue;
-        };
+    // for edge in edges_iter {
+    //     let e_read = edge.weight();
+    //     let (Some(liq), Some(ratio)) = (&e_read.liquidity, &e_read.this_per_that) else {
+    //         // No liq value or ratio
+    //         continue;
+    //     };
 
-        let liq_val =
-            liq.get_liq_for_mint(&mint_a).ok()? / Decimal::from(10).powi(decimals_a as i64);
+    //     let liq_val =
+    //         liq.get_liq_for_mint(&mint_a).ok()? / Decimal::from(10).powi(decimals_a as i64);
 
-        total_liq += liq_val;
-        cm_weighted_price += liq_val * ratio * decimal_factor;
-    }
+    //     total_liq += liq_val;
+    //     cm_weighted_price += liq_val * ratio * decimal_factor;
+    // }
 
-    if total_liq == Decimal::ZERO {
-        return None;
-    }
+    // if total_liq == Decimal::ZERO {
+    //     return None;
+    // }
 
-    let curr_ratio = cm_weighted_price / total_liq;
+    // let curr_ratio = cm_weighted_price / total_liq;
 
-    Some((curr_ratio, total_liq))
+    // Some((curr_ratio, total_liq))
+    Some((Decimal::ZERO, Decimal::ZERO))
 }
 
 pub async fn get_mint_decimals(

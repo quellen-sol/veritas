@@ -7264,6 +7264,7 @@ dependencies = [
  "petgraph",
  "rust_decimal",
  "serde",
+ "step-ingestooor-sdk",
  "tokio",
 ]
 

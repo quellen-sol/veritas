@@ -6,8 +6,13 @@ use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
-pub type MintPricingGraph = Graph<Arc<RwLock<MintNode>>, Arc<RwLock<MintEdge>>, Directed>;
+use super::structs::LiqRelationEnum;
+
+pub type MintPricingGraph = Graph<Arc<RwLock<MintNode>>, MintEdge, Directed>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
+
+pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
+pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintNode {
@@ -27,22 +32,10 @@ impl std::fmt::Debug for MintNode {
     }
 }
 
-pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
-
-#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
-#[derive(Default)]
 pub struct MintEdge {
-    pub this_per_that: Option<Decimal>,
-    pub market: Option<String>,
-    pub liquidity: Option<MintLiquidity>,
-    pub last_updated: NaiveDateTime,
-}
-
-#[cfg(feature = "debug-graph")]
-impl std::fmt::Debug for MintEdge {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {:?}", self.this_per_that, self.liquidity)
-    }
+    pub id: String,
+    pub last_updated: RwLock<NaiveDateTime>,
+    pub inner_relation: RwLock<LiqRelationEnum>,
 }
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
@@ -95,23 +88,5 @@ impl USDPriceWithSource {
     #[inline]
     pub fn is_oracle(&self) -> bool {
         matches!(self, Self::Oracle(_))
-    }
-}
-
-pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
-
-impl MintEdge {
-    pub fn new(
-        ratio: Option<Decimal>,
-        liquidity: Option<MintLiquidity>,
-        market: Option<String>,
-        last_updated: NaiveDateTime,
-    ) -> Self {
-        Self {
-            this_per_that: ratio,
-            liquidity,
-            market,
-            last_updated,
-        }
     }
 }

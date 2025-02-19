@@ -10,6 +10,7 @@ debug-graph = []
 workspace = true
 
 [dependencies]
+step-ingestooor-sdk = { workspace = true }
 petgraph = { workspace = true }
 tokio = { workspace = true }
 rust_decimal = { workspace = true }
