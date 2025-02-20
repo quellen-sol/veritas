@@ -25,7 +25,9 @@ pub struct LiqLevels {
 pub enum LiqRelationEnum {
     /// Constant Product LP
     CpLp {
+        /// Expressed in UNITS
         amt_origin: Decimal,
+        /// Expressed in UNITS
         amt_dest: Decimal,
     },
     // /// Fixed ratio of parent to underlying, e.g., STEP -> xSTEP

@@ -23,7 +23,7 @@ use tokio::{
     task::JoinHandle,
 };
 use veritas_sdk::{
-    ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
+    ppl_graph::{graph::{MintPricingGraph, USDPriceWithSource}, structs::TokenTarget},
     utils::{
         decimal_cache::{DecimalCache, MintDecimals},
         lp_cache::LpCache,
@@ -151,10 +151,10 @@ pub fn spawn_calculator_task(
 
 /// v1.0 ALGORITHM
 ///
-/// When one token is updated here, look at all neighbors OUTGOING, and calc price for them ONLY
-/// Next iteration will address looking deeper than 1 level of neighbors
+/// First recalc the price of the token itself, using it's neighbors pointing to it
 ///
-/// TODO: Recursively search neighbors (how to hold temporary prices?)
+/// Next, recursively recalc the price of all neighbors pointing away from this token,
+/// in order to capture things like staked ratio tokens (mSOL, xSTEP, etc.)
 ///
 /// Notes:
 /// - Dominator algorithms can locate "popular" tokens
@@ -165,151 +165,21 @@ pub async fn calculate_token_price(
     clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     token: NodeIndex,
-    visted_nodes: &mut SimpleStack<NodeIndex>,
+    visited_nodes: &mut SimpleStack<NodeIndex>,
     dooot_tx: Arc<Sender<Dooot>>,
 ) -> Result<()> {
-    if visted_nodes.exists(&token) {
+    if visited_nodes.exists(&token) {
         return Ok(());
     }
 
-    visted_nodes.push(token);
+    visited_nodes.push(token);
 
-    let this_token = graph
-        .node_weight(token)
-        .context("UNREACHABLE - Token should exist in graph!!")?
-        .clone();
+    // Recalc from every token pointing TO this
+    for neighbor in graph.neighbors_directed(token, petgraph::Direction::Incoming) {}
 
-    // Just grab what we need from locks quickly, then drop
-    // Even if that means consuming more mem, clone away
-    let this_token = this_token.read().await;
-    let Some(this_price) = this_token.usd_price.clone() else {
-        return Ok(());
-    };
-    let is_oracle_priced = this_price.is_oracle();
-    let this_mint = this_token.mint.clone();
-    drop(this_token);
+    // Now recurse into everything pointing away, 
 
-    let mut neighbor_prices_and_liq = vec![];
-
-    let neighbors = graph.neighbors_directed(token, petgraph::Direction::Incoming);
-    for neighbor in neighbors {
-        if is_oracle_priced {
-            // Just calculate the neighbors, no need to price this token itself,
-            // since all oracles are "taken for granted"
-            Box::pin(calculate_token_price(
-                graph,
-                clickhouse_client.clone(),
-                decimals_cache.clone(),
-                neighbor,
-                visted_nodes,
-                dooot_tx.clone(),
-            ))
-            .await?;
-
-            continue;
-        }
-
-        let neighbor_token = graph
-            .node_weight(neighbor)
-            .context("UNREACHABLE - Neighbor should exist in graph!!")?
-            .clone();
-
-        let r_neighbor = neighbor_token.read().await;
-        let neighbor_price = r_neighbor.usd_price.clone();
-        let neighbor_mint = r_neighbor.mint.clone();
-        drop(r_neighbor);
-        let neighbor_price_is_oracle = neighbor_price.as_ref().is_some_and(|v| v.is_oracle());
-
-        // Filters before we actually go and calculate
-        //
-        // Don't price using an unpriced neighbor (it should be picked up automatically when it's related to an orcale token)
-        if let Some(neighbor_price) = neighbor_price {
-            // Don't price using something that is already in the "pricing stack"
-            // BUT allow pricing using an orcale token, but we won't recurse into that oracle token
-            // Also saves iteration cycles
-            if visted_nodes.exists(&neighbor) && !neighbor_price_is_oracle {
-                continue;
-            }
-
-            get_mint_decimals(
-                &[&this_mint, &neighbor_mint],
-                decimals_cache.clone(),
-                clickhouse_client.clone(),
-            )
-            .await?;
-
-            let d_read = decimals_cache.read().await;
-            let Some(&this_decimals) = d_read.get(&this_mint) else {
-                // Can't calculate price for this token, nor its neighbors, return
-                // log::error!(
-                //     "decimals expected from get_mint_decimals. Is CH missing {}?",
-                //     &this_mint
-                // );
-                return Ok(());
-            };
-            let Some(&neighbor_decimals) = d_read.get(&neighbor_mint) else {
-                // log::error!(
-                //     "decimals expected from get_mint_decimals. Is CH missing {}?",
-                //     &neighbor_mint
-                // );
-                continue;
-            };
-            drop(d_read);
-            let decimal_factor = Decimal::from(10)
-                .powi(((neighbor_decimals as i16) - (this_decimals as i16)) as i64);
-
-            let Some((w_ratio, liq)) = get_liq_weighted_price_ratio(
-                neighbor,
-                token,
-                graph,
-                neighbor_decimals as i16,
-                decimal_factor,
-            )
-            .await
-            else {
-                // log::warn!("Unable to get weighted ratio between {neighbor_mint} -> {this_mint}");
-                continue;
-            };
-
-            let neighbor_price = neighbor_price.extract_price();
-            let final_price = neighbor_price * w_ratio;
-            let neighbor_liq_usd = liq * neighbor_price;
-            // log::info!("Calculated price for {neighbor_mint}: {final_price}");
-            neighbor_prices_and_liq.push((
-                neighbor,
-                final_price,
-                neighbor_liq_usd, // Denominated in neighbor tokens, so we'll multiply together to get complete final price
-            ));
-        }
-
-        if !neighbor_price_is_oracle {
-            // Recurse into our neighbor token to price that as well
-            Box::pin(calculate_token_price(
-                graph,
-                clickhouse_client.clone(),
-                decimals_cache.clone(),
-                neighbor,
-                visted_nodes,
-                dooot_tx.clone(),
-            ))
-            .await?;
-        } else {
-            // Don't recurse into oracle-priced tokens,
-            // causing them to be put on the stack,
-            // and therefore not considered
-            //
-            // Also, if we *do* recurse into them, "unrelated" tokens could end up pricing this one.
-            // This avoid excess calculations as well
-            continue;
-        }
-    }
-
-    // Calc final price weighted by all tokens pointing to this.
-    let mut cm_price = Decimal::ZERO;
-    for (n_ix, price, liq) in neighbor_prices_and_liq {}
-
-    // Pop our index off the stack, as we unravel
-    visted_nodes.pop();
+    visited_nodes.pop();
 
     Ok(())
 }
@@ -318,9 +188,9 @@ pub async fn calculate_token_price(
 ///
 /// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
 ///
-/// Returns (weighted_price, total_liquidity)
+/// # Returns (weighted_price, total_liquidity)
 ///
-/// # `total_liquidity` is denominated in **`token_a_units`**
+/// ## `total_liquidity` is denominated in **`token_a_units`**
 pub async fn get_liq_weighted_price_ratio(
     a: NodeIndex,
     b: NodeIndex,
@@ -328,29 +198,45 @@ pub async fn get_liq_weighted_price_ratio(
     decimals_a: i16,
     decimal_factor: Decimal,
 ) -> Option<(Decimal, Decimal)> {
-    // let node_a = graph.node_weight(a)?.clone();
-    // let r_node_a = node_a.read().await;
-    // let mint_a = r_node_a.mint.clone();
-    // drop(r_node_a);
+    let node_a = graph.node_weight(a)?.clone();
+    let r_node_a = node_a.read().await;
+    let mint_a = r_node_a.mint.clone();
+    let price_a = r_node_a
+        .usd_price
+        .as_ref()
+        .map(|p| p.extract_price())
+        .cloned()
+        .unwrap_or(Decimal::ZERO);
+    drop(r_node_a);
 
-    // let edges_iter = graph.edges_connecting(a, b);
+    let edges_iter = graph.edges_connecting(a, b);
 
-    // let mut cm_weighted_price = Decimal::ZERO;
-    // let mut total_liq = Decimal::ZERO;
+    let node_b = graph.node_weight(b)?.clone();
+    let nb_read = node_b.read().await;
+    let mint_b = nb_read.mint.clone();
+    let price_b = nb_read
+        .usd_price
+        .as_ref()
+        .map(|p| p.extract_price())
+        .cloned()
+        .unwrap_or(Decimal::ZERO);
+    drop(nb_read);
 
-    // for edge in edges_iter {
-    //     let e_read = edge.weight();
-    //     let (Some(liq), Some(ratio)) = (&e_read.liquidity, &e_read.this_per_that) else {
-    //         // No liq value or ratio
-    //         continue;
-    //     };
+    let mut cm_weighted_price = Decimal::ZERO;
+    let mut total_liq = Decimal::ZERO;
 
-    //     let liq_val =
-    //         liq.get_liq_for_mint(&mint_a).ok()? / Decimal::from(10).powi(decimals_a as i64);
+    for edge in edges_iter {
+        let e_read = edge.weight();
 
-    //     total_liq += liq_val;
-    //     cm_weighted_price += liq_val * ratio * decimal_factor;
-    // }
+        let relation = e_read.inner_relation.read().await;
+        // THIS MAY BE WRONG AF
+        // Just get liquidity of A, since this token may be exclusively "priced" by A
+        let liq = relation.get_liquidity(price_a, Decimal::ZERO);
+        let price_between = relation.get_price(TokenTarget::Destination, price_b);
+        // let price_between = relation.get_price(TokenTarget::Origin, price_b);
+        // let price_between = relation.get_price(TokenTarget::Destination, price_a);
+        // let price_between = relation.get_price(TokenTarget::Origin, price_a);
+    }
 
     // if total_liq == Decimal::ZERO {
     //     return None;

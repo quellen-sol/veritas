@@ -50,7 +50,6 @@ pub fn spawn_price_points_liquidity_task(
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
     let mut mint_indicies: MintIndiciesMap = HashMap::new();
 
-    let feed_map_task_copy = oracle_feed_map.clone();
     let task = tokio::spawn(
         #[allow(clippy::unwrap_used)]
         async move {
@@ -122,7 +121,7 @@ pub fn spawn_price_points_liquidity_task(
                     }
                     Dooot::OraclePriceEvent(oracle_price) => {
                         let feed_id = &oracle_price.feed_account_pubkey;
-                        let Some(feed_mint) = feed_map_task_copy.get(feed_id.as_str()).cloned()
+                        let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned()
                         else {
                             continue;
                         };
@@ -240,7 +239,7 @@ pub fn get_or_add_mint_ix(
     ix
 }
 
-pub async fn get_edge_by_predicate<P>(
+pub fn get_edge_by_predicate<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     graph: &MintPricingGraph,
@@ -272,7 +271,7 @@ pub async fn create_mint_underlying_edge<P>(
 ) where
     P: Fn(&MintEdge) -> bool,
 {
-    let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate).await;
+    let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
 
     let mut created_new_edge = false;
     let edge = match edge {
