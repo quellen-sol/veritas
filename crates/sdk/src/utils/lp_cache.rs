@@ -1,11 +1,7 @@
-use std::{
-    collections::{HashMap, HashSet},
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use anyhow::Result;
 use clickhouse::Row;
-use rust_decimal::Decimal;
 use serde::Deserialize;
 use step_ingestooor_sdk::dooot::CurveType;
 

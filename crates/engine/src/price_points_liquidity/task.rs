@@ -1,26 +1,25 @@
 use std::{collections::HashMap, sync::Arc};
 
-use anyhow::{Context, Result};
-use chrono::{NaiveDateTime, Utc};
+use anyhow::Result;
+use chrono::NaiveDateTime;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
 };
-use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
+use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::{
-    CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot, SwapEventDooot,
+    CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        OwnedRwLockWriteGuard, RwLock, RwLockWriteGuard,
+        RwLock,
     },
     task::JoinHandle,
 };
 use veritas_sdk::{
-    constants::{USDC_FEED_ACCOUNT_ID, USDC_MINT},
     ppl_graph::{
-        graph::{MintEdge, MintLiquidity, MintNode, MintPricingGraph, WrappedMintPricingGraph},
+        graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
         structs::LiqRelationEnum,
     },
     utils::{
@@ -30,7 +29,7 @@ use veritas_sdk::{
     },
 };
 
-use crate::calculator::task::{get_mint_decimals, CalculatorUpdate};
+use crate::calculator::task::CalculatorUpdate;
 
 type MintIndiciesMap = HashMap<String, NodeIndex>;
 
@@ -121,8 +120,7 @@ pub fn spawn_price_points_liquidity_task(
                     }
                     Dooot::OraclePriceEvent(oracle_price) => {
                         let feed_id = &oracle_price.feed_account_pubkey;
-                        let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned()
-                        else {
+                        let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned() else {
                             continue;
                         };
 
@@ -131,7 +129,7 @@ pub fn spawn_price_points_liquidity_task(
                         // Quick lock to update the oracle cache
                         {
                             let mut oc_write = oracle_cache.write().await;
-                            oc_write.insert(feed_mint.clone(), price.clone());
+                            oc_write.insert(feed_mint.clone(), price);
                         }
 
                         let ix = mint_indicies.get(&feed_mint).cloned();
@@ -174,12 +172,7 @@ pub fn spawn_price_points_liquidity_task(
                         drop(l_read);
 
                         let mut l_write = lp_cache.write().await;
-                        l_write.insert(
-                            lp_mint,
-                            LiquidityPool {
-                                curve_type: curve_type,
-                            },
-                        );
+                        l_write.insert(lp_mint, LiquidityPool { curve_type });
                     }
                     _ => {
                         continue;
@@ -250,7 +243,7 @@ where
 {
     for edge in graph.edges_connecting(ix_a, ix_b) {
         let e = edge.weight();
-        if edge_predicate(&e) {
+        if edge_predicate(e) {
             return Some(edge.id());
         }
     }

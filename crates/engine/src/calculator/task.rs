@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -7,10 +7,10 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
 use petgraph::graph::NodeIndex;
-use rust_decimal::{Decimal, MathematicalOps};
+use rust_decimal::Decimal;
 use step_ingestooor_sdk::{
     dooot::{Dooot, TokenPriceGlobalDooot},
     utils::simple_stack::SimpleStack,
@@ -23,7 +23,7 @@ use tokio::{
     task::JoinHandle,
 };
 use veritas_sdk::{
-    ppl_graph::{graph::{MintPricingGraph, USDPriceWithSource}, structs::TokenTarget},
+    ppl_graph::{graph::MintPricingGraph, structs::TokenTarget},
     utils::{
         decimal_cache::{DecimalCache, MintDecimals},
         lp_cache::LpCache,
@@ -177,7 +177,7 @@ pub async fn calculate_token_price(
     // Recalc from every token pointing TO this
     for neighbor in graph.neighbors_directed(token, petgraph::Direction::Incoming) {}
 
-    // Now recurse into everything pointing away, 
+    // Now recurse into everything pointing away,
 
     visited_nodes.pop();
 

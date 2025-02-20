@@ -1,7 +1,5 @@
 use rust_decimal::Decimal;
 
-use super::graph::WrappedMintPricingGraph;
-
 /// When calling `get_price`, this enum describes which token's price to return
 pub enum TokenTarget {
     Origin,
