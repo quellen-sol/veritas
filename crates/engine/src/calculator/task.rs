@@ -1,5 +1,5 @@
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -24,7 +24,11 @@ use tokio::{
 };
 use veritas_sdk::{
     ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
-    utils::{decimal_cache::{DecimalCache, MintDecimals}, lp_cache::LpCache},
+    utils::{
+        decimal_cache::{DecimalCache, MintDecimals},
+        lp_cache::LpCache,
+        oracle_cache::OraclePriceCache,
+    },
 };
 
 #[derive(Debug)]
@@ -47,6 +51,8 @@ pub fn spawn_calculator_task(
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     lp_cache: Arc<RwLock<LpCache>>,
+    oracle_cache: Arc<RwLock<OraclePriceCache>>,
+    oracle_feed_map: Arc<HashMap<String, String>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
 ) -> JoinHandle<()> {
@@ -132,7 +138,7 @@ pub fn spawn_calculator_task(
                         });
 
                         dooot_tx.send(price_dooot).await.unwrap();
-                    } 
+                    }
                 }
 
                 task_counter.fetch_sub(1, Ordering::Relaxed);

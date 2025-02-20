@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use amqp::AMQPManager;
 use anyhow::Result;
@@ -8,8 +8,12 @@ use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::{
+    constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::graph::MintPricingGraph,
-    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache},
+    utils::{
+        decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
+        oracle_cache::OraclePriceCache,
+    },
 };
 
 mod amqp;
@@ -93,6 +97,14 @@ async fn main() -> Result<()> {
     let lp_cache = build_lp_cache(clickhouse_client.clone()).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
+    let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
+        ORACLE_FEED_MAP_PAIRS
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<String, String>>(),
+    );
+    let oracle_cache = Arc::new(RwLock::new(OraclePriceCache::new()));
+
     // Connect to amqp
     let AMQPArgs {
         amqp_url,
@@ -126,6 +138,8 @@ async fn main() -> Result<()> {
         calculator_sender,
         decimal_cache.clone(),
         lp_cache.clone(),
+        oracle_cache.clone(),
+        oracle_feed_map.clone(),
         clickhouse_client.clone(),
     )?;
 
@@ -138,6 +152,8 @@ async fn main() -> Result<()> {
         mint_price_graph.clone(),
         decimal_cache.clone(),
         lp_cache.clone(),
+        oracle_cache.clone(),
+        oracle_feed_map.clone(),
         Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
     );

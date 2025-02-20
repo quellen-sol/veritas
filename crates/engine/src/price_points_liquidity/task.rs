@@ -26,6 +26,7 @@ use veritas_sdk::{
     utils::{
         decimal_cache::DecimalCache,
         lp_cache::{LiquidityPool, LpCache},
+        oracle_cache::OraclePriceCache,
     },
 };
 
@@ -39,6 +40,8 @@ pub fn spawn_price_points_liquidity_task(
     calculator_sender: Sender<CalculatorUpdate>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     lp_cache: Arc<RwLock<LpCache>>,
+    oracle_cache: Arc<RwLock<OraclePriceCache>>,
+    oracle_feed_map: Arc<HashMap<String, String>>,
     clickhouse_client: Arc<clickhouse::Client>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
@@ -47,6 +50,7 @@ pub fn spawn_price_points_liquidity_task(
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
     let mut mint_indicies: MintIndiciesMap = HashMap::new();
 
+    let feed_map_task_copy = oracle_feed_map.clone();
     let task = tokio::spawn(
         #[allow(clippy::unwrap_used)]
         async move {
@@ -71,8 +75,8 @@ pub fn spawn_price_points_liquidity_task(
 
                         let mut g_write = graph.write().await;
 
-                        let parent_ix =
-                            get_or_add_mint_ix(&mint_pubkey, &mut g_write, &mut mint_indicies);
+                        // let parent_ix =
+                        //     get_or_add_mint_ix(&mint_pubkey, &mut g_write, &mut mint_indicies);
 
                         // Ordered with `mints`
                         let mut underlying_idxs = Vec::with_capacity(mints.len());
@@ -118,19 +122,30 @@ pub fn spawn_price_points_liquidity_task(
                     }
                     Dooot::OraclePriceEvent(oracle_price) => {
                         let feed_id = &oracle_price.feed_account_pubkey;
-                        if feed_id != USDC_FEED_ACCOUNT_ID {
+                        let Some(feed_mint) = feed_map_task_copy.get(feed_id.as_str()).cloned()
+                        else {
                             continue;
-                        }
+                        };
 
                         let price = oracle_price.price;
-                        let ix = mint_indicies.get(USDC_MINT).cloned();
+
+                        // Quick lock to update the oracle cache
+                        {
+                            let mut oc_write = oracle_cache.write().await;
+                            oc_write.insert(feed_mint.clone(), price.clone());
+                        }
+
+                        let ix = mint_indicies.get(&feed_mint).cloned();
                         if let Some(ix) = ix {
                             calculator_sender
                                 .send(CalculatorUpdate::OracleUSDPrice(price, ix))
                                 .await
                                 .unwrap();
                         } else {
-                            log::error!("USDC not in graph, cannot recalc atm");
+                            log::error!(
+                                "Mint {} not in graph, cannot send OracleUSDPrice update",
+                                feed_mint
+                            );
                         }
                     }
                     Dooot::MintInfo(info) => {
@@ -228,7 +243,7 @@ pub fn get_or_add_mint_ix(
 pub async fn get_edge_by_predicate<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
-    graph: &mut MintPricingGraph,
+    graph: &MintPricingGraph,
     edge_predicate: P,
 ) -> Option<EdgeIndex>
 where
@@ -283,6 +298,7 @@ pub async fn create_mint_underlying_edge<P>(
     };
 
     if !created_new_edge {
+        // We didn't create a new edge, so we need to update the existing edge
         let e_w = graph.edge_weight(edge).unwrap();
         {
             // Quick update of the last updated time
