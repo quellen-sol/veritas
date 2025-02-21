@@ -45,7 +45,7 @@ pub enum CalculatorUpdate {
     NewTokenRatio(Decimal, NodeIndex),
 }
 
-pub fn spawn_calculator_task(
+pub async fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
@@ -55,98 +55,35 @@ pub fn spawn_calculator_task(
     oracle_feed_map: Arc<HashMap<String, String>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
-) -> JoinHandle<()> {
-    log::info!("Spawning Calculator task...");
+) {
+    log::info!("Spawning Calculator tasks...");
 
-    tokio::spawn(async move {
-        let task_counter = Arc::new(AtomicU8::new(0));
+    // Spawn a task to accept token updates
+    let update_task = tokio::spawn(async move {
         while let Some(update) = calculator_receiver.recv().await {
-            let task_counter = task_counter.clone();
-            let mut current_count = task_counter.load(Ordering::Relaxed);
-            while current_count >= max_calculator_subtasks {
-                // Noop, wait for a task to finish
-                tokio::time::sleep(Duration::from_millis(1)).await;
-                current_count = task_counter.load(Ordering::Relaxed);
-            }
-
-            task_counter.fetch_add(1, Ordering::Relaxed);
-
-            let graph = graph.clone();
-            let clickhouse_client = clickhouse_client.clone();
-            let decimals_cache = decimals_cache.clone();
-            let dooot_tx = dooot_tx.clone();
-
-            tokio::spawn(async move {
-                match update {
-                    CalculatorUpdate::OracleUSDPrice(price, idx) => {
-                        // Just emit a price dooot
-                        let g_read = graph.read().await;
-                        let Some(node) = g_read.node_weight(idx).cloned() else {
-                            return;
-                        };
-
-                        let node = node.read().await;
-                        let mint = node.mint.clone();
-                        drop(node);
-                        drop(g_read);
-
-                        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-                            mint,
-                            price_usd: price,
-                            time: Utc::now().naive_utc(),
-                        });
-
-                        dooot_tx.send(price_dooot).await.unwrap();
-                    }
-                    CalculatorUpdate::NewTokenRatio(price, token) => {
-                        // let g_read = graph.read().await;
-                        // let mut visited = SimpleStack::with_capacity(g_read.node_count());
-
-                        // // let now = Instant::now();
-                        // match calculate_token_price(
-                        //     &g_read,
-                        //     clickhouse_client.clone(),
-                        //     decimals_cache,
-                        //     token,
-                        //     &mut visited,
-                        //     dooot_tx,
-                        // )
-                        // .await
-                        // {
-                        //     Ok(_) => {
-                        //         // log::info!("Graph recalc took {:?}", now.elapsed());
-                        //     }
-                        //     Err(e) => {
-                        //         log::error!("Error calculating token price: {e}");
-                        //     }
-                        // }
-
-                        let g_read = graph.read().await;
-                        let Some(node) = g_read.node_weight(token).cloned() else {
-                            return;
-                        };
-
-                        let node = node.read().await;
-                        let mint = node.mint.clone();
-                        drop(node);
-                        drop(g_read);
-
-                        let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-                            mint,
-                            price_usd: price,
-                            time: Utc::now().naive_utc(),
-                        });
-
-                        dooot_tx.send(price_dooot).await.unwrap();
-                    }
+            // Do a full BFS and update price of every token if Oracle
+            match update {
+                CalculatorUpdate::OracleUSDPrice(price, token) => {
+                    
                 }
-
-                task_counter.fetch_sub(1, Ordering::Relaxed);
-            })
-            .await
-            .unwrap();
+                _ => {
+                    continue;
+                }
+            }
         }
-    })
+    });
+
+    // Task to periodically grab a copy of the graph and recalc
+    let periodic_task = tokio::spawn(async move {});
+
+    tokio::select! {
+        _ = update_task => {
+            log::error!("Update task exited!");
+        }
+        _ = periodic_task => {
+            log::error!("Graph copier task exited!")
+        }
+    }
 }
 
 /// v1.0 ALGORITHM
@@ -195,32 +132,17 @@ pub async fn get_liq_weighted_price_ratio(
     a: NodeIndex,
     b: NodeIndex,
     graph: &MintPricingGraph,
-    decimals_a: i16,
-    decimal_factor: Decimal,
 ) -> Option<(Decimal, Decimal)> {
-    let node_a = graph.node_weight(a)?.clone();
-    let r_node_a = node_a.read().await;
-    let mint_a = r_node_a.mint.clone();
-    let price_a = r_node_a
+    let node_a = graph.node_weight(a)?;
+    let price_a = node_a
         .usd_price
-        .as_ref()
-        .map(|p| p.extract_price())
-        .cloned()
-        .unwrap_or(Decimal::ZERO);
-    drop(r_node_a);
+        .read()
+        .await
+        .as_ref()?
+        .extract_price()
+        .clone();
 
     let edges_iter = graph.edges_connecting(a, b);
-
-    let node_b = graph.node_weight(b)?.clone();
-    let nb_read = node_b.read().await;
-    let mint_b = nb_read.mint.clone();
-    let price_b = nb_read
-        .usd_price
-        .as_ref()
-        .map(|p| p.extract_price())
-        .cloned()
-        .unwrap_or(Decimal::ZERO);
-    drop(nb_read);
 
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
@@ -232,20 +154,24 @@ pub async fn get_liq_weighted_price_ratio(
         // THIS MAY BE WRONG AF
         // Just get liquidity of A, since this token may be exclusively "priced" by A
         let liq = relation.get_liquidity(price_a, Decimal::ZERO);
-        let price_between = relation.get_price(TokenTarget::Destination, price_b);
-        // let price_between = relation.get_price(TokenTarget::Origin, price_b);
-        // let price_between = relation.get_price(TokenTarget::Destination, price_a);
-        // let price_between = relation.get_price(TokenTarget::Origin, price_a);
+
+        if liq == Decimal::ZERO {
+            continue;
+        }
+
+        let price_b_usd = relation.get_price(price_a);
+
+        cm_weighted_price += price_b_usd * liq;
+        total_liq += liq;
     }
 
-    // if total_liq == Decimal::ZERO {
-    //     return None;
-    // }
+    if total_liq == Decimal::ZERO {
+        return None;
+    }
 
-    // let curr_ratio = cm_weighted_price / total_liq;
+    let weighted_price = cm_weighted_price / total_liq;
 
-    // Some((curr_ratio, total_liq))
-    Some((Decimal::ZERO, Decimal::ZERO))
+    Some((weighted_price, total_liq))
 }
 
 pub async fn get_mint_decimals(
@@ -310,4 +236,71 @@ pub async fn get_mint_decimals(
     }
 
     Ok(decimal_vals)
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::{NaiveDateTime, Utc};
+    use petgraph::Graph;
+    use rust_decimal::{prelude::FromPrimitive, Decimal};
+    use tokio::sync::RwLock;
+    use veritas_sdk::ppl_graph::{
+        graph::{MintEdge, MintNode, USDPriceWithSource},
+        structs::LiqRelationEnum,
+    };
+
+    use crate::calculator::task::get_liq_weighted_price_ratio;
+
+    #[tokio::test]
+    async fn weighted_liq() {
+        let step_node = MintNode {
+            mint: "STEP".into(),
+            usd_price: RwLock::new(None),
+        };
+
+        let usdc_node = MintNode {
+            mint: "USDC".into(),
+            usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
+        };
+
+        let mut graph = Graph::new();
+
+        let step_x = graph.add_node(step_node);
+        let usdc_x = graph.add_node(usdc_node);
+
+        graph.add_edge(
+            usdc_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "SomeMarket".into(),
+                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(5),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        graph.add_edge(
+            usdc_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "OtherMarket".into(),
+                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(2),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        let (weighted, liq) = get_liq_weighted_price_ratio(usdc_x, step_x, &graph)
+            .await
+            .unwrap();
+
+        assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
+        assert_eq!(liq, Decimal::from(20));
+    }
 }

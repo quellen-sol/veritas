@@ -13,7 +13,7 @@ use step_ingestooor_sdk::dooot::{
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        RwLock,
+        Mutex, RwLock,
     },
     task::JoinHandle,
 };
@@ -151,7 +151,8 @@ pub fn spawn_price_points_liquidity_task(
                         if let Some(decimals) = decimals {
                             let mint_str = mint.to_string();
                             let mut decimal_cache_write = decimal_cache.write().await;
-                            decimal_cache_write.insert(mint_str, decimals as u8);
+                            let decimals = decimals as u8;
+                            decimal_cache_write.insert(mint_str, decimals);
                         }
                     }
                     Dooot::LPInfo(info) => {
@@ -218,10 +219,10 @@ pub fn get_or_add_mint_ix(
     let ix = match mint_indicies.get(mint).cloned() {
         Some(ix) => ix,
         None => {
-            let ix = graph.add_node(Arc::new(RwLock::new(MintNode {
+            let ix = graph.add_node(MintNode {
                 mint: mint.to_string(),
-                usd_price: None,
-            })));
+                usd_price: RwLock::new(None),
+            });
 
             mint_indicies.insert(mint.to_string(), ix);
 
@@ -280,6 +281,7 @@ pub async fn create_mint_underlying_edge<P>(
 
             let new_edge = MintEdge {
                 id: discriminant_id.to_string(),
+                dirty: true,
                 last_updated: RwLock::new(time),
                 inner_relation: RwLock::new(relation),
             };
@@ -291,7 +293,10 @@ pub async fn create_mint_underlying_edge<P>(
 
     if !created_new_edge {
         // We didn't create a new edge, so we need to update the existing edge
-        let e_w = graph.edge_weight(edge).unwrap();
+        let e_w = graph.edge_weight_mut(edge).unwrap();
+
+        e_w.dirty = true;
+
         {
             // Quick update of the last updated time
             let mut last_updated = e_w.last_updated.write().await;
