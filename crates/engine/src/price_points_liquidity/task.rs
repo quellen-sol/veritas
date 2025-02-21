@@ -23,7 +23,7 @@ use veritas_sdk::{
         structs::LiqRelationEnum,
     },
     utils::{
-        decimal_cache::DecimalCache,
+        decimal_cache::{DecimalCache, MintDecimals},
         lp_cache::{LiquidityPool, LpCache},
         oracle_cache::OraclePriceCache,
     },
@@ -322,8 +322,11 @@ pub async fn query_decimals(
         )
         .bind(mint);
 
-    match query.fetch_one::<u8>().await {
-        Ok(v) => Ok(Some(v)),
+    match query.fetch_one::<MintDecimals>().await {
+        Ok(v) => match v.decimals {
+            Some(d) => Ok(Some(d)),
+            None => Ok(None),
+        },
         Err(e) => match e {
             clickhouse::error::Error::RowNotFound => Ok(None),
             _ => Err(e.into()),
