@@ -323,8 +323,8 @@ pub async fn query_decimals(
         )
         .bind(mint);
 
-    match query.fetch_one::<i16>().await {
-        Ok(v) => Ok(Some(v as u8)),
+    match query.fetch_one::<u8>().await {
+        Ok(v) => Ok(Some(v)),
         Err(e) => match e {
             clickhouse::error::Error::RowNotFound => Ok(None),
             _ => Err(e.into()),
