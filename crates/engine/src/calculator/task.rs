@@ -63,9 +63,7 @@ pub async fn spawn_calculator_task(
         while let Some(update) = calculator_receiver.recv().await {
             // Do a full BFS and update price of every token if Oracle
             match update {
-                CalculatorUpdate::OracleUSDPrice(price, token) => {
-                    
-                }
+                CalculatorUpdate::OracleUSDPrice(price, token) => {}
                 _ => {
                     continue;
                 }
@@ -74,7 +72,7 @@ pub async fn spawn_calculator_task(
     });
 
     // Task to periodically grab a copy of the graph and recalc
-    let periodic_task = tokio::spawn(async move {});
+    let periodic_task = tokio::spawn(async move { loop {} });
 
     tokio::select! {
         _ = update_task => {
