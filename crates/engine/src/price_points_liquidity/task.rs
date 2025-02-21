@@ -54,7 +54,6 @@ pub fn spawn_price_points_liquidity_task(
         #[allow(clippy::unwrap_used)]
         async move {
             while let Some(dooot) = msg_rx.recv().await {
-                log::info!("Got dooot {dooot:?}");
                 match dooot {
                     Dooot::MintUnderlyingsGlobal(mu_dooot) => {
                         let MintUnderlyingsGlobalDooot {
