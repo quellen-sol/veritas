@@ -15,7 +15,7 @@ pub struct LiquidityPool {
 #[derive(Deserialize, Row)]
 pub struct LiquidityPoolRow {
     pub lp_mint_pk: String,
-    pub curve_type: CurveType,
+    pub curve_type: u16,
 }
 
 pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Result<LpCache> {
@@ -36,7 +36,7 @@ pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Resul
         cache.insert(
             row.lp_mint_pk,
             LiquidityPool {
-                curve_type: row.curve_type,
+                curve_type: unsafe { std::mem::transmute(row.curve_type) },
             },
         );
     }
