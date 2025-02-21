@@ -1,60 +1,45 @@
-#![allow(unused)]
+// #![allow(unused)]
 use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
     },
-    time::Duration,
 };
 
-use anyhow::{Context, Result};
 use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::Decimal;
-use solana_sdk::signer::Signer;
-use step_ingestooor_sdk::{
-    dooot::{Dooot, TokenPriceGlobalDooot},
-    utils::simple_stack::SimpleStack,
-};
-use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        RwLock,
-    },
-    task::JoinHandle,
+use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
+use tokio::sync::{
+    mpsc::{Receiver, Sender},
+    RwLock,
 };
 use veritas_sdk::{
-    ppl_graph::{graph::MintPricingGraph, structs::TokenTarget},
-    utils::{
-        decimal_cache::{DecimalCache, MintDecimals},
-        lp_cache::LpCache,
-        oracle_cache::OraclePriceCache,
+    ppl_graph::{
+        graph::{MintPricingGraph, USDPriceWithSource},
+        structs::LiqAmount,
     },
+    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, oracle_cache::OraclePriceCache},
 };
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
     /// Price of USD (from oracle) and index in the graph
-    OracleUSDPrice(Decimal, NodeIndex),
-    /// A relation going **OUT FROM** this token has changed,
-    /// recalc everything from this
-    ///
-    /// PPL Thread will normally send two updates "at once",
-    /// so this will cause a recalc in both directions,
-    /// but the algo should treat a single update as
-    /// recalc'ing recursive neighbors pointing **AWAY FROM** this
-    NewTokenRatio(Decimal, NodeIndex),
+    OracleUSDPrice(NodeIndex),
+    /// A Relation pointing TO this token has changed,
+    NewTokenRatio(NodeIndex),
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    lp_cache: Arc<RwLock<LpCache>>,
-    oracle_cache: Arc<RwLock<OraclePriceCache>>,
-    oracle_feed_map: Arc<HashMap<String, String>>,
+    _lp_cache: Arc<RwLock<LpCache>>,
+    _oracle_cache: Arc<RwLock<OraclePriceCache>>,
+    _oracle_feed_map: Arc<HashMap<String, String>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
 ) {
@@ -62,31 +47,75 @@ pub async fn spawn_calculator_task(
 
     // Spawn a task to accept token updates
     let update_task = tokio::spawn(async move {
+        let counter = Arc::new(AtomicU8::new(0));
+
         while let Some(update) = calculator_receiver.recv().await {
-            // Do a full BFS and update price of every token if Oracle
-            match update {
-                CalculatorUpdate::OracleUSDPrice(price, token) => {}
-                _ => {
-                    continue;
-                }
+            while counter.load(Ordering::Relaxed) >= max_calculator_subtasks {
+                // Noop, wait for a task to become available
             }
+
+            counter.fetch_add(1, Ordering::AcqRel);
+
+            // Make clones for the task
+            let graph = graph.clone();
+            let clickhouse_client = clickhouse_client.clone();
+            let decimals_cache = decimals_cache.clone();
+            let dooot_tx = dooot_tx.clone();
+            let counter = counter.clone();
+
+            tokio::spawn(async move {
+                // Do a full BFS and update price of every token if Oracle
+                match update {
+                    CalculatorUpdate::OracleUSDPrice(token) => {
+                        let g_read = graph.read().await;
+                        let mut visited = Vec::new();
+
+                        bfs_recalculate(
+                            &g_read,
+                            clickhouse_client.clone(),
+                            decimals_cache.clone(),
+                            token,
+                            &mut visited,
+                            dooot_tx.clone(),
+                        )
+                        .await;
+                    }
+                    CalculatorUpdate::NewTokenRatio(token) => {
+                        let g_read = graph.read().await;
+                        let mut visited = Vec::new();
+
+                        bfs_recalculate(
+                            &g_read,
+                            clickhouse_client.clone(),
+                            decimals_cache.clone(),
+                            token,
+                            &mut visited,
+                            dooot_tx.clone(),
+                        )
+                        .await;
+                    }
+                }
+
+                counter.fetch_sub(1, Ordering::Relaxed);
+            });
         }
     });
 
     // Task to periodically grab a copy of the graph and recalc
-    let periodic_task = tokio::spawn(async move { loop {} });
+    // let periodic_task = tokio::spawn(async move { loop {} });
 
     tokio::select! {
         _ = update_task => {
             log::warn!("Update task exited!");
         }
-        _ = periodic_task => {
-            log::warn!("Graph copier task exited!")
-        }
+        // _ = periodic_task => {
+        //     log::warn!("Graph copier task exited!")
+        // }
     }
 }
 
 /// Used when oracles update
+#[allow(clippy::unwrap_used)]
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
     clickhouse_client: Arc<clickhouse::Client>,
@@ -94,16 +123,15 @@ pub async fn bfs_recalculate(
     this_node: NodeIndex,
     visited_nodes: &mut Vec<NodeIndex>,
     dooot_tx: Arc<Sender<Dooot>>,
-) -> Result<()> {
+) {
     if visited_nodes.contains(&this_node) {
-        return Ok(());
+        return;
     }
 
     visited_nodes.push(this_node);
 
-    let node_weight = graph
-        .node_weight(this_node)
-        .context("UNREACHABLE - start node not found")?;
+    // Guaranteed to be possible
+    let node_weight = graph.node_weight(this_node).unwrap();
 
     let p_read = node_weight.usd_price.read().await;
     let price = p_read.as_ref();
@@ -114,19 +142,24 @@ pub async fn bfs_recalculate(
     // but we still want to recurse, so this is a non-guarding branch
     if !is_oracle {
         let Some(this_price) = get_total_weighted_price(graph, this_node).await else {
-            return Ok(());
+            return;
         };
 
         let mint = node_weight.mint.clone();
         log::debug!("Got price of {mint}: {this_price}");
 
+        {
+            let mut price_mut = node_weight.usd_price.write().await;
+            price_mut.replace(USDPriceWithSource::Relation(this_price));
+        }
+
         let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            mint: node_weight.mint.clone(),
+            mint,
             price_usd: this_price,
             time: Utc::now().naive_utc(),
         });
 
-        dooot_tx.send(dooot);
+        dooot_tx.send(dooot).await.unwrap();
     }
 
     for neighbor in graph.neighbors(this_node) {
@@ -144,8 +177,6 @@ pub async fn bfs_recalculate(
         ))
         .await;
     }
-
-    Ok(())
 }
 
 pub async fn get_total_weighted_price(
@@ -161,6 +192,11 @@ pub async fn get_total_weighted_price(
             continue;
         };
 
+        let liq = match liq {
+            LiqAmount::Amount(amt) => amt,
+            LiqAmount::Inf => return Some(weighted),
+        };
+
         cm_weighted_price += weighted * liq;
         total_liq += liq;
     }
@@ -174,41 +210,6 @@ pub async fn get_total_weighted_price(
     Some(final_price)
 }
 
-/// v1.0 ALGORITHM
-///
-/// First recalc the price of the token itself, using it's neighbors pointing to it
-///
-/// Next, recursively recalc the price of all neighbors pointing away from this token,
-/// in order to capture things like staked ratio tokens (mSOL, xSTEP, etc.)
-///
-/// Notes:
-/// - Dominator algorithms can locate "popular" tokens
-///
-/// Many other algos for finding liq paths https://docs.rs/petgraph/latest/petgraph/algo/index.html#modules
-pub async fn calculate_token_price(
-    graph: &MintPricingGraph,
-    clickhouse_client: Arc<clickhouse::Client>,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
-    token: NodeIndex,
-    visited_nodes: &mut SimpleStack<NodeIndex>,
-    dooot_tx: Arc<Sender<Dooot>>,
-) -> Result<()> {
-    if visited_nodes.exists(&token) {
-        return Ok(());
-    }
-
-    visited_nodes.push(token);
-
-    // Recalc from every token pointing TO this
-    for neighbor in graph.neighbors_directed(token, petgraph::Direction::Incoming) {}
-
-    // Now recurse into everything pointing away,
-
-    visited_nodes.pop();
-
-    Ok(())
-}
-
 /// From A -> B, directed
 ///
 /// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
@@ -220,15 +221,9 @@ pub async fn get_liq_weighted_price_ratio(
     a: NodeIndex,
     b: NodeIndex,
     graph: &MintPricingGraph,
-) -> Option<(Decimal, Decimal)> {
+) -> Option<(Decimal, LiqAmount)> {
     let node_a = graph.node_weight(a)?;
-    let price_a = node_a
-        .usd_price
-        .read()
-        .await
-        .as_ref()?
-        .extract_price()
-        .clone();
+    let price_a = *node_a.usd_price.read().await.as_ref()?.extract_price();
 
     let edges_iter = graph.edges_connecting(a, b);
 
@@ -240,12 +235,18 @@ pub async fn get_liq_weighted_price_ratio(
 
         let relation = e_read.inner_relation.read().await;
         // THIS MAY BE WRONG AF
-        // Just get liquidity of A, since this token may be exclusively "priced" by A
+        // Just get liquidity based on A, since this token may be exclusively "priced" by A
         let liq = relation.get_liquidity(price_a, Decimal::ZERO);
 
-        if liq == Decimal::ZERO {
-            continue;
-        }
+        let liq = match liq {
+            LiqAmount::Amount(amt) => {
+                if amt == Decimal::ZERO {
+                    continue;
+                }
+                amt
+            }
+            LiqAmount::Inf => return Some((relation.get_price(price_a), LiqAmount::Inf)),
+        };
 
         let price_b_usd = relation.get_price(price_a);
 
@@ -259,82 +260,18 @@ pub async fn get_liq_weighted_price_ratio(
 
     let weighted_price = cm_weighted_price / total_liq;
 
-    Some((weighted_price, total_liq))
-}
-
-pub async fn get_mint_decimals(
-    mints: &[&str],
-    decimals_cache: Arc<RwLock<DecimalCache>>,
-    clickhouse_client: Arc<clickhouse::Client>,
-) -> Result<Vec<MintDecimals>> {
-    let mut decimal_vals = Vec::with_capacity(mints.len());
-    let mut mints_to_query = Vec::with_capacity(mints.len());
-    let d_read = decimals_cache.read().await;
-
-    for mint in mints {
-        let decimals = d_read.get(*mint).cloned();
-        if let Some(decimals) = decimals {
-            let dec_val = MintDecimals {
-                mint_pubkey: mint.to_string(),
-                decimals: Some(decimals),
-            };
-
-            decimal_vals.push(dec_val);
-        } else {
-            mints_to_query.push(mint);
-        }
-    }
-
-    drop(d_read);
-
-    if !mints_to_query.is_empty() {
-        // let query_start = Instant::now();
-        let dec_query_res = clickhouse_client
-            .query(
-                "
-                    SELECT
-                        base58Encode(reinterpretAsString(mint)) as mint_pubkey,
-                        anyLastMerge(decimals) AS decimals
-                    FROM lookup_mint_info lmi
-                    WHERE mint in (
-                        SELECT arrayJoin(arrayMap(x -> base58Decode(x), ?))
-                    )
-                    GROUP BY mint
-                ",
-            )
-            .bind(mints_to_query)
-            .fetch_all::<MintDecimals>()
-            .await?;
-        // log::info!("CH query done in {:?}", query_start.elapsed());
-
-        let mut d_write = None;
-        for dec in &dec_query_res {
-            if let Some(decimals) = dec.decimals {
-                let mut write_guard = match d_write {
-                    Some(g) => g,
-                    None => decimals_cache.write().await,
-                };
-                write_guard.insert(dec.mint_pubkey.clone(), decimals);
-
-                d_write = Some(write_guard);
-            }
-        }
-
-        decimal_vals.extend(dec_query_res);
-    }
-
-    Ok(decimal_vals)
+    Some((weighted_price, LiqAmount::Amount(total_liq)))
 }
 
 #[cfg(test)]
 mod tests {
-    use chrono::{NaiveDateTime, Utc};
+    use chrono::Utc;
     use petgraph::Graph;
     use rust_decimal::{prelude::FromPrimitive, Decimal};
     use tokio::sync::RwLock;
     use veritas_sdk::ppl_graph::{
         graph::{MintEdge, MintNode, USDPriceWithSource},
-        structs::LiqRelationEnum,
+        structs::{LiqAmount, LiqRelationEnum},
     };
 
     use crate::calculator::task::get_liq_weighted_price_ratio;
@@ -409,6 +346,14 @@ mod tests {
             .unwrap();
 
         assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
-        assert_eq!(liq, Decimal::from(20));
+
+        match liq {
+            LiqAmount::Amount(amt) => {
+                assert_eq!(amt, Decimal::from(20));
+            }
+            LiqAmount::Inf => {
+                panic!("Liq for this test should not be Inf!");
+            }
+        };
     }
 }

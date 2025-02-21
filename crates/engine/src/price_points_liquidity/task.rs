@@ -6,14 +6,14 @@ use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
 };
-use rust_decimal::{Decimal, MathematicalOps};
+use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{
     CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        Mutex, RwLock,
+        RwLock,
     },
     task::JoinHandle,
 };
@@ -33,6 +33,7 @@ use crate::calculator::task::CalculatorUpdate;
 
 type MintIndiciesMap = HashMap<String, NodeIndex>;
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
     graph: WrappedMintPricingGraph,
@@ -61,20 +62,22 @@ pub fn spawn_price_points_liquidity_task(
                             discriminant_id,
                             mints,
                             total_underlying_amounts,
+                            mints_qty_per_one_parent,
                             ..
                         } = mu_dooot;
 
-                        let l_read = lp_cache.read().await;
-                        let Some(lp) = l_read.get(&mint_pubkey) else {
-                            continue;
+                        // None if theres no LP associated with this
+                        let curve_type = {
+                            let lpc_read = lp_cache.read().await;
+                            lpc_read
+                                .get(&discriminant_id)
+                                .map(|lp| lp.curve_type.clone())
                         };
-                        let curve_type = lp.curve_type.clone();
-                        drop(l_read);
 
                         let mut g_write = graph.write().await;
 
-                        // let parent_ix =
-                        //     get_or_add_mint_ix(&mint_pubkey, &mut g_write, &mut mint_indicies);
+                        let parent_ix =
+                            get_or_add_mint_ix(&mint_pubkey, &mut g_write, &mut mint_indicies);
 
                         // Ordered with `mints`
                         let mut underlying_idxs = Vec::with_capacity(mints.len());
@@ -86,20 +89,36 @@ pub fn spawn_price_points_liquidity_task(
                             underlying_idxs.push(mint_ix);
                         }
 
+                        // Add a Fixed relation to the parent if theres only one mint
+                        if mints.len() == 1 {
+                            let amt_per_parent = mints_qty_per_one_parent[0];
+                            if let Some(amt_per_parent) = Decimal::from_f64(amt_per_parent) {
+                                let relation = LiqRelationEnum::Fixed { amt_per_parent };
+
+                                add_or_update_relation_edge(
+                                    underlying_idxs[0],
+                                    parent_ix,
+                                    &mut g_write,
+                                    |e| e.id == discriminant_id,
+                                    relation,
+                                    &discriminant_id,
+                                    time,
+                                )
+                                .await;
+
+                                let update = CalculatorUpdate::NewTokenRatio(parent_ix);
+                                calculator_sender.send(update).await.unwrap();
+                            } else {
+                                log::error!("Could not parse amt_per_parent into a Decimal: {amt_per_parent}");
+                            }
+
+                            continue;
+                        }
+
                         let dc_read = decimal_cache.read().await;
 
-                        // Create edges for all underlying mints, and also to their parent
+                        // Create edges for all underlying mints (likely an LP)
                         for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
-                            // TODO: Create edge between parent and underlying
-                            // create_fixed_ratio_edge(
-                            //     parent_ix,
-                            //     un_x,
-                            //     total_underlying_amounts[i_x],
-                            //     &discriminant_id,
-                            //     &mut g_write,
-                            //     time,
-                            // ).await;
-
                             let mint_x = &mints[i_x];
                             let decimals_x = {
                                 match dc_read.get(mint_x) {
@@ -118,6 +137,8 @@ pub fn spawn_price_points_liquidity_task(
                                     }
                                 }
                             };
+                            let amt_x = total_underlying_amounts[i_x]
+                                / Decimal::from(10).powi(decimals_x as i64);
 
                             for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
                                 if un_x == un_y {
@@ -143,23 +164,37 @@ pub fn spawn_price_points_liquidity_task(
                                     }
                                 };
 
-                                let amt_x = total_underlying_amounts[i_x]
-                                    / Decimal::from(10).powi(decimals_x as i64);
                                 let amt_y = total_underlying_amounts[i_y]
                                     / Decimal::from(10).powi(decimals_y as i64);
 
-                                create_mint_underlying_edge(
-                                    un_x,
-                                    un_y,
-                                    &mut g_write,
-                                    |e| e.id == discriminant_id,
-                                    curve_type.clone(),
-                                    amt_x,
-                                    amt_y,
-                                    &discriminant_id,
-                                    time,
-                                )
-                                .await;
+                                match curve_type {
+                                    Some(ref ct) => match ct {
+                                        CurveType::ConstantProduct => {
+                                            let new_relation = LiqRelationEnum::CpLp {
+                                                amt_origin: amt_x,
+                                                amt_dest: amt_y,
+                                            };
+
+                                            add_or_update_relation_edge(
+                                                un_x,
+                                                un_y,
+                                                &mut g_write,
+                                                |e| e.id == discriminant_id,
+                                                new_relation,
+                                                &discriminant_id,
+                                                time,
+                                            )
+                                            .await;
+                                        }
+                                        _ => {
+                                            // Unsupported CurveType
+                                            continue;
+                                        }
+                                    },
+                                    None => {
+                                        continue;
+                                    }
+                                }
                             }
                         }
                     }
@@ -180,7 +215,7 @@ pub fn spawn_price_points_liquidity_task(
                         let ix = mint_indicies.get(&feed_mint).cloned();
                         if let Some(ix) = ix {
                             calculator_sender
-                                .send(CalculatorUpdate::OracleUSDPrice(price, ix))
+                                .send(CalculatorUpdate::OracleUSDPrice(ix))
                                 .await
                                 .unwrap();
                         } else {
@@ -327,78 +362,50 @@ where
     None
 }
 
-pub async fn create_mint_underlying_edge<P>(
+#[allow(clippy::unwrap_used)]
+/// Returns the edge idx that was updated
+pub async fn add_or_update_relation_edge<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     graph: &mut MintPricingGraph,
     get_predicate: P,
-    curve_type: CurveType,
-    amt_a: Decimal,
-    amt_b: Decimal,
+    update_with: LiqRelationEnum,
     discriminant_id: &str,
     time: NaiveDateTime,
-) where
+) -> EdgeIndex
+where
     P: Fn(&MintEdge) -> bool,
 {
     let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
 
-    let mut created_new_edge = false;
-    let edge = match edge {
-        Some(e) => e,
-        None => {
-            let relation = match curve_type {
-                CurveType::ConstantProduct => LiqRelationEnum::CpLp {
-                    amt_origin: amt_a,
-                    amt_dest: amt_b,
-                },
-                _ => return,
-            };
+    match edge {
+        Some(edge_ix) => {
+            // Edge already exists, update it
+            // Guaranteed by above get_edge_by_predicate
+            let e_w = graph.edge_weight_mut(edge_ix).unwrap();
+            e_w.dirty = true;
 
+            {
+                // Quick update of the last updated time
+                let mut last_updated = e_w.last_updated.write().await;
+                *last_updated = time;
+            }
+
+            // Need to update the edge with the new amount
+            let mut relation = e_w.inner_relation.write().await;
+            *relation = update_with;
+
+            edge_ix
+        }
+        None => {
             let new_edge = MintEdge {
                 id: discriminant_id.to_string(),
                 dirty: true,
                 last_updated: RwLock::new(time),
-                inner_relation: RwLock::new(relation),
+                inner_relation: RwLock::new(update_with),
             };
 
-            created_new_edge = true;
             graph.add_edge(ix_a, ix_b, new_edge)
         }
-    };
-
-    if !created_new_edge {
-        // We didn't create a new edge, so we need to update the existing edge
-        let e_w = graph.edge_weight_mut(edge).unwrap();
-
-        e_w.dirty = true;
-
-        {
-            // Quick update of the last updated time
-            let mut last_updated = e_w.last_updated.write().await;
-            *last_updated = time;
-        }
-
-        // Need to update the edge with the new amount
-        let mut relation = e_w.inner_relation.write().await;
-        match *relation {
-            LiqRelationEnum::CpLp {
-                ref mut amt_origin,
-                ref mut amt_dest,
-            } => {
-                *amt_origin = amt_a;
-                *amt_dest = amt_b;
-            }
-        }
     }
-}
-
-pub async fn create_fixed_ratio_edge(
-    ix_a: NodeIndex,
-    ix_b: NodeIndex,
-    amt_a: Decimal,
-    discriminant_id: &str,
-    graph: &mut MintPricingGraph,
-    time: NaiveDateTime,
-) {
-    todo!()
 }
