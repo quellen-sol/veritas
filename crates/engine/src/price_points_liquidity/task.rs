@@ -137,8 +137,12 @@ pub fn spawn_price_points_liquidity_task(
                                     }
                                 }
                             };
-                            let amt_x = total_underlying_amounts[i_x]
-                                / Decimal::from(10).powi(decimals_x as i64);
+                            let Some(dec_factor_x) =
+                                Decimal::from(10).checked_powi(decimals_x as i64)
+                            else {
+                                continue;
+                            };
+                            let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
 
                             for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
                                 if un_x == un_y {
@@ -164,8 +168,12 @@ pub fn spawn_price_points_liquidity_task(
                                     }
                                 };
 
-                                let amt_y = total_underlying_amounts[i_y]
-                                    / Decimal::from(10).powi(decimals_y as i64);
+                                let Some(dec_factor_y) =
+                                    Decimal::from(10).checked_powi(decimals_y as i64)
+                                else {
+                                    continue;
+                                };
+                                let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
 
                                 match curve_type {
                                     Some(ref ct) => match ct {
