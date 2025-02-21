@@ -128,7 +128,10 @@ pub fn spawn_price_points_liquidity_task(
                                             .await
                                         {
                                             Ok(Some(d)) => d,
-                                            Ok(None) => continue,
+                                            Ok(None) => {
+                                                log::info!("Decimals not found for {mint_x}");
+                                                continue;
+                                            }
                                             Err(e) => {
                                                 log::error!("{e}");
                                                 continue;
@@ -159,7 +162,10 @@ pub fn spawn_price_points_liquidity_task(
                                                 .await
                                             {
                                                 Ok(Some(d)) => d,
-                                                Ok(None) => continue,
+                                                Ok(None) => {
+                                                    log::info!("Decimals not found for {mint_y}");
+                                                    continue;
+                                                }
                                                 Err(e) => {
                                                     log::error!("{e}");
                                                     continue;
@@ -215,6 +221,8 @@ pub fn spawn_price_points_liquidity_task(
                         };
 
                         let price = oracle_price.price;
+
+                        log::info!("New price for {feed_mint}: {price}");
 
                         // Quick lock to update the oracle cache
                         {
@@ -313,10 +321,10 @@ pub async fn query_decimals(
         .query(
             "
                 SELECT
-                    base58Encode(reinterpretAsString(mint)) as mint_pubkey,
+                    mint,
                     anyLastMerge(decimals) as decimals
                 FROM lookup_mint_info
-                WHERE mint_pubkey = ?
+                WHERE mint = base58Decode(?)
                 GROUP BY mint
             ",
         )
