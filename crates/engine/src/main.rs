@@ -160,16 +160,16 @@ async fn main() -> Result<()> {
 
     tokio::select! {
         _ = amqp_task => {
-            log::error!("AMQP task exited");
+            log::warn!("AMQP task exited");
         }
         _ = ppl_task => {
-            log::error!("PPL task exited");
+            log::warn!("PPL task exited");
         }
         _ = dooot_publisher_task => {
-            log::error!("Dooot publisher task exited");
+            log::warn!("Dooot publisher task exited");
         }
         _ = calculator_task => {
-            log::error!("Calculator task exited");
+            log::warn!("Calculator task exited");
         }
     }
 

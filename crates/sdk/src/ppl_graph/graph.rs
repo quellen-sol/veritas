@@ -11,8 +11,8 @@ use super::structs::LiqRelationEnum;
 pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 
-pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
+pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintNode {

@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{
     collections::HashMap,
     sync::{
@@ -7,10 +8,11 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::Utc;
-use petgraph::graph::NodeIndex;
+use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::Decimal;
+use solana_sdk::signer::Signer;
 use step_ingestooor_sdk::{
     dooot::{Dooot, TokenPriceGlobalDooot},
     utils::simple_stack::SimpleStack,
@@ -76,12 +78,100 @@ pub async fn spawn_calculator_task(
 
     tokio::select! {
         _ = update_task => {
-            log::error!("Update task exited!");
+            log::warn!("Update task exited!");
         }
         _ = periodic_task => {
-            log::error!("Graph copier task exited!")
+            log::warn!("Graph copier task exited!")
         }
     }
+}
+
+/// Used when oracles update
+pub async fn bfs_recalculate(
+    graph: &MintPricingGraph,
+    clickhouse_client: Arc<clickhouse::Client>,
+    decimals_cache: Arc<RwLock<DecimalCache>>,
+    this_node: NodeIndex,
+    visited_nodes: &mut Vec<NodeIndex>,
+    dooot_tx: Arc<Sender<Dooot>>,
+) -> Result<()> {
+    if visited_nodes.contains(&this_node) {
+        return Ok(());
+    }
+
+    visited_nodes.push(this_node);
+
+    let node_weight = graph
+        .node_weight(this_node)
+        .context("UNREACHABLE - start node not found")?;
+
+    let p_read = node_weight.usd_price.read().await;
+    let price = p_read.as_ref();
+    let is_oracle = price.is_some_and(|p| p.is_oracle());
+    drop(p_read);
+
+    // Don't calc this token if it's an orcale,
+    // but we still want to recurse, so this is a non-guarding branch
+    if !is_oracle {
+        let Some(this_price) = get_total_weighted_price(graph, this_node).await else {
+            return Ok(());
+        };
+
+        let mint = node_weight.mint.clone();
+        log::debug!("Got price of {mint}: {this_price}");
+
+        let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+            mint: node_weight.mint.clone(),
+            price_usd: this_price,
+            time: Utc::now().naive_utc(),
+        });
+
+        dooot_tx.send(dooot);
+    }
+
+    for neighbor in graph.neighbors(this_node) {
+        if visited_nodes.contains(&neighbor) {
+            continue;
+        }
+
+        Box::pin(bfs_recalculate(
+            graph,
+            clickhouse_client.clone(),
+            decimals_cache.clone(),
+            neighbor,
+            visited_nodes,
+            dooot_tx.clone(),
+        ))
+        .await;
+    }
+
+    Ok(())
+}
+
+pub async fn get_total_weighted_price(
+    graph: &MintPricingGraph,
+    this_node: NodeIndex,
+) -> Option<Decimal> {
+    let mut cm_weighted_price = Decimal::ZERO;
+    let mut total_liq = Decimal::ZERO;
+    for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
+        let Some((weighted, liq)) = get_liq_weighted_price_ratio(this_node, neighbor, graph).await
+        else {
+            // Illiquid or price doesn't exist. Skip
+            continue;
+        };
+
+        cm_weighted_price += weighted * liq;
+        total_liq += liq;
+    }
+
+    if total_liq == Decimal::ZERO {
+        return None;
+    }
+
+    let final_price = cm_weighted_price / total_liq;
+
+    Some(final_price)
 }
 
 /// v1.0 ALGORITHM
@@ -261,10 +351,16 @@ mod tests {
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
         };
 
+        let illiquid_node = MintNode {
+            mint: "DUMB".into(),
+            usd_price: RwLock::new(None),
+        };
+
         let mut graph = Graph::new();
 
         let step_x = graph.add_node(step_node);
         let usdc_x = graph.add_node(usdc_node);
+        let il_x = graph.add_node(illiquid_node);
 
         graph.add_edge(
             usdc_x,
@@ -286,6 +382,20 @@ mod tests {
             MintEdge {
                 dirty: false,
                 id: "OtherMarket".into(),
+                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(2),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        graph.add_edge(
+            il_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "IlliquidMarket".into(),
                 inner_relation: RwLock::new(LiqRelationEnum::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),

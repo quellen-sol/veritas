@@ -6,7 +6,7 @@ use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
 };
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{
     CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
@@ -86,6 +86,8 @@ pub fn spawn_price_points_liquidity_task(
                             underlying_idxs.push(mint_ix);
                         }
 
+                        let dc_read = decimal_cache.read().await;
+
                         // Create edges for all underlying mints, and also to their parent
                         for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
                             // TODO: Create edge between parent and underlying
@@ -98,10 +100,53 @@ pub fn spawn_price_points_liquidity_task(
                             //     time,
                             // ).await;
 
+                            let mint_x = &mints[i_x];
+                            let decimals_x = {
+                                match dc_read.get(mint_x) {
+                                    Some(&d) => d,
+                                    None => {
+                                        match query_decimals(clickhouse_client.clone(), mint_x)
+                                            .await
+                                        {
+                                            Ok(Some(d)) => d,
+                                            Ok(None) => continue,
+                                            Err(e) => {
+                                                log::error!("{e}");
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            };
+
                             for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
                                 if un_x == un_y {
                                     continue;
                                 }
+
+                                let mint_y = &mints[i_y];
+                                let decimals_y = {
+                                    match dc_read.get(mint_y) {
+                                        Some(&d) => d,
+                                        None => {
+                                            match query_decimals(clickhouse_client.clone(), mint_y)
+                                                .await
+                                            {
+                                                Ok(Some(d)) => d,
+                                                Ok(None) => continue,
+                                                Err(e) => {
+                                                    log::error!("{e}");
+                                                    continue;
+                                                }
+                                            }
+                                        }
+                                    }
+                                };
+
+                                let amt_x = total_underlying_amounts[i_x]
+                                    / Decimal::from(10).powi(decimals_x as i64);
+                                let amt_y = total_underlying_amounts[i_y]
+                                    / Decimal::from(10).powi(decimals_y as i64);
 
                                 create_mint_underlying_edge(
                                     un_x,
@@ -109,8 +154,8 @@ pub fn spawn_price_points_liquidity_task(
                                     &mut g_write,
                                     |e| e.id == discriminant_id,
                                     curve_type.clone(),
-                                    total_underlying_amounts[i_x],
-                                    total_underlying_amounts[i_y],
+                                    amt_x,
+                                    amt_y,
                                     &discriminant_id,
                                     time,
                                 )
@@ -139,7 +184,7 @@ pub fn spawn_price_points_liquidity_task(
                                 .await
                                 .unwrap();
                         } else {
-                            log::error!(
+                            log::warn!(
                                 "Mint {} not in graph, cannot send OracleUSDPrice update",
                                 feed_mint
                             );
@@ -183,13 +228,13 @@ pub fn spawn_price_points_liquidity_task(
                 // Quick debug dump of the graph
                 #[cfg(feature = "debug-graph")]
                 {
-                    use veritas_sdk::ppl_graph::graph::NODE_SIZE;
                     use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
+                    use veritas_sdk::ppl_graph::graph::NODE_SIZE;
                     // use petgraph::dot::Dot;
                     // use std::fs;
-                    
+
                     let g_read = graph.read().await;
-                    
+
                     // let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
                     // fs::write("./graph.dot", formatted_dot_str).unwrap();
 
@@ -213,6 +258,32 @@ pub fn spawn_price_points_liquidity_task(
     );
 
     Ok(task)
+}
+
+pub async fn query_decimals(
+    clickhouse_client: Arc<clickhouse::Client>,
+    mint: &str,
+) -> Result<Option<u8>> {
+    let query = clickhouse_client
+        .query(
+            "
+                SELECT
+                    base58Encode(reinterpretAsString(mint)) as mint_pubkey,
+                    anyLastMerge(decimals) as decimals
+                FROM lookup_mint_info
+                WHERE mint_pubkey = ?
+                GROUP BY mint
+            ",
+        )
+        .bind(mint);
+
+    match query.fetch_one::<i16>().await {
+        Ok(v) => Ok(Some(v as u8)),
+        Err(e) => match e {
+            clickhouse::error::Error::RowNotFound => Ok(None),
+            _ => Err(e.into()),
+        },
+    }
 }
 
 pub fn get_or_add_mint_ix(
