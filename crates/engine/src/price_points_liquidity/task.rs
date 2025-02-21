@@ -54,6 +54,7 @@ pub fn spawn_price_points_liquidity_task(
         #[allow(clippy::unwrap_used)]
         async move {
             while let Some(dooot) = msg_rx.recv().await {
+                log::info!("Got dooot {dooot:?}");
                 match dooot {
                     Dooot::MintUnderlyingsGlobal(mu_dooot) => {
                         let MintUnderlyingsGlobalDooot {
@@ -140,6 +141,7 @@ pub fn spawn_price_points_liquidity_task(
                             let Some(dec_factor_x) =
                                 Decimal::from(10).checked_powi(decimals_x as i64)
                             else {
+                                log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {decimals_x}");
                                 continue;
                             };
                             let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
@@ -171,6 +173,7 @@ pub fn spawn_price_points_liquidity_task(
                                 let Some(dec_factor_y) =
                                     Decimal::from(10).checked_powi(decimals_y as i64)
                                 else {
+                                    log::warn!("Decimal overflow when trying to get decimals for {mint_y}: Decimals {decimals_y}");
                                     continue;
                                 };
                                 let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
@@ -389,7 +392,7 @@ where
     match edge {
         Some(edge_ix) => {
             // Edge already exists, update it
-            // Guaranteed by above get_edge_by_predicate
+            // Guaranteed by being Some
             let e_w = graph.edge_weight_mut(edge_ix).unwrap();
             e_w.dirty = true;
 
