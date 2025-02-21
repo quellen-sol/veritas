@@ -8,8 +8,8 @@ pub type DecimalCache = HashMap<String, u8>;
 
 #[derive(Deserialize, clickhouse::Row)]
 pub struct MintDecimals {
-    pub mint_pubkey: String,
-    pub decimals: Option<u8>,
+    pub mint_pk: String,
+    pub decimals: Option<i16>,
 }
 
 pub async fn build_decimal_cache(
@@ -28,20 +28,23 @@ pub async fn build_decimal_cache(
     // Pull all mints from CH, that have decimals > 0, and don't end in "pump"
     let query = "
         SELECT
-            base58Encode(reinterpretAsString(mint)) AS mint,
+            base58Encode(reinterpretAsString(mint)) AS mint_pk,
             anyLastMerge(decimals) AS decimals
         FROM lookup_mint_info lmi
         GROUP BY mint
         HAVING decimals > 0
-        AND mint NOT LIKE '%pump'
+        AND mint_pk NOT LIKE '%pump'
     ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<MintDecimals>()?;
 
     while let Some(row) = cursor.next().await? {
         if let Some(decimals) = row.decimals {
-            log::debug!("Adding mint to decimal cache: {}", row.mint_pubkey);
-            decimal_cache.insert(row.mint_pubkey, decimals);
+            if decimals > 255 {
+                panic!("wtf");
+            }
+            log::debug!("Adding mint to decimal cache: {}", row.mint_pk);
+            decimal_cache.insert(row.mint_pk, decimals as u8);
         }
     }
 
