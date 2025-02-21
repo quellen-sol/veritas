@@ -183,24 +183,24 @@ pub fn spawn_price_points_liquidity_task(
                 // Quick debug dump of the graph
                 #[cfg(feature = "debug-graph")]
                 {
-                    use petgraph::dot::Dot;
-                    use std::fs;
-                    let g_read = graph.read().await;
-                    let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
-                    fs::write("./graph.dot", formatted_dot_str).unwrap();
+                    // use petgraph::dot::Dot;
+                    // use std::fs;
+                    // let g_read = graph.read().await;
+                    // let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
+                    // fs::write("./graph.dot", formatted_dot_str).unwrap();
 
-                    // // Quick debug dump of the graph size
-                    // let num_nodes = g_read.node_count();
-                    // let num_edges = g_read.edge_count();
-                    // let node_bytes = num_nodes * NODE_SIZE;
-                    // let edge_bytes = num_edges * EDGE_SIZE;
-                    // // in KB
-                    // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
-                    // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
-                    // log::info!(
-                    //     "Total bytes: {:.2}K",
-                    //     (node_bytes + edge_bytes) as f64 / 1024.0
-                    // );
+                    // Quick debug dump of the graph size
+                    let num_nodes = g_read.node_count();
+                    let num_edges = g_read.edge_count();
+                    let node_bytes = num_nodes * NODE_SIZE;
+                    let edge_bytes = num_edges * EDGE_SIZE;
+                    // in KB
+                    log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
+                    log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
+                    log::info!(
+                        "Total bytes: {:.2}K",
+                        (node_bytes + edge_bytes) as f64 / 1024.0
+                    );
                 }
             }
 
