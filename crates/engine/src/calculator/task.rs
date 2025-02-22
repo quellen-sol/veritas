@@ -4,7 +4,7 @@ use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
-    },
+    }, time::Instant,
 };
 
 use chrono::Utc;
@@ -54,6 +54,7 @@ pub async fn spawn_calculator_task(
                 // Noop, wait for a task to become available
             }
 
+            let now = Instant::now();
             counter.fetch_add(1, Ordering::AcqRel);
 
             // Make clones for the task
@@ -96,6 +97,7 @@ pub async fn spawn_calculator_task(
                     }
                 }
 
+                log::debug!("Calculator task finished in {:?}", now.elapsed());
                 counter.fetch_sub(1, Ordering::Relaxed);
             });
         }

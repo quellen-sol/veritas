@@ -3,6 +3,7 @@ use std::{collections::HashMap, sync::Arc};
 use amqp::AMQPManager;
 use anyhow::Result;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
+use ch_cache_updator::task::spawn_ch_cache_updator_task;
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
@@ -18,6 +19,7 @@ use veritas_sdk::{
 
 mod amqp;
 mod calculator;
+mod ch_cache_updator;
 mod price_points_liquidity;
 
 #[derive(Parser)]
@@ -33,6 +35,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "10")]
     pub max_calculator_subtasks: u8,
+
+    #[clap(long, env, default_value = "10")]
+    pub max_ppl_subtasks: u8,
 }
 
 #[derive(Parser)]
@@ -69,6 +74,7 @@ pub struct ClickhouseArgs {
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
     env_logger::init();
+
     let args = Args::parse();
 
     // Connect to clickhouse
@@ -125,11 +131,16 @@ async fn main() -> Result<()> {
     amqp_manager.set_prefetch().await?;
     amqp_manager.assert_amqp_topology().await?;
 
-    let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+    // CHANNELS for tasks
+    let (ch_cache_updator_req_tx, ch_cache_updator_req_rx) =
+        tokio::sync::mpsc::channel::<String>(10000);
     let (calculator_sender, calculator_receiver) =
         tokio::sync::mpsc::channel::<CalculatorUpdate>(1000);
-
     let (amqp_dooot_tx, amqp_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+    let (publish_dooot_tx, publish_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+
+    let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+
     let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
 
     let ppl_task = spawn_price_points_liquidity_task(
@@ -140,10 +151,10 @@ async fn main() -> Result<()> {
         lp_cache.clone(),
         oracle_cache.clone(),
         oracle_feed_map.clone(),
-        clickhouse_client.clone(),
+        args.max_ppl_subtasks,
+        ch_cache_updator_req_tx,
     )?;
 
-    let (publish_dooot_tx, publish_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await?;
 
     let calculator_task = spawn_calculator_task(
@@ -158,6 +169,12 @@ async fn main() -> Result<()> {
         args.max_calculator_subtasks,
     );
 
+    let ch_cache_updator_task = spawn_ch_cache_updator_task(
+        decimal_cache.clone(),
+        clickhouse_client.clone(),
+        ch_cache_updator_req_rx,
+    );
+
     tokio::select! {
         _ = amqp_task => {
             log::warn!("AMQP task exited");
@@ -170,6 +187,9 @@ async fn main() -> Result<()> {
         }
         _ = calculator_task => {
             log::warn!("Calculator task exited");
+        }
+        _ = ch_cache_updator_task => {
+            log::warn!("CH cache updator task exited");
         }
     }
 

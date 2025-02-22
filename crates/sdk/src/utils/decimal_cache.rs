@@ -32,16 +32,15 @@ pub async fn build_decimal_cache(
             finalizeAggregation(decimals) AS decimals
         FROM lookup_mint_info lmi
         WHERE decimals > 0
-        AND mint_pk NOT LIKE '%pump'
     ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<MintDecimals>()?;
 
     while let Some(row) = cursor.next().await? {
         if let Some(decimals) = row.decimals {
-            if row.mint_pk == "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump".to_string() {
-                panic!("Decimals: {decimals}");
-            }
+            // if row.mint_pk == "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump".to_string() {
+            //     panic!("Decimals: {decimals}");
+            // }
             log::debug!("Adding mint to decimal cache: {}", row.mint_pk);
             decimal_cache.insert(row.mint_pk, decimals as u8);
         }
