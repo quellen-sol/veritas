@@ -9,11 +9,13 @@ use std::{
 
 use anyhow::Result;
 use chrono::NaiveDateTime;
+use clickhouse::Row;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
 };
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
+use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{
     CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
@@ -30,7 +32,7 @@ use veritas_sdk::{
         structs::LiqRelationEnum,
     },
     utils::{
-        decimal_cache::{DecimalCache, MintDecimals},
+        decimal_cache::DecimalCache,
         lp_cache::{LiquidityPool, LpCache},
         oracle_cache::OraclePriceCache,
     },
@@ -337,6 +339,11 @@ pub fn spawn_price_points_liquidity_task(
     Ok(task)
 }
 
+#[derive(Deserialize, Row)]
+pub struct DecimalResult {
+    decimals: Option<u8>,
+}
+
 pub async fn query_decimals(
     clickhouse_client: Arc<clickhouse::Client>,
     mint: &str,
@@ -345,7 +352,6 @@ pub async fn query_decimals(
         .query(
             "
                 SELECT
-                    mint,
                     anyLastMerge(decimals) as decimals
                 FROM lookup_mint_info
                 WHERE mint = base58Decode(?)
@@ -354,7 +360,7 @@ pub async fn query_decimals(
         )
         .bind(mint);
 
-    match query.fetch_one::<MintDecimals>().await {
+    match query.fetch_one::<DecimalResult>().await {
         Ok(v) => match v.decimals {
             Some(d) => Ok(Some(d)),
             None => Ok(None),

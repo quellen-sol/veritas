@@ -55,7 +55,7 @@ pub async fn spawn_calculator_task(
             }
 
             let now = Instant::now();
-            counter.fetch_add(1, Ordering::AcqRel);
+            counter.fetch_add(1, Ordering::Relaxed);
 
             // Make clones for the task
             let graph = graph.clone();
@@ -148,7 +148,7 @@ pub async fn bfs_recalculate(
         };
 
         let mint = node_weight.mint.clone();
-        log::debug!("Got price of {mint}: {this_price}");
+        log::debug!("Calculated price of {mint}: {this_price}");
 
         {
             let mut price_mut = node_weight.usd_price.write().await;
