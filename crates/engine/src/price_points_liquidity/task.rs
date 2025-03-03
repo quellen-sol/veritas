@@ -86,6 +86,9 @@ pub fn spawn_price_points_liquidity_task(
                 let oracle_cache = oracle_cache.clone();
                 let sender_arc = sender_arc.clone();
 
+                #[cfg(feature = "debug-graph")]
+                let graph_debug_clone = graph.clone();
+
                 tokio::spawn(async move {
                     let now = Instant::now();
                     match dooot {
@@ -316,32 +319,31 @@ pub fn spawn_price_points_liquidity_task(
                     counter.fetch_sub(1, Ordering::Relaxed);
                 });
 
-                // // Quick debug dump of the graph
-                // #[cfg(feature = "debug-graph")]
-                // {
-                //     use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
-                //     use veritas_sdk::ppl_graph::graph::NODE_SIZE;
-                //     // use petgraph::dot::Dot;
-                //     // use std::fs;
-
-                //     let g_read = graph.read().await;
-
-                //     // let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
-                //     // fs::write("./graph.dot", formatted_dot_str).unwrap();
-
-                //     // Quick debug dump of the graph size
-                //     let num_nodes = g_read.node_count();
-                //     let num_edges = g_read.edge_count();
-                //     let node_bytes = num_nodes * NODE_SIZE;
-                //     let edge_bytes = num_edges * EDGE_SIZE;
-                //     // in KB
-                //     log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
-                //     log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
-                //     log::info!(
-                //         "Total bytes: {:.2}K",
-                //         (node_bytes + edge_bytes) as f64 / 1024.0
-                //     );
-                // }
+                // Quick debug dump of the graph
+                #[cfg(feature = "debug-graph")]
+                {
+                    let g_read = graph_debug_clone.read().await;
+                    
+                    use petgraph::dot::Dot;
+                    use std::fs;
+                    let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
+                    fs::write("./graph.dot", formatted_dot_str).unwrap();
+                    
+                    // // Quick debug dump of the graph size
+                    // use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
+                    // use veritas_sdk::ppl_graph::graph::NODE_SIZE;
+                    // let num_nodes = g_read.node_count();
+                    // let num_edges = g_read.edge_count();
+                    // let node_bytes = num_nodes * NODE_SIZE;
+                    // let edge_bytes = num_edges * EDGE_SIZE;
+                    // // in KB
+                    // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
+                    // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
+                    // log::info!(
+                    //     "Total bytes: {:.2}K",
+                    //     (node_bytes + edge_bytes) as f64 / 1024.0
+                    // );
+                }
             }
 
             log::warn!("Price points liquidity task (PPL) shutting down. Channel closed.");

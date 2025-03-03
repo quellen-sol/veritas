@@ -13,12 +13,13 @@ pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
 pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 
-#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
+#[derive(Debug)]
 pub struct MintNode {
     pub mint: String,
     pub usd_price: RwLock<Option<USDPriceWithSource>>,
 }
 
+#[derive(Debug)]
 pub struct MintEdge {
     pub id: String,
     pub dirty: bool,

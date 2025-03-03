@@ -38,6 +38,18 @@ pub struct Args {
 
     #[clap(long, env, default_value = "10")]
     pub max_ppl_subtasks: u8,
+
+    #[clap(long, env, default_value = "10000")]
+    pub cache_updator_buffer_size: usize,
+
+    #[clap(long, env, default_value = "1000")]
+    pub calculator_update_buffer_size: usize,
+
+    #[clap(long, env, default_value = "2000")]
+    pub ppl_buffer_size: usize,
+
+    #[clap(long, env, default_value = "2000")]
+    pub dooot_publisher_buffer_size: usize,
 }
 
 #[derive(Parser)]
@@ -133,11 +145,13 @@ async fn main() -> Result<()> {
 
     // CHANNELS for tasks
     let (ch_cache_updator_req_tx, ch_cache_updator_req_rx) =
-        tokio::sync::mpsc::channel::<String>(10000);
+        tokio::sync::mpsc::channel::<String>(args.cache_updator_buffer_size);
     let (calculator_sender, calculator_receiver) =
-        tokio::sync::mpsc::channel::<CalculatorUpdate>(1000);
-    let (amqp_dooot_tx, amqp_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
-    let (publish_dooot_tx, publish_dooot_rx) = tokio::sync::mpsc::channel::<Dooot>(2000);
+        tokio::sync::mpsc::channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
+    let (amqp_dooot_tx, amqp_dooot_rx) =
+        tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
+    let (publish_dooot_tx, publish_dooot_rx) =
+        tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
 
@@ -155,8 +169,9 @@ async fn main() -> Result<()> {
         ch_cache_updator_req_tx,
     )?;
 
-    let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await?;
+    let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
+    // DO NOT `await` THIS, LET THE `select!` BLOCK HANDLE IT
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         clickhouse_client.clone(),

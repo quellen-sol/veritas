@@ -75,7 +75,7 @@ pub async fn spawn_calculator_task(
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token) => {
                         let g_read = graph.read().await;
-                        let mut visited = Vec::new();
+                        let mut visited = Vec::with_capacity(g_read.node_count());
 
                         bfs_recalculate(
                             &g_read,
@@ -89,7 +89,7 @@ pub async fn spawn_calculator_task(
                     }
                     CalculatorUpdate::NewTokenRatio(token) => {
                         let g_read = graph.read().await;
-                        let mut visited = Vec::new();
+                        let mut visited = Vec::with_capacity(g_read.node_count());
 
                         bfs_recalculate(
                             &g_read,
@@ -120,7 +120,7 @@ pub async fn spawn_calculator_task(
             let dooot_tx = dooot_tx.clone();
 
             let g_read = graph.read().await;
-            let mut visited = Vec::new();
+            let mut visited = Vec::with_capacity(g_read.node_count());
 
             bfs_recalculate(
                 &g_read,
@@ -171,7 +171,7 @@ pub async fn bfs_recalculate(
     if !is_oracle {
         let mint = node_weight.mint.clone();
         let Some(this_price) = get_total_weighted_price(graph, this_node).await else {
-            log::warn!("Failed to calculate price for {mint}");
+            // log::warn!("Failed to calculate price for {mint}");
             return;
         };
 
