@@ -211,9 +211,10 @@ pub async fn get_total_weighted_price(
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
     for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
-        let Some((weighted, liq)) = get_liq_weighted_price_ratio(this_node, neighbor, graph).await
+        let Some((weighted, liq)) = get_liq_weighted_price_ratio(neighbor, this_node, graph).await
         else {
             // Illiquid or price doesn't exist. Skip
+            println!("Skipping {neighbor:?} for {this_node:?}");
             continue;
         };
 
@@ -227,6 +228,7 @@ pub async fn get_total_weighted_price(
     }
 
     if total_liq == Decimal::ZERO {
+        println!("Total liq is zero for {this_node:?}");
         return None;
     }
 
@@ -302,7 +304,7 @@ mod tests {
         structs::{LiqAmount, LiqRelationEnum},
     };
 
-    use crate::calculator::task::get_liq_weighted_price_ratio;
+    use crate::calculator::task::{get_liq_weighted_price_ratio, get_total_weighted_price};
 
     #[tokio::test]
     async fn weighted_liq() {
@@ -326,6 +328,10 @@ mod tests {
         let step_x = graph.add_node(step_node);
         let usdc_x = graph.add_node(usdc_node);
         let il_x = graph.add_node(illiquid_node);
+
+        println!("STEP idx: {step_x:?}");
+        println!("USDC idx: {usdc_x:?}");
+        println!("IL idx: {il_x:?}");
 
         graph.add_edge(
             usdc_x,
@@ -374,6 +380,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
+
+        let total = get_total_weighted_price(&graph, step_x).await;
+        assert!(total.is_some());
+        assert_eq!(total.unwrap(), Decimal::from_f64(3.5).unwrap());
 
         match liq {
             LiqAmount::Amount(amt) => {

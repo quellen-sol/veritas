@@ -86,9 +86,6 @@ pub fn spawn_price_points_liquidity_task(
                 let oracle_cache = oracle_cache.clone();
                 let sender_arc = sender_arc.clone();
 
-                #[cfg(feature = "debug-graph")]
-                let graph_debug_clone = graph.clone();
-
                 tokio::spawn(async move {
                     let now = Instant::now();
                     match dooot {
@@ -114,9 +111,6 @@ pub fn spawn_price_points_liquidity_task(
                             let mut g_write = graph.write().await;
                             let mut mint_indicies = mint_indicies.write().await;
 
-                            let parent_ix =
-                                get_or_add_mint_ix(&mint_pubkey, &mut g_write, &mut mint_indicies);
-
                             // Ordered with `mints`
                             let mut underlying_idxs = Vec::with_capacity(mints.len());
 
@@ -131,6 +125,12 @@ pub fn spawn_price_points_liquidity_task(
                             if mints.len() == 1 {
                                 let amt_per_parent = mints_qty_per_one_parent[0];
                                 if let Some(amt_per_parent) = Decimal::from_f64(amt_per_parent) {
+                                    let parent_ix = get_or_add_mint_ix(
+                                        &mint_pubkey,
+                                        &mut g_write,
+                                        &mut mint_indicies,
+                                    );
+
                                     let relation = LiqRelationEnum::Fixed { amt_per_parent };
 
                                     add_or_update_relation_edge(
@@ -316,34 +316,35 @@ pub fn spawn_price_points_liquidity_task(
                     }
 
                     log::debug!("PPL task finished in {:?}", now.elapsed());
+
+                    // Quick debug dump of the graph
+                    #[cfg(feature = "debug-graph")]
+                    {
+                        let g_read = graph.read().await;
+
+                        use petgraph::dot::Dot;
+                        use std::fs;
+                        let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
+                        fs::write("./graph.dot", formatted_dot_str).unwrap();
+
+                        // // Quick debug dump of the graph size
+                        // use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
+                        // use veritas_sdk::ppl_graph::graph::NODE_SIZE;
+                        // let num_nodes = g_read.node_count();
+                        // let num_edges = g_read.edge_count();
+                        // let node_bytes = num_nodes * NODE_SIZE;
+                        // let edge_bytes = num_edges * EDGE_SIZE;
+                        // // in KB
+                        // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
+                        // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
+                        // log::info!(
+                        //     "Total bytes: {:.2}K",
+                        //     (node_bytes + edge_bytes) as f64 / 1024.0
+                        // );
+                    }
+
                     counter.fetch_sub(1, Ordering::Relaxed);
                 });
-
-                // Quick debug dump of the graph
-                #[cfg(feature = "debug-graph")]
-                {
-                    let g_read = graph_debug_clone.read().await;
-                    
-                    use petgraph::dot::Dot;
-                    use std::fs;
-                    let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
-                    fs::write("./graph.dot", formatted_dot_str).unwrap();
-                    
-                    // // Quick debug dump of the graph size
-                    // use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
-                    // use veritas_sdk::ppl_graph::graph::NODE_SIZE;
-                    // let num_nodes = g_read.node_count();
-                    // let num_edges = g_read.edge_count();
-                    // let node_bytes = num_nodes * NODE_SIZE;
-                    // let edge_bytes = num_edges * EDGE_SIZE;
-                    // // in KB
-                    // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
-                    // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
-                    // log::info!(
-                    //     "Total bytes: {:.2}K",
-                    //     (node_bytes + edge_bytes) as f64 / 1024.0
-                    // );
-                }
             }
 
             log::warn!("Price points liquidity task (PPL) shutting down. Channel closed.");

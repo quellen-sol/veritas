@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use chrono::NaiveDateTime;
 use petgraph::{Directed, Graph};
@@ -13,18 +13,32 @@ pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
 pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 
-#[derive(Debug)]
+#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintNode {
     pub mint: String,
     pub usd_price: RwLock<Option<USDPriceWithSource>>,
 }
 
-#[derive(Debug)]
+#[cfg(feature = "debug-graph")]
+impl Debug for MintNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.5}\n{:?}", self.mint, self.usd_price)
+    }
+}
+
+#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintEdge {
     pub id: String,
     pub dirty: bool,
     pub last_updated: RwLock<NaiveDateTime>,
     pub inner_relation: RwLock<LiqRelationEnum>,
+}
+
+#[cfg(feature = "debug-graph")]
+impl Debug for MintEdge {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:.5}\n{:?}", self.id, self.inner_relation)
+    }
 }
 
 #[derive(Debug, Clone)]
