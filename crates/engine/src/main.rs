@@ -46,7 +46,7 @@ pub struct Args {
     pub calculator_update_buffer_size: usize,
 
     #[clap(long, env, default_value = "2000")]
-    pub ppl_buffer_size: usize,
+    pub ppl_dooot_buffer_size: usize,
 
     #[clap(long, env, default_value = "2000")]
     pub dooot_publisher_buffer_size: usize,
@@ -144,12 +144,26 @@ async fn main() -> Result<()> {
     amqp_manager.assert_amqp_topology().await?;
 
     // CHANNELS for tasks
+    log::info!("Creating channels...");
+    log::info!(
+        "Cache updator buffer size: {}",
+        args.cache_updator_buffer_size
+    );
+    log::info!(
+        "Calculator update buffer size: {}",
+        args.calculator_update_buffer_size
+    );
+    log::info!("PPL dooot buffer size: {}", args.ppl_dooot_buffer_size);
+    log::info!(
+        "Dooot publisher buffer size: {}",
+        args.dooot_publisher_buffer_size
+    );
     let (ch_cache_updator_req_tx, ch_cache_updator_req_rx) =
         tokio::sync::mpsc::channel::<String>(args.cache_updator_buffer_size);
     let (calculator_sender, calculator_receiver) =
         tokio::sync::mpsc::channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
     let (amqp_dooot_tx, amqp_dooot_rx) =
-        tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
+        tokio::sync::mpsc::channel::<Dooot>(args.ppl_dooot_buffer_size);
     let (publish_dooot_tx, publish_dooot_rx) =
         tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
