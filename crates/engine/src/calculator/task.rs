@@ -169,11 +169,12 @@ pub async fn bfs_recalculate(
     // Don't calc this token if it's an orcale,
     // but we still want to recurse, so this is a non-guarding branch
     if !is_oracle {
+        let mint = node_weight.mint.clone();
         let Some(this_price) = get_total_weighted_price(graph, this_node).await else {
+            log::warn!("Failed to calculate price for {mint}");
             return;
         };
 
-        let mint = node_weight.mint.clone();
         log::info!("Calculated price of {mint}: {this_price}");
 
         {

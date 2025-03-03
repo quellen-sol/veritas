@@ -24,13 +24,15 @@ pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Resul
 
     let query = "
         SELECT
-          base58Encode(reinterpretAsString(pool)) AS pool_pk,
-          curve_type
+            base58Encode(reinterpretAsString(pool)) AS pool_pk,
+            curve_type
         FROM lookup_lp_info lli
         WHERE lp_mint IS NOT null
-     ";
+    ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<LiquidityPoolRow>()?;
+
+    log::info!("Building LP cache...");
 
     while let Some(row) = cursor.next().await? {
         cache.insert(
@@ -41,6 +43,8 @@ pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Resul
             },
         );
     }
+
+    log::info!("LP cache built with {} pools", cache.len());
 
     Ok(cache)
 }

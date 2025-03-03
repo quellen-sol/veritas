@@ -28,7 +28,9 @@ use tokio::{
 };
 use veritas_sdk::{
     ppl_graph::{
-        graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
+        graph::{
+            MintEdge, MintNode, MintPricingGraph, USDPriceWithSource, WrappedMintPricingGraph,
+        },
         structs::LiqRelationEnum,
     },
     utils::{
@@ -238,7 +240,7 @@ pub fn spawn_price_points_liquidity_task(
 
                             let price = oracle_price.price;
 
-                            log::info!("New price for {feed_mint}: {price}");
+                            log::info!("New oracle price for {feed_mint}: {price}");
 
                             // Quick lock to update the oracle cache
                             {
@@ -246,10 +248,19 @@ pub fn spawn_price_points_liquidity_task(
                                 oc_write.insert(feed_mint.clone(), price);
                             }
 
-                            let mint_indicies_read = mint_indicies.read().await;
-
-                            let ix = mint_indicies_read.get(&feed_mint).cloned();
+                            let ix = {
+                                let mint_indicies_read = mint_indicies.read().await;
+                                mint_indicies_read.get(&feed_mint).cloned()
+                            };
                             if let Some(ix) = ix {
+                                // Update the price of the mint in the graph
+                                {
+                                    let g_read = graph.read().await;
+                                    let node_weight = g_read.node_weight(ix).unwrap();
+                                    let mut p_write = node_weight.usd_price.write().await;
+                                    p_write.replace(USDPriceWithSource::Oracle(price));
+                                }
+
                                 calculator_sender
                                     .send(CalculatorUpdate::OracleUSDPrice(ix))
                                     .await
@@ -433,6 +444,8 @@ where
     P: Fn(&MintEdge) -> bool,
 {
     let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
+
+    log::debug!("Adding or updating relation edge for {discriminant_id}: {update_with:?}");
 
     match edge {
         Some(edge_ix) => {

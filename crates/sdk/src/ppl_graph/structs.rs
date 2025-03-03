@@ -19,7 +19,8 @@ pub enum LiqAmount {
     Inf,
 }
 
-/// Each variant should contain enough information to calculate the price, liquidity, and liq levels
+/// Each variant should contain minimum information to calculate price, liquidity, and liq levels
+#[derive(Debug)]
 pub enum LiqRelationEnum {
     /// Constant Product LP
     CpLp {
