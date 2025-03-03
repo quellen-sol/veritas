@@ -165,7 +165,7 @@ pub fn spawn_price_points_liquidity_task(
                                         Some(&d) => d,
                                         None => {
                                             // Dispatch a request to get the decimals
-                                            sender_arc.send(mint_x.to_string()).await.unwrap();
+                                            sender_arc.try_send(mint_x.to_string()).ok();
                                             continue;
                                         }
                                     };
@@ -188,7 +188,7 @@ pub fn spawn_price_points_liquidity_task(
                                             Some(&d) => d,
                                             None => {
                                                 // Dispatch a request to get the decimals
-                                                sender_arc.send(mint_y.to_string()).await.unwrap();
+                                                sender_arc.try_send(mint_y.to_string()).ok();
                                                 continue;
                                             }
                                         };
