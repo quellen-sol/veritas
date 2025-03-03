@@ -38,7 +38,6 @@ pub async fn build_decimal_cache(
 
     while let Some(row) = cursor.next().await? {
         if let Some(decimals) = row.decimals {
-            log::debug!("Adding mint to decimal cache: {}", row.mint_pk);
             decimal_cache.insert(row.mint_pk, decimals);
         }
     }
