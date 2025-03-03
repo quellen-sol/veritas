@@ -25,7 +25,7 @@ pub async fn build_decimal_cache(
     decimal_cache.insert(WSOL_MINT.to_string(), 9);
     decimal_cache.insert(STEP_MINT.to_string(), 9);
 
-    // Pull all mints from CH, that have decimals > 0, and don't end in "pump"
+    // Pull all mints from CH that have decimals > 0
     let query = "
         SELECT
             base58Encode(reinterpretAsString(mint)) AS mint_pk,
@@ -38,11 +38,8 @@ pub async fn build_decimal_cache(
 
     while let Some(row) = cursor.next().await? {
         if let Some(decimals) = row.decimals {
-            // if row.mint_pk == "61V8vBaqAGMpgDQi4JcAwo1dmBGHsyhzodcPqnEVpump".to_string() {
-            //     panic!("Decimals: {decimals}");
-            // }
             log::debug!("Adding mint to decimal cache: {}", row.mint_pk);
-            decimal_cache.insert(row.mint_pk, decimals as u8);
+            decimal_cache.insert(row.mint_pk, decimals);
         }
     }
 

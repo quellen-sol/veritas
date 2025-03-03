@@ -150,80 +150,79 @@ pub fn spawn_price_points_liquidity_task(
                                 log::debug!("New token ratio update in {:?}", now.elapsed());
 
                                 return;
-                            }
+                            } else {
+                                let dc_read = decimal_cache.read().await;
 
-                            let dc_read = decimal_cache.read().await;
-
-                            // Create edges for all underlying mints (likely an LP)
-                            for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
-                                let mint_x = &mints[i_x];
-                                let decimals_x = {
-                                    match dc_read.get(mint_x) {
+                                // Create edges for all underlying mints (likely an LP)
+                                for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
+                                    let mint_x = &mints[i_x];
+                                    let decimals_x = match dc_read.get(mint_x) {
                                         Some(&d) => d,
                                         None => {
+                                            // Dispatch a request to get the decimals
                                             sender_arc.send(mint_x.to_string()).await.unwrap();
                                             continue;
                                         }
-                                    }
-                                };
-                                let Some(dec_factor_x) =
-                                    Decimal::from(10).checked_powi(decimals_x as i64)
-                                else {
-                                    log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {decimals_x}");
-                                    continue;
-                                };
-                                let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
+                                    };
 
-                                for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
-                                    if un_x == un_y {
+                                    let Some(dec_factor_x) =
+                                        Decimal::from(10).checked_powi(decimals_x as i64)
+                                    else {
+                                        log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {decimals_x}");
                                         continue;
-                                    }
+                                    };
+                                    let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
 
-                                    let mint_y = &mints[i_y];
-                                    let decimals_y = {
-                                        match dc_read.get(mint_y) {
+                                    for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
+                                        if un_x == un_y {
+                                            continue;
+                                        }
+
+                                        let mint_y = &mints[i_y];
+                                        let decimals_y = match dc_read.get(mint_y) {
                                             Some(&d) => d,
                                             None => {
+                                                // Dispatch a request to get the decimals
                                                 sender_arc.send(mint_y.to_string()).await.unwrap();
                                                 continue;
                                             }
-                                        }
-                                    };
+                                        };
 
-                                    let Some(dec_factor_y) =
-                                        Decimal::from(10).checked_powi(decimals_y as i64)
-                                    else {
-                                        log::warn!("Decimal overflow when trying to get decimals for {mint_y}: Decimals {decimals_y}");
-                                        continue;
-                                    };
-                                    let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
+                                        let Some(dec_factor_y) =
+                                            Decimal::from(10).checked_powi(decimals_y as i64)
+                                        else {
+                                            log::warn!("Decimal overflow when trying to get decimals for {mint_y}: Decimals {decimals_y}");
+                                            continue;
+                                        };
+                                        let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
 
-                                    match curve_type {
-                                        Some(ref ct) => match ct {
-                                            CurveType::ConstantProduct => {
-                                                let new_relation = LiqRelationEnum::CpLp {
-                                                    amt_origin: amt_x,
-                                                    amt_dest: amt_y,
-                                                };
+                                        match curve_type {
+                                            Some(ref ct) => match ct {
+                                                CurveType::ConstantProduct => {
+                                                    let new_relation = LiqRelationEnum::CpLp {
+                                                        amt_origin: amt_x,
+                                                        amt_dest: amt_y,
+                                                    };
 
-                                                add_or_update_relation_edge(
-                                                    un_x,
-                                                    un_y,
-                                                    &mut g_write,
-                                                    |e| e.id == discriminant_id,
-                                                    new_relation,
-                                                    &discriminant_id,
-                                                    time,
-                                                )
-                                                .await;
-                                            }
-                                            _ => {
-                                                // Unsupported CurveType
+                                                    add_or_update_relation_edge(
+                                                        un_x,
+                                                        un_y,
+                                                        &mut g_write,
+                                                        |e| e.id == discriminant_id,
+                                                        new_relation,
+                                                        &discriminant_id,
+                                                        time,
+                                                    )
+                                                    .await;
+                                                }
+                                                _ => {
+                                                    // Unsupported CurveType
+                                                    continue;
+                                                }
+                                            },
+                                            None => {
                                                 continue;
                                             }
-                                        },
-                                        None => {
-                                            continue;
                                         }
                                     }
                                 }
@@ -289,8 +288,10 @@ pub fn spawn_price_points_liquidity_task(
                                 counter.fetch_sub(1, Ordering::Relaxed);
                                 return;
                             }
-                            drop(l_read);
 
+                            // LP doesn't exist, drop the read and grab a write lock,
+                            // then insert the new LP
+                            drop(l_read);
                             let mut l_write = lp_cache.write().await;
                             l_write.insert(lp_mint, LiquidityPool { curve_type });
                         }
@@ -344,6 +345,7 @@ pub struct DecimalResult {
     decimals: Option<u8>,
 }
 
+#[inline]
 pub async fn query_decimals(
     clickhouse_client: Arc<clickhouse::Client>,
     mint: &str,
@@ -372,6 +374,7 @@ pub async fn query_decimals(
     }
 }
 
+#[inline]
 pub fn get_or_add_mint_ix(
     mint: &str,
     graph: &mut MintPricingGraph,
@@ -394,6 +397,7 @@ pub fn get_or_add_mint_ix(
     ix
 }
 
+#[inline]
 pub fn get_edge_by_predicate<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
@@ -413,8 +417,9 @@ where
     None
 }
 
-#[allow(clippy::unwrap_used)]
 /// Returns the edge idx that was updated
+#[inline]
+#[allow(clippy::unwrap_used)]
 pub async fn add_or_update_relation_edge<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
@@ -436,15 +441,17 @@ where
             let e_w = graph.edge_weight_mut(edge_ix).unwrap();
             e_w.dirty = true;
 
+            // Quick update of the last updated time
             {
-                // Quick update of the last updated time
                 let mut last_updated = e_w.last_updated.write().await;
                 *last_updated = time;
             }
 
-            // Need to update the edge with the new amount
-            let mut relation = e_w.inner_relation.write().await;
-            *relation = update_with;
+            // Quick update of the relation
+            {
+                let mut relation = e_w.inner_relation.write().await;
+                *relation = update_with;
+            }
 
             edge_ix
         }

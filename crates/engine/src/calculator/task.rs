@@ -4,7 +4,8 @@ use std::{
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
-    }, time::Instant,
+    },
+    time::{Duration, Instant},
 };
 
 use chrono::Utc;
@@ -46,6 +47,11 @@ pub async fn spawn_calculator_task(
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
+    let updator_graph = graph.clone();
+    let updator_clickhouse_client = clickhouse_client.clone();
+    let updator_decimals_cache = decimals_cache.clone();
+    let updator_dooot_tx = dooot_tx.clone();
+
     let update_task = tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
 
@@ -58,10 +64,10 @@ pub async fn spawn_calculator_task(
             counter.fetch_add(1, Ordering::Relaxed);
 
             // Make clones for the task
-            let graph = graph.clone();
-            let clickhouse_client = clickhouse_client.clone();
-            let decimals_cache = decimals_cache.clone();
-            let dooot_tx = dooot_tx.clone();
+            let graph = updator_graph.clone();
+            let clickhouse_client = updator_clickhouse_client.clone();
+            let decimals_cache = updator_decimals_cache.clone();
+            let dooot_tx = updator_dooot_tx.clone();
             let counter = counter.clone();
 
             tokio::spawn(async move {
@@ -103,20 +109,41 @@ pub async fn spawn_calculator_task(
         }
     });
 
-    // Task to periodically grab a copy of the graph and recalc
-    // let periodic_task = tokio::spawn(async move { loop {} });
+    // Task to periodically recalc the entire graph
+    let periodic_task = tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(Duration::from_secs(30)).await;
+
+            let graph = graph.clone();
+            let clickhouse_client = clickhouse_client.clone();
+            let decimals_cache = decimals_cache.clone();
+            let dooot_tx = dooot_tx.clone();
+
+            let g_read = graph.read().await;
+            let mut visited = Vec::new();
+
+            bfs_recalculate(
+                &g_read,
+                clickhouse_client,
+                decimals_cache,
+                NodeIndex::new(0),
+                &mut visited,
+                dooot_tx,
+            )
+            .await;
+        }
+    });
 
     tokio::select! {
         _ = update_task => {
             log::warn!("Update task exited!");
         }
-        // _ = periodic_task => {
-        //     log::warn!("Graph copier task exited!")
-        // }
+        _ = periodic_task => {
+            log::warn!("Graph copier task exited!")
+        }
     }
 }
 
-/// Used when oracles update
 #[allow(clippy::unwrap_used)]
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
@@ -132,13 +159,12 @@ pub async fn bfs_recalculate(
 
     visited_nodes.push(this_node);
 
-    // Guaranteed to be possible
+    // Guaranteed to be Some
     let node_weight = graph.node_weight(this_node).unwrap();
-
-    let p_read = node_weight.usd_price.read().await;
-    let price = p_read.as_ref();
-    let is_oracle = price.is_some_and(|p| p.is_oracle());
-    drop(p_read);
+    let is_oracle = {
+        let p_read = node_weight.usd_price.read().await;
+        p_read.as_ref().is_some_and(|p| p.is_oracle())
+    };
 
     // Don't calc this token if it's an orcale,
     // but we still want to recurse, so this is a non-guarding branch
@@ -148,7 +174,7 @@ pub async fn bfs_recalculate(
         };
 
         let mint = node_weight.mint.clone();
-        log::debug!("Calculated price of {mint}: {this_price}");
+        log::info!("Calculated price of {mint}: {this_price}");
 
         {
             let mut price_mut = node_weight.usd_price.write().await;
@@ -165,10 +191,6 @@ pub async fn bfs_recalculate(
     }
 
     for neighbor in graph.neighbors(this_node) {
-        if visited_nodes.contains(&neighbor) {
-            continue;
-        }
-
         Box::pin(bfs_recalculate(
             graph,
             clickhouse_client.clone(),
@@ -225,7 +247,10 @@ pub async fn get_liq_weighted_price_ratio(
     graph: &MintPricingGraph,
 ) -> Option<(Decimal, LiqAmount)> {
     let node_a = graph.node_weight(a)?;
-    let price_a = *node_a.usd_price.read().await.as_ref()?.extract_price();
+    let price_a = {
+        let n_read = node_a.usd_price.read().await;
+        *n_read.as_ref()?.extract_price()
+    };
 
     let edges_iter = graph.edges_connecting(a, b);
 
