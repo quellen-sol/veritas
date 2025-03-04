@@ -4,7 +4,7 @@ use std::{
         atomic::{AtomicU8, Ordering},
         Arc,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use anyhow::Result;
@@ -53,7 +53,7 @@ pub fn spawn_price_points_liquidity_task(
     lp_cache: Arc<RwLock<LpCache>>,
     oracle_cache: Arc<RwLock<OraclePriceCache>>,
     oracle_feed_map: Arc<HashMap<String, String>>,
-    max_subtasks: u8,
+    max_ppl_subtasks: u8,
     ch_cache_updator_req_tx: Sender<String>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
@@ -69,9 +69,9 @@ pub fn spawn_price_points_liquidity_task(
             let sender_arc = Arc::new(ch_cache_updator_req_tx);
 
             while let Some(dooot) = msg_rx.recv().await {
-                while counter.load(Ordering::Relaxed) >= max_subtasks {
-                    // Noop, wait for the other subtasks to finish
-                    // tokio::time::sleep(Duration::from_millis(100)).await;
+                while counter.load(Ordering::Relaxed) >= max_ppl_subtasks {
+                    // Wait for the other subtasks to finish
+                    tokio::time::sleep(Duration::from_millis(1)).await;
                 }
 
                 counter.fetch_add(1, Ordering::Relaxed);
@@ -414,7 +414,7 @@ pub struct DecimalResult {
 
 #[inline]
 pub async fn query_decimals(
-    clickhouse_client: Arc<clickhouse::Client>,
+    clickhouse_client: &clickhouse::Client,
     mint: &str,
 ) -> Result<Option<u8>> {
     let query = clickhouse_client

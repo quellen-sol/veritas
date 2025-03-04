@@ -57,7 +57,8 @@ pub async fn spawn_calculator_task(
 
         while let Some(update) = calculator_receiver.recv().await {
             while counter.load(Ordering::Relaxed) >= max_calculator_subtasks {
-                // Noop, wait for a task to become available
+                // Wait for a task to become available
+                tokio::time::sleep(Duration::from_millis(1)).await;
             }
 
             let now = Instant::now();
