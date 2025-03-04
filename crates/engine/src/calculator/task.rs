@@ -10,7 +10,7 @@ use std::{
 
 use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
-use rust_decimal::Decimal;
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::sync::{
     mpsc::{Receiver, Sender},
@@ -170,21 +170,30 @@ pub async fn bfs_recalculate(
     // but we still want to recurse, so this is a non-guarding branch
     if !is_oracle {
         let mint = node_weight.mint.clone();
-        let Some(this_price) = get_total_weighted_price(graph, this_node).await else {
+        let Some(new_price) = get_total_weighted_price(graph, this_node).await else {
             // log::warn!("Failed to calculate price for {mint}");
             return;
         };
 
-        log::debug!("Calculated price of {mint}: {this_price}");
+        log::debug!("Calculated price of {mint}: {new_price}");
 
         {
             let mut price_mut = node_weight.usd_price.write().await;
-            price_mut.replace(USDPriceWithSource::Relation(this_price));
+            if let Some(old_price) = price_mut.as_ref() {
+                let old_price = old_price.extract_price();
+                let pct_diff = ((new_price - old_price) / old_price).abs();
+                if pct_diff < Decimal::from_f64(0.001).unwrap() {
+                    // Not a significant enough change. Stop here and don't emit a dooot
+                    return;
+                }
+            }
+
+            price_mut.replace(USDPriceWithSource::Relation(new_price));
         }
 
         let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
             mint,
-            price_usd: this_price,
+            price_usd: new_price,
             time: Utc::now().naive_utc(),
         });
 
@@ -211,7 +220,7 @@ pub async fn get_total_weighted_price(
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
     for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
-        let Some((weighted, liq)) = get_liq_weighted_price_ratio(neighbor, this_node, graph).await
+        let Some((weighted, liq)) = get_single_wighted_price(neighbor, this_node, graph).await
         else {
             // Illiquid or price doesn't exist. Skip
             continue;
@@ -242,7 +251,7 @@ pub async fn get_total_weighted_price(
 /// # Returns (weighted_price, total_liquidity)
 ///
 /// ## `total_liquidity` is denominated in **`token_a_units`**
-pub async fn get_liq_weighted_price_ratio(
+pub async fn get_single_wighted_price(
     a: NodeIndex,
     b: NodeIndex,
     graph: &MintPricingGraph,
@@ -302,7 +311,7 @@ mod tests {
         structs::{LiqAmount, LiqRelationEnum},
     };
 
-    use crate::calculator::task::{get_liq_weighted_price_ratio, get_total_weighted_price};
+    use crate::calculator::task::{get_single_wighted_price, get_total_weighted_price};
 
     #[tokio::test]
     async fn weighted_liq() {
@@ -369,7 +378,7 @@ mod tests {
             },
         );
 
-        let (weighted, liq) = get_liq_weighted_price_ratio(usdc_x, step_x, &graph)
+        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph)
             .await
             .unwrap();
 
