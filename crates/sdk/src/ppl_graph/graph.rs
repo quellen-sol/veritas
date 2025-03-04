@@ -5,7 +5,7 @@ use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
-use super::structs::LiqRelationEnum;
+use super::structs::LiqRelation;
 
 pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
@@ -31,7 +31,7 @@ pub struct MintEdge {
     pub id: String,
     pub dirty: bool,
     pub last_updated: RwLock<NaiveDateTime>,
-    pub inner_relation: RwLock<LiqRelationEnum>,
+    pub inner_relation: RwLock<LiqRelation>,
 }
 
 #[cfg(feature = "debug-graph")]

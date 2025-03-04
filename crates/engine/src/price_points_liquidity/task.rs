@@ -31,7 +31,7 @@ use veritas_sdk::{
         graph::{
             MintEdge, MintNode, MintPricingGraph, USDPriceWithSource, WrappedMintPricingGraph,
         },
-        structs::LiqRelationEnum,
+        structs::LiqRelation,
     },
     utils::{
         decimal_cache::DecimalCache,
@@ -92,7 +92,7 @@ pub fn spawn_price_points_liquidity_task(
                         Dooot::MintUnderlyingsGlobal(mu_dooot) => {
                             let MintUnderlyingsGlobalDooot {
                                 time,
-                                mint_pubkey,
+                                mint_pubkey: parent_mint,
                                 discriminant_id,
                                 mints,
                                 total_underlying_amounts,
@@ -121,61 +121,80 @@ pub fn spawn_price_points_liquidity_task(
                                 underlying_idxs.push(mint_ix);
                             }
 
+                            let dc_read = decimal_cache.read().await;
+
                             // Add a Fixed relation to the parent if theres only one mint
                             if mints.len() == 1 {
                                 let amt_per_parent = mints_qty_per_one_parent[0];
-                                if let Some(amt_per_parent) = Decimal::from_f64(amt_per_parent) {
-                                    let parent_ix = get_or_add_mint_ix(
-                                        &mint_pubkey,
-                                        &mut g_write,
-                                        &mut mint_indicies,
-                                    );
-
-                                    let relation = LiqRelationEnum::Fixed { amt_per_parent };
-
-                                    add_or_update_relation_edge(
-                                        underlying_idxs[0],
-                                        parent_ix,
-                                        &mut g_write,
-                                        |e| e.id == discriminant_id,
-                                        relation,
-                                        &discriminant_id,
-                                        time,
-                                    )
-                                    .await;
-                                    drop(g_write);
-
-                                    let update = CalculatorUpdate::NewTokenRatio(parent_ix);
-                                    calculator_sender.send(update).await.unwrap();
-                                } else {
+                                let Some(amt_per_parent) = Decimal::from_f64(amt_per_parent) else {
                                     log::error!("Could not parse amt_per_parent into a Decimal: {amt_per_parent}");
-                                }
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
 
-                                counter.fetch_sub(1, Ordering::Relaxed);
+                                let parent_ix = get_or_add_mint_ix(
+                                    &parent_mint,
+                                    &mut g_write,
+                                    &mut mint_indicies,
+                                );
+
+                                let Some(dec_parent) =
+                                    get_or_dispatch_decimals(&sender_arc, &dc_read, &parent_mint)
+                                else {
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let this_mint = &mints[0];
+
+                                let Some(dec_this) =
+                                    get_or_dispatch_decimals(&sender_arc, &dc_read, this_mint)
+                                else {
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let exp = (dec_parent as i64) - (dec_this as i64);
+                                let Some(dec_factor) = Decimal::from(10).checked_powi(exp) else {
+                                    log::warn!(
+                                        "Decimal overflow when trying to get decimal factor for {parent_mint} and {this_mint}: Decimals are {dec_parent} and {dec_this} respectively"
+                                    );
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let amt_per_parent = amt_per_parent * dec_factor;
+                                let relation = LiqRelation::Fixed { amt_per_parent };
+
+                                add_or_update_relation_edge(
+                                    underlying_idxs[0],
+                                    parent_ix,
+                                    &mut g_write,
+                                    |e| e.id == discriminant_id,
+                                    relation,
+                                    &discriminant_id,
+                                    time,
+                                )
+                                .await;
+                                drop(g_write);
+
+                                let update = CalculatorUpdate::NewTokenRatio(parent_ix);
+                                calculator_sender.send(update).await.unwrap();
+
                                 log::debug!("New token ratio update in {:?}", now.elapsed());
-
-                                return;
                             } else {
-                                let dc_read = decimal_cache.read().await;
-
                                 // Create edges for all underlying mints (likely an LP)
                                 for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
                                     let mint_x = &mints[i_x];
-                                    let decimals_x = match dc_read.get(mint_x) {
-                                        Some(&d) => d,
-                                        None => {
-                                            // Dispatch a request to get the decimals
-                                            sender_arc.try_send(mint_x.to_string()).ok();
-                                            continue;
-                                        }
-                                    };
 
-                                    let Some(dec_factor_x) =
-                                        Decimal::from(10).checked_powi(decimals_x as i64)
-                                    else {
-                                        log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {decimals_x}");
+                                    let Some(dec_factor_x) = get_or_dispatch_decimal_factor(
+                                        &sender_arc,
+                                        &dc_read,
+                                        mint_x,
+                                    ) else {
                                         continue;
                                     };
+
                                     let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
 
                                     for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
@@ -184,27 +203,21 @@ pub fn spawn_price_points_liquidity_task(
                                         }
 
                                         let mint_y = &mints[i_y];
-                                        let decimals_y = match dc_read.get(mint_y) {
-                                            Some(&d) => d,
-                                            None => {
-                                                // Dispatch a request to get the decimals
-                                                sender_arc.try_send(mint_y.to_string()).ok();
-                                                continue;
-                                            }
-                                        };
 
-                                        let Some(dec_factor_y) =
-                                            Decimal::from(10).checked_powi(decimals_y as i64)
-                                        else {
-                                            log::warn!("Decimal overflow when trying to get decimals for {mint_y}: Decimals {decimals_y}");
+                                        let Some(dec_factor_y) = get_or_dispatch_decimal_factor(
+                                            &sender_arc,
+                                            &dc_read,
+                                            mint_y,
+                                        ) else {
                                             continue;
                                         };
+
                                         let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
 
                                         match curve_type {
                                             Some(ref ct) => match ct {
                                                 CurveType::ConstantProduct => {
-                                                    let new_relation = LiqRelationEnum::CpLp {
+                                                    let new_relation = LiqRelation::CpLp {
                                                         amt_origin: amt_x,
                                                         amt_dest: amt_y,
                                                     };
@@ -354,6 +367,46 @@ pub fn spawn_price_points_liquidity_task(
     Ok(task)
 }
 
+/// Returns the decimals for a mint, or None if the decimals are not in the cache
+///
+/// If the decimals are not in the cache, it will dispatch a request to get the decimals
+#[inline]
+fn get_or_dispatch_decimals(
+    sender_arc: &Sender<String>,
+    dc_read: &HashMap<String, u8>,
+    mint_x: &str,
+) -> Option<u8> {
+    let decimals_x = match dc_read.get(mint_x) {
+        Some(&d) => d,
+        None => {
+            // Dispatch a request to get the decimals
+            sender_arc.try_send(mint_x.to_string()).ok();
+            return None;
+        }
+    };
+    Some(decimals_x)
+}
+
+/// Returns the decimal factor for a mint, or None if the decimal factor is not in the cache
+///
+/// If the decimal factor is not in the cache, it will dispatch a request to get the decimal factor
+#[inline]
+fn get_or_dispatch_decimal_factor(
+    sender_arc: &Sender<String>,
+    dc_read: &HashMap<String, u8>,
+    mint_x: &str,
+) -> Option<Decimal> {
+    let dec = get_or_dispatch_decimals(sender_arc, dc_read, mint_x)?;
+
+    let dec_factor = Decimal::from(10).checked_powi(dec as i64);
+
+    if dec_factor.is_none() {
+        log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {dec}");
+    }
+
+    dec_factor
+}
+
 #[derive(Deserialize, Row)]
 pub struct DecimalResult {
     decimals: Option<u8>,
@@ -439,7 +492,7 @@ pub async fn add_or_update_relation_edge<P>(
     ix_b: NodeIndex,
     graph: &mut MintPricingGraph,
     get_predicate: P,
-    update_with: LiqRelationEnum,
+    update_with: LiqRelation,
     discriminant_id: &str,
     time: NaiveDateTime,
 ) -> EdgeIndex

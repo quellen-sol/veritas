@@ -308,7 +308,7 @@ mod tests {
     use tokio::sync::RwLock;
     use veritas_sdk::ppl_graph::{
         graph::{MintEdge, MintNode, USDPriceWithSource},
-        structs::{LiqAmount, LiqRelationEnum},
+        structs::{LiqAmount, LiqRelation},
     };
 
     use crate::calculator::task::{get_single_wighted_price, get_total_weighted_price};
@@ -342,7 +342,7 @@ mod tests {
             MintEdge {
                 dirty: false,
                 id: "SomeMarket".into(),
-                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(5),
                 }),
@@ -356,7 +356,7 @@ mod tests {
             MintEdge {
                 dirty: false,
                 id: "OtherMarket".into(),
-                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
                 }),
@@ -370,7 +370,7 @@ mod tests {
             MintEdge {
                 dirty: false,
                 id: "IlliquidMarket".into(),
-                inner_relation: RwLock::new(LiqRelationEnum::CpLp {
+                inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
                 }),

@@ -21,7 +21,7 @@ pub enum LiqAmount {
 
 /// Each variant should contain minimum information to calculate price, liquidity, and liq levels
 #[derive(Debug)]
-pub enum LiqRelationEnum {
+pub enum LiqRelation {
     /// Constant Product LP
     CpLp {
         /// Expressed in UNITS
@@ -39,16 +39,16 @@ pub enum LiqRelationEnum {
     // Clmm,
 }
 
-impl LiqRelationEnum {
+impl LiqRelation {
     #[inline]
     pub fn get_price(&self, usd_price_origin: Decimal) -> Decimal {
         match self {
-            LiqRelationEnum::CpLp {
+            LiqRelation::CpLp {
                 amt_origin,
                 amt_dest,
                 ..
             } => (amt_origin / amt_dest) * usd_price_origin,
-            LiqRelationEnum::Fixed { amt_per_parent } => usd_price_origin * amt_per_parent,
+            LiqRelation::Fixed { amt_per_parent } => usd_price_origin * amt_per_parent,
         }
     }
 
@@ -68,12 +68,12 @@ impl LiqRelationEnum {
     #[inline]
     pub fn get_liquidity(&self, price_source_usd: Decimal, price_dest_usd: Decimal) -> LiqAmount {
         match self {
-            LiqRelationEnum::CpLp {
+            LiqRelation::CpLp {
                 amt_origin,
                 amt_dest,
                 ..
             } => LiqAmount::Amount(amt_origin * price_source_usd + amt_dest * price_dest_usd),
-            LiqRelationEnum::Fixed { .. } => LiqAmount::Inf,
+            LiqRelation::Fixed { .. } => LiqAmount::Inf,
         }
     }
 }
