@@ -1,6 +1,6 @@
 // #![allow(unused)]
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -76,7 +76,7 @@ pub async fn spawn_calculator_task(
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token) => {
                         let g_read = graph.read().await;
-                        let mut visited = Vec::with_capacity(g_read.node_count());
+                        let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
                         bfs_recalculate(
                             &g_read,
@@ -90,7 +90,7 @@ pub async fn spawn_calculator_task(
                     }
                     CalculatorUpdate::NewTokenRatio(token) => {
                         let g_read = graph.read().await;
-                        let mut visited = Vec::with_capacity(g_read.node_count());
+                        let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
                         bfs_recalculate(
                             &g_read,
@@ -121,7 +121,7 @@ pub async fn spawn_calculator_task(
             let dooot_tx = dooot_tx.clone();
 
             let g_read = graph.read().await;
-            let mut visited = Vec::with_capacity(g_read.node_count());
+            let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
             bfs_recalculate(
                 &g_read,
@@ -150,18 +150,18 @@ pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
     clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    this_node: NodeIndex,
-    visited_nodes: &mut Vec<NodeIndex>,
+    node: NodeIndex,
+    visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Arc<Sender<Dooot>>,
 ) {
-    if visited_nodes.contains(&this_node) {
+    if visited_nodes.contains(&node) {
         return;
     }
 
-    visited_nodes.push(this_node);
+    visited_nodes.insert(node);
 
     // Guaranteed to be Some
-    let node_weight = graph.node_weight(this_node).unwrap();
+    let node_weight = graph.node_weight(node).unwrap();
     let is_oracle = {
         let p_read = node_weight.usd_price.read().await;
         p_read.as_ref().is_some_and(|p| p.is_oracle())
@@ -171,7 +171,7 @@ pub async fn bfs_recalculate(
     // but we still want to recurse, so this is a non-guarding branch
     if !is_oracle {
         let mint = node_weight.mint.clone();
-        let Some(new_price) = get_total_weighted_price(graph, this_node).await else {
+        let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
             return;
         };
@@ -201,7 +201,7 @@ pub async fn bfs_recalculate(
         dooot_tx.send(dooot).await.unwrap();
     }
 
-    for neighbor in graph.neighbors(this_node) {
+    for neighbor in graph.neighbors(node) {
         Box::pin(bfs_recalculate(
             graph,
             clickhouse_client.clone(),
