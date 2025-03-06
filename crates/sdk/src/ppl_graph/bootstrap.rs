@@ -53,7 +53,7 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
 ";
 
 pub async fn bootstrap_graph(
-    clickhouse_client: Arc<clickhouse::Client>,
+    clickhouse_client: clickhouse::Client,
     dooot_tx: Arc<Sender<Dooot>>,
 ) -> Result<()> {
     load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
@@ -72,7 +72,7 @@ pub async fn bootstrap_graph(
 pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D: DoootTrait>(
     sql_query: &str,
     dooot_name: &str,
-    clickhouse_client: Arc<clickhouse::Client>,
+    clickhouse_client: clickhouse::Client,
     dooot_tx: Arc<Sender<Dooot>>,
 ) -> Result<()> {
     log::info!("Loading current Dooots from Clickhouse...");

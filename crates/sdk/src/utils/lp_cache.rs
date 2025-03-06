@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use anyhow::Result;
 use clickhouse::Row;
@@ -19,7 +19,7 @@ pub struct LiquidityPoolRow {
     pub curve_type: u16,
 }
 
-pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Result<LpCache> {
+pub async fn build_lp_cache(clickhouse_client: clickhouse::Client) -> Result<LpCache> {
     // Allow for 1M liquidity pools, as of the first time writing this comment, there are 531K
     let mut cache = LpCache::with_capacity(1_000_000);
 

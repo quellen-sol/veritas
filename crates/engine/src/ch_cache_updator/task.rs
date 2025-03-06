@@ -14,9 +14,10 @@ use veritas_sdk::utils::decimal_cache::DecimalCache;
 
 use crate::price_points_liquidity::task::query_decimals;
 
+/// No `Arc` for the clickhouse client, since we can clone it and use a pool
 pub fn spawn_ch_cache_updator_task(
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    clickhouse_client: Arc<clickhouse::Client>,
+    clickhouse_client: clickhouse::Client,
     mut req_rx: Receiver<String>,
     max_cache_updator_subtasks: u8,
 ) -> JoinHandle<()> {

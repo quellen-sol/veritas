@@ -109,7 +109,6 @@ async fn main() -> Result<()> {
         clickhouse_client = clickhouse_client.with_password(password);
     }
 
-    let clickhouse_client = Arc::new(clickhouse_client);
     log::info!("Created Clickhouse client");
 
     let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
@@ -182,12 +181,8 @@ async fn main() -> Result<()> {
     // DO NOT `await` THIS, LET THE `select!` BLOCK HANDLE IT
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
-        clickhouse_client.clone(),
         mint_price_graph.clone(),
         decimal_cache.clone(),
-        lp_cache.clone(),
-        oracle_cache.clone(),
-        oracle_feed_map.clone(),
         Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
     );

@@ -1,6 +1,6 @@
 // #![allow(unused)]
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
         atomic::{AtomicU8, Ordering},
         Arc,
@@ -21,7 +21,7 @@ use veritas_sdk::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, oracle_cache::OraclePriceCache},
+    utils::decimal_cache::DecimalCache,
 };
 
 #[derive(Debug)]
@@ -35,12 +35,8 @@ pub enum CalculatorUpdate {
 #[allow(clippy::too_many_arguments)]
 pub async fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
-    clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    _lp_cache: Arc<RwLock<LpCache>>,
-    _oracle_cache: Arc<RwLock<OraclePriceCache>>,
-    _oracle_feed_map: Arc<HashMap<String, String>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
 ) {
@@ -48,7 +44,6 @@ pub async fn spawn_calculator_task(
 
     // Spawn a task to accept token updates
     let updator_graph = graph.clone();
-    let updator_clickhouse_client = clickhouse_client.clone();
     let updator_decimals_cache = decimals_cache.clone();
     let updator_dooot_tx = dooot_tx.clone();
 
@@ -66,7 +61,6 @@ pub async fn spawn_calculator_task(
 
             // Make clones for the task
             let graph = updator_graph.clone();
-            let clickhouse_client = updator_clickhouse_client.clone();
             let decimals_cache = updator_decimals_cache.clone();
             let dooot_tx = updator_dooot_tx.clone();
             let counter = counter.clone();
@@ -80,7 +74,6 @@ pub async fn spawn_calculator_task(
 
                         bfs_recalculate(
                             &g_read,
-                            clickhouse_client.clone(),
                             decimals_cache.clone(),
                             token,
                             &mut visited,
@@ -94,7 +87,6 @@ pub async fn spawn_calculator_task(
 
                         bfs_recalculate(
                             &g_read,
-                            clickhouse_client.clone(),
                             decimals_cache.clone(),
                             token,
                             &mut visited,
@@ -116,7 +108,6 @@ pub async fn spawn_calculator_task(
             tokio::time::sleep(Duration::from_secs(30)).await;
 
             let graph = graph.clone();
-            let clickhouse_client = clickhouse_client.clone();
             let decimals_cache = decimals_cache.clone();
             let dooot_tx = dooot_tx.clone();
 
@@ -125,7 +116,6 @@ pub async fn spawn_calculator_task(
 
             bfs_recalculate(
                 &g_read,
-                clickhouse_client,
                 decimals_cache,
                 NodeIndex::new(0),
                 &mut visited,
@@ -148,7 +138,6 @@ pub async fn spawn_calculator_task(
 #[allow(clippy::unwrap_used)]
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
-    clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     node: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
@@ -204,7 +193,6 @@ pub async fn bfs_recalculate(
     for neighbor in graph.neighbors(node) {
         Box::pin(bfs_recalculate(
             graph,
-            clickhouse_client.clone(),
             decimals_cache.clone(),
             neighbor,
             visited_nodes,
