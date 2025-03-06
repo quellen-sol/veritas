@@ -93,7 +93,6 @@ pub fn spawn_price_points_liquidity_task(
                             let MintUnderlyingsGlobalDooot {
                                 time,
                                 mint_pubkey: parent_mint,
-                                discriminant_id,
                                 mints,
                                 total_underlying_amounts,
                                 mints_qty_per_one_parent,
@@ -103,9 +102,7 @@ pub fn spawn_price_points_liquidity_task(
                             // None if theres no LP associated with this
                             let curve_type = {
                                 let lpc_read = lp_cache.read().await;
-                                lpc_read
-                                    .get(&discriminant_id)
-                                    .map(|lp| lp.curve_type.clone())
+                                lpc_read.get(&parent_mint).map(|lp| lp.curve_type.clone())
                             };
 
                             let mut g_write = graph.write().await;
@@ -170,9 +167,9 @@ pub fn spawn_price_points_liquidity_task(
                                     underlying_idxs[0],
                                     parent_ix,
                                     &mut g_write,
-                                    |e| e.id == discriminant_id,
+                                    |e| e.id == parent_mint,
                                     relation,
-                                    &discriminant_id,
+                                    &parent_mint,
                                     time,
                                 )
                                 .await;
@@ -226,9 +223,9 @@ pub fn spawn_price_points_liquidity_task(
                                                         un_x,
                                                         un_y,
                                                         &mut g_write,
-                                                        |e| e.id == discriminant_id,
+                                                        |e| e.id == parent_mint,
                                                         new_relation,
-                                                        &discriminant_id,
+                                                        &parent_mint,
                                                         time,
                                                     )
                                                     .await;

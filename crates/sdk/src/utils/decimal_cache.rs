@@ -28,7 +28,7 @@ pub async fn build_decimal_cache(
     // Pull all mints from CH that have decimals > 0
     let query = "
         SELECT
-            base58Encode(reinterpretAsString(mint)) AS mint_pk,
+            base58Encode(mint) AS mint_pk,
             finalizeAggregation(decimals) AS decimals
         FROM lookup_mint_info lmi
         WHERE decimals > 0

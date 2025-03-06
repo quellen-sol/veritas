@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use lapin::{
@@ -66,7 +68,7 @@ impl AMQPManager {
         Ok(())
     }
 
-    pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
+    pub async fn spawn_amqp_listener(&self, msg_tx: Arc<Sender<Dooot>>) -> Result<JoinHandle<()>> {
         let mut consumer = self
             .channel
             .basic_consume(
@@ -157,7 +159,7 @@ impl AMQPManager {
                 lapin::ExchangeKind::Topic,
                 ExchangeDeclareOptions {
                     auto_delete: self.is_debug,
-                    durable: !self.is_debug,
+                    durable: false,
                     ..Default::default()
                 },
                 FieldTable::default(),
@@ -171,7 +173,7 @@ impl AMQPManager {
                 &self.dlq_name,
                 QueueDeclareOptions {
                     auto_delete: self.is_debug,
-                    durable: !self.is_debug,
+                    durable: false,
                     exclusive: self.is_debug,
                     ..Default::default()
                 },
@@ -204,7 +206,7 @@ impl AMQPManager {
                 QueueDeclareOptions {
                     auto_delete: self.is_debug,
                     exclusive: self.is_debug,
-                    durable: !self.is_debug,
+                    durable: false,
                     ..Default::default()
                 },
                 queue_args,

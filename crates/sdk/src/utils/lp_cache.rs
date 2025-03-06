@@ -15,6 +15,7 @@ pub struct LiquidityPool {
 #[derive(Deserialize, Row)]
 pub struct LiquidityPoolRow {
     pub pool_pk: String,
+    pub lp_mint: Option<String>,
     pub curve_type: u16,
 }
 
@@ -24,10 +25,10 @@ pub async fn build_lp_cache(clickhouse_client: Arc<clickhouse::Client>) -> Resul
 
     let query = "
         SELECT
-            base58Encode(reinterpretAsString(pool)) AS pool_pk,
+            base58Encode(pool) AS pool_pk,
+            base58Encode(lp_mint) AS lp_mint,
             curve_type
         FROM lookup_lp_info lli
-        WHERE lp_mint IS NOT null
     ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<LiquidityPoolRow>()?;
