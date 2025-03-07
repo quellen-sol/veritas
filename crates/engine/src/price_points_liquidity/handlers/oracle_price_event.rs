@@ -9,6 +9,7 @@ use veritas_sdk::{
 
 use crate::{calculator::task::CalculatorUpdate, price_points_liquidity::task::MintIndiciesMap};
 
+#[allow(clippy::unwrap_used)]
 pub async fn handle_oracle_price_event(
     oracle_price: OraclePriceEventDooot,
     oracle_feed_map: Arc<HashMap<String, String>>,

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{collections::HashSet, sync::Arc};
 
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
@@ -16,6 +16,7 @@ use crate::{
     },
 };
 
+#[allow(clippy::unwrap_used)]
 pub async fn handle_mint_underlyings(
     mu_dooot: MintUnderlyingsGlobalDooot,
     lp_cache: Arc<RwLock<LpCache>>,
@@ -33,12 +34,6 @@ pub async fn handle_mint_underlyings(
         mints_qty_per_one_parent,
         ..
     } = mu_dooot;
-
-    // None if theres no LP associated with this
-    let curve_type = {
-        let lpc_read = lp_cache.read().await;
-        lpc_read.get(&parent_mint).map(|lp| lp.curve_type.clone())
-    };
 
     let mut g_write = graph.write().await;
     let mut mint_indicies = mint_indicies.write().await;
@@ -63,6 +58,7 @@ pub async fn handle_mint_underlyings(
         };
 
         let parent_ix = get_or_add_mint_ix(&parent_mint, &mut g_write, &mut mint_indicies);
+        drop(mint_indicies);
 
         let Some(dec_parent) = get_or_dispatch_decimals(&sender_arc, &dc_read, &parent_mint) else {
             return;
@@ -76,7 +72,7 @@ pub async fn handle_mint_underlyings(
 
         let exp = (dec_parent as i64) - (dec_this as i64);
         let Some(dec_factor) = Decimal::from(10).checked_powi(exp) else {
-            log::warn!("Decimal overflow when trying to get decimal factor for {parent_mint} and {this_mint}: Decimals are {dec_parent} and {dec_this} respectively");
+            log::warn!("Decimal overflow when trying to get decimal factor for {parent_mint} ({dec_parent}) and {this_mint} ({dec_this})");
             return;
         };
 
@@ -98,6 +94,22 @@ pub async fn handle_mint_underlyings(
         let update = CalculatorUpdate::NewTokenRatio(parent_ix);
         calculator_sender.send(update).await.unwrap();
     } else {
+        // No longer needed
+        drop(mint_indicies);
+
+        // None if theres no LP associated with this
+        let curve_type = {
+            let lpc_read = lp_cache.read().await;
+            lpc_read.get(&parent_mint).map(|lp| lp.curve_type.clone())
+        };
+
+        let Some(ref curve_type) = curve_type else {
+            // No LP, so we can't create an edge
+            return;
+        };
+
+        let mut updated_ixs = HashSet::new();
+
         // Create edges for all underlying mints (likely an LP)
         for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
             let mint_x = &mints[i_x];
@@ -125,34 +137,35 @@ pub async fn handle_mint_underlyings(
                 let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
 
                 match curve_type {
-                    Some(ref ct) => match ct {
-                        CurveType::ConstantProduct => {
-                            let new_relation = LiqRelation::CpLp {
-                                amt_origin: amt_x,
-                                amt_dest: amt_y,
-                            };
+                    CurveType::ConstantProduct => {
+                        let new_relation = LiqRelation::CpLp {
+                            amt_origin: amt_x,
+                            amt_dest: amt_y,
+                        };
 
-                            add_or_update_relation_edge(
-                                un_x,
-                                un_y,
-                                &mut g_write,
-                                |e| e.id == parent_mint,
-                                new_relation,
-                                &parent_mint,
-                                time,
-                            )
-                            .await;
-                        }
-                        _ => {
-                            // Unsupported CurveType
-                            return;
-                        }
-                    },
-                    None => {
-                        return;
+                        add_or_update_relation_edge(
+                            un_x,
+                            un_y,
+                            &mut g_write,
+                            |e| e.id == parent_mint,
+                            new_relation,
+                            &parent_mint,
+                            time,
+                        )
+                        .await;
+
+                        updated_ixs.insert(un_y);
+                    }
+                    _ => {
+                        // Unsupported CurveType
                     }
                 }
             }
+        }
+
+        for ix in updated_ixs {
+            let update = CalculatorUpdate::NewTokenRatio(ix);
+            calculator_sender.send(update).await.unwrap();
         }
     }
 }
