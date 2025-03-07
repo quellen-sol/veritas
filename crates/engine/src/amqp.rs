@@ -116,37 +116,34 @@ impl AMQPManager {
         Ok(handle)
     }
 
-    #[allow(clippy::unwrap_used)]
-    pub async fn spawn_dooot_publisher(
-        &self,
-        mut dooot_tx: Receiver<Dooot>,
-    ) -> Result<JoinHandle<()>> {
+    pub async fn spawn_dooot_publisher(&self, mut dooot_tx: Receiver<Dooot>) -> JoinHandle<()> {
         let db_writes = self.db_writes;
         let channel = self.channel.clone();
         let dooot_exchange = self.dooot_exchange.clone();
 
-        let handle = tokio::spawn(async move {
-            while let Some(dooot) = dooot_tx.recv().await {
-                if !db_writes {
-                    continue;
+        tokio::spawn(
+            #[allow(clippy::unwrap_used)]
+            async move {
+                while let Some(dooot) = dooot_tx.recv().await {
+                    if !db_writes {
+                        continue;
+                    }
+
+                    let payload = serde_json::to_string(&dooot).unwrap().into_bytes();
+                    channel
+                        .basic_publish(
+                            &dooot_exchange,
+                            "TokenPriceGlobal",
+                            BasicPublishOptions::default(),
+                            &payload,
+                            BasicProperties::default(),
+                        )
+                        .await
+                        .context("Error publishing dooot")
+                        .unwrap();
                 }
-
-                let payload = serde_json::to_string(&dooot).unwrap().into_bytes();
-                channel
-                    .basic_publish(
-                        &dooot_exchange,
-                        "TokenPriceGlobal",
-                        BasicPublishOptions::default(),
-                        &payload,
-                        BasicProperties::default(),
-                    )
-                    .await
-                    .context("Error publishing dooot")
-                    .unwrap();
-            }
-        });
-
-        Ok(handle)
+            },
+        )
     }
 
     pub async fn assert_amqp_topology(&self) -> Result<()> {

@@ -1,320 +1,363 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{
+        atomic::{AtomicU8, Ordering},
+        Arc,
+    },
+    time::{Duration, Instant},
+};
 
-use anyhow::{Context, Result};
-use petgraph::{graph::NodeIndex, visit::EdgeRef};
+use anyhow::Result;
+use chrono::NaiveDateTime;
+use clickhouse::Row;
+use petgraph::{
+    graph::{EdgeIndex, NodeIndex},
+    visit::EdgeRef,
+};
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
+use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{
-    Dooot, MintInfoDooot, MintUnderlyingsGlobalDooot, SwapEventDooot,
+    CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
-        OwnedRwLockWriteGuard, RwLock,
+        RwLock,
     },
     task::JoinHandle,
 };
 use veritas_sdk::{
-    constants::{USDC_FEED_ACCOUNT_ID, USDC_MINT},
-    ppl_graph::graph::{MintEdge, MintLiquidity, MintNode, WrappedMintPricingGraph},
-    utils::decimal_cache::DecimalCache,
+    ppl_graph::{
+        graph::{
+            MintEdge, MintNode, MintPricingGraph, USDPriceWithSource, WrappedMintPricingGraph,
+        },
+        structs::LiqRelation,
+    },
+    utils::{
+        decimal_cache::DecimalCache,
+        lp_cache::{LiquidityPool, LpCache},
+        oracle_cache::OraclePriceCache,
+    },
 };
 
-use crate::calculator::task::{get_mint_decimals, CalculatorUpdate};
+use crate::calculator::task::CalculatorUpdate;
 
 type MintIndiciesMap = HashMap<String, NodeIndex>;
 
+#[allow(clippy::too_many_arguments)]
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
     graph: WrappedMintPricingGraph,
     calculator_sender: Sender<CalculatorUpdate>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    clickhouse_client: Arc<clickhouse::Client>,
+    lp_cache: Arc<RwLock<LpCache>>,
+    oracle_cache: Arc<RwLock<OraclePriceCache>>,
+    oracle_feed_map: Arc<HashMap<String, String>>,
+    max_ppl_subtasks: u8,
+    ch_cache_updator_req_tx: Sender<String>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
     // Only to be used if we never *remove* nodes from the graph
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
-    let mut mint_indicies: MintIndiciesMap = HashMap::new();
+    let mint_indicies = Arc::new(RwLock::new(HashMap::new()));
 
     let task = tokio::spawn(
         #[allow(clippy::unwrap_used)]
         async move {
+            let counter = Arc::new(AtomicU8::new(0));
+            let sender_arc = Arc::new(ch_cache_updator_req_tx);
+
             while let Some(dooot) = msg_rx.recv().await {
-                match dooot {
-                    Dooot::SwapEvent(swap) => {
-                        let SwapEventDooot {
-                            in_mint_pubkey,
-                            out_mint_pubkey,
-                            in_amount,
-                            out_amount,
-                            market_pubkey,
-                            time,
-                            ..
-                        } = swap;
+                while counter.load(Ordering::Relaxed) >= max_ppl_subtasks {
+                    // Wait for the other subtasks to finish
+                    tokio::time::sleep(Duration::from_millis(1)).await;
+                }
 
-                        if in_amount == Decimal::ZERO {
-                            // Skip swaps where the input amount is 0
-                            continue;
-                        }
+                counter.fetch_add(1, Ordering::Relaxed);
 
-                        // Extra debugging check. This will only consider USDC swaps
-                        if in_mint_pubkey != USDC_MINT && out_mint_pubkey != USDC_MINT {
-                            // Only process USDC-based swaps for now
-                            continue;
-                        }
+                let counter = counter.clone();
+                let lp_cache = lp_cache.clone();
+                let graph = graph.clone();
+                let calculator_sender = calculator_sender.clone();
+                let decimal_cache = decimal_cache.clone();
+                let oracle_feed_map = oracle_feed_map.clone();
+                let mint_indicies = mint_indicies.clone();
+                let oracle_cache = oracle_cache.clone();
+                let sender_arc = sender_arc.clone();
 
-                        // // Extra debugging check. This will only consider WSOL swaps
-                        // if in_mint_pubkey != WSOL_MINT && out_mint_pubkey != WSOL_MINT {
-                        //     // Only process WSOL-based swaps for now
-                        //     continue;
-                        // }
+                tokio::spawn(async move {
+                    let now = Instant::now();
+                    match dooot {
+                        Dooot::MintUnderlyingsGlobal(mu_dooot) => {
+                            let MintUnderlyingsGlobalDooot {
+                                time,
+                                mint_pubkey: parent_mint,
+                                discriminant_id,
+                                mints,
+                                total_underlying_amounts,
+                                mints_qty_per_one_parent,
+                                ..
+                            } = mu_dooot;
 
-                        // // Extra debugging check. This will only consider STEP swaps
-                        // if in_mint_pubkey != STEP_MINT && out_mint_pubkey != STEP_MINT {
-                        //     // Only process STEP-based swaps for now
-                        //     continue;
-                        // }
+                            // None if theres no LP associated with this
+                            let curve_type = {
+                                let lpc_read = lp_cache.read().await;
+                                lpc_read
+                                    .get(&discriminant_id)
+                                    .map(|lp| lp.curve_type.clone())
+                            };
 
-                        if in_mint_pubkey == out_mint_pubkey {
-                            // Skip self-swapping arbs
-                            continue;
-                        }
+                            let mut g_write = graph.write().await;
+                            let mut mint_indicies = mint_indicies.write().await;
 
-                        let Some(market) = market_pubkey else {
-                            // Disallow aggregator swaps for now
-                            continue;
-                        };
+                            // Ordered with `mints`
+                            let mut underlying_idxs = Vec::with_capacity(mints.len());
 
-                        let Ok(decimals) = get_mint_decimals(
-                            &[&in_mint_pubkey, &out_mint_pubkey],
-                            decimal_cache.clone(),
-                            clickhouse_client.clone(),
-                        )
-                        .await
-                        else {
-                            continue;
-                        };
+                            for mint in mints.iter() {
+                                let mint_ix =
+                                    get_or_add_mint_ix(mint, &mut g_write, &mut mint_indicies);
 
-                        let in_decimals = decimals
-                            .iter()
-                            .find(|d| d.mint_pubkey == in_mint_pubkey)
-                            .and_then(|d| d.decimals);
-                        let out_decimals = decimals
-                            .iter()
-                            .find(|d| d.mint_pubkey == out_mint_pubkey)
-                            .and_then(|d| d.decimals);
-
-                        // TODO: Remove once mint table is completely populated & migrated
-                        // For now, skip mints that don't have decimals in cache or DB
-                        let (Some(in_decimals), Some(out_decimals)) = (in_decimals, out_decimals)
-                        else {
-                            // log::error!(
-                            //     "Cannot find decimals for mint: {in_mint_pubkey} or {out_mint_pubkey}"
-                            // );
-                            continue;
-                        };
-
-                        let indicies = get_or_add_mint_indicies(
-                            &[&in_mint_pubkey, &out_mint_pubkey],
-                            graph.clone(),
-                            &mut mint_indicies,
-                        )
-                        .await;
-
-                        let in_mint_ix = indicies[0];
-                        let out_mint_ix = indicies[1];
-
-                        let out_per_in = out_amount / in_amount;
-
-                        let mint_edge_res =
-                            access_or_add_edge(out_mint_ix, in_mint_ix, graph.clone(), |e| {
-                                e.market == Some(market.clone())
-                            })
-                            .await;
-
-                        let mut mint_edge = match mint_edge_res {
-                            Ok(edge) => edge,
-                            Err(e) => {
-                                log::error!("Error accessing or adding edge: {}", e);
-                                continue;
+                                underlying_idxs.push(mint_ix);
                             }
-                        };
 
-                        mint_edge.last_updated = time;
-                        mint_edge.market.replace(market);
-                        mint_edge.this_per_that.replace(out_per_in);
+                            let dc_read = decimal_cache.read().await;
 
-                        let decimal_factor = Decimal::from(10)
-                            .powi(((in_decimals as i16) - (out_decimals as i16)) as i64);
+                            // Add a Fixed relation to the parent if theres only one mint
+                            if mints.len() == 1 {
+                                let amt_per_parent = mints_qty_per_one_parent[0];
+                                let Some(amt_per_parent) = Decimal::from_f64(amt_per_parent) else {
+                                    log::error!("Could not parse amt_per_parent into a Decimal: {amt_per_parent}");
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
 
-                        let final_price = out_per_in * decimal_factor;
+                                let parent_ix = get_or_add_mint_ix(
+                                    &parent_mint,
+                                    &mut g_write,
+                                    &mut mint_indicies,
+                                );
 
-                        if final_price.is_zero() {
-                            continue;
+                                let Some(dec_parent) =
+                                    get_or_dispatch_decimals(&sender_arc, &dc_read, &parent_mint)
+                                else {
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let this_mint = &mints[0];
+
+                                let Some(dec_this) =
+                                    get_or_dispatch_decimals(&sender_arc, &dc_read, this_mint)
+                                else {
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let exp = (dec_parent as i64) - (dec_this as i64);
+                                let Some(dec_factor) = Decimal::from(10).checked_powi(exp) else {
+                                    log::warn!(
+                                        "Decimal overflow when trying to get decimal factor for {parent_mint} and {this_mint}: Decimals are {dec_parent} and {dec_this} respectively"
+                                    );
+                                    counter.fetch_sub(1, Ordering::Relaxed);
+                                    return;
+                                };
+
+                                let amt_per_parent = amt_per_parent * dec_factor;
+                                let relation = LiqRelation::Fixed { amt_per_parent };
+
+                                add_or_update_relation_edge(
+                                    underlying_idxs[0],
+                                    parent_ix,
+                                    &mut g_write,
+                                    |e| e.id == discriminant_id,
+                                    relation,
+                                    &discriminant_id,
+                                    time,
+                                )
+                                .await;
+                                drop(g_write);
+
+                                let update = CalculatorUpdate::NewTokenRatio(parent_ix);
+                                calculator_sender.send(update).await.unwrap();
+
+                                log::debug!("New token ratio update in {:?}", now.elapsed());
+                            } else {
+                                // Create edges for all underlying mints (likely an LP)
+                                for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
+                                    let mint_x = &mints[i_x];
+
+                                    let Some(dec_factor_x) = get_or_dispatch_decimal_factor(
+                                        &sender_arc,
+                                        &dc_read,
+                                        mint_x,
+                                    ) else {
+                                        continue;
+                                    };
+
+                                    let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
+
+                                    for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
+                                        if un_x == un_y {
+                                            continue;
+                                        }
+
+                                        let mint_y = &mints[i_y];
+
+                                        let Some(dec_factor_y) = get_or_dispatch_decimal_factor(
+                                            &sender_arc,
+                                            &dc_read,
+                                            mint_y,
+                                        ) else {
+                                            continue;
+                                        };
+
+                                        let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
+
+                                        match curve_type {
+                                            Some(ref ct) => match ct {
+                                                CurveType::ConstantProduct => {
+                                                    let new_relation = LiqRelation::CpLp {
+                                                        amt_origin: amt_x,
+                                                        amt_dest: amt_y,
+                                                    };
+
+                                                    add_or_update_relation_edge(
+                                                        un_x,
+                                                        un_y,
+                                                        &mut g_write,
+                                                        |e| e.id == discriminant_id,
+                                                        new_relation,
+                                                        &discriminant_id,
+                                                        time,
+                                                    )
+                                                    .await;
+                                                }
+                                                _ => {
+                                                    // Unsupported CurveType
+                                                    continue;
+                                                }
+                                            },
+                                            None => {
+                                                continue;
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
+                        Dooot::OraclePriceEvent(oracle_price) => {
+                            let feed_id = &oracle_price.feed_account_pubkey;
+                            let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned()
+                            else {
+                                counter.fetch_sub(1, Ordering::Relaxed);
+                                return;
+                            };
 
-                        let (token_to_update, value) = if out_mint_pubkey == USDC_MINT {
-                            (in_mint_ix, final_price)
-                        } else {
-                            (out_mint_ix, Decimal::ONE / final_price)
-                        };
+                            let price = oracle_price.price;
 
-                        let token_update = CalculatorUpdate::NewTokenRatio(value, token_to_update);
-                        calculator_sender.send(token_update).await.unwrap();
+                            log::info!("New oracle price for {feed_mint}: {price}");
 
-                        // Don't send in_update for now
-                        // let in_update = CalculatorUpdate::NewTokenRatio(in_mint_ix);
-                        // calculator_sender.send(in_update).await.unwrap();
-                    }
-                    Dooot::MintUnderlyingsGlobal(mu_dooot) => {
-                        // let MintUnderlyingsGlobalDooot {
-                        //     time,
-                        //     mint_pubkey,
-                        //     discriminant_id,
-                        //     mints,
-                        //     total_underlying_amounts,
-                        //     mints_qty_per_one_parent,
-                        //     ..
-                        // } = mu_dooot;
+                            // Quick lock to update the oracle cache
+                            {
+                                let mut oc_write = oracle_cache.write().await;
+                                oc_write.insert(feed_mint.clone(), price);
+                            }
 
-                        // // Two things need to happen with MintUnderlyings:
-                        // // 1. Add the PARENT mint to graph and set edges, both price and liq!
-                        // // 2. Find the underlying mint edges, and update the liquidity (all directions, between all underlyings)
+                            let ix = {
+                                let mint_indicies_read = mint_indicies.read().await;
+                                mint_indicies_read.get(&feed_mint).cloned()
+                            };
+                            if let Some(ix) = ix {
+                                // Update the price of the mint in the graph
+                                {
+                                    let g_read = graph.read().await;
+                                    let node_weight = g_read.node_weight(ix).unwrap();
+                                    let mut p_write = node_weight.usd_price.write().await;
+                                    p_write.replace(USDPriceWithSource::Oracle(price));
+                                }
 
-                        // let mut all_mints = Vec::with_capacity(1 + mints.len());
-                        // all_mints.push(mint_pubkey.as_str());
-                        // for u_mint in mints.iter() {
-                        //     all_mints.push(u_mint.as_str());
-                        // }
-
-                        // let indicies =
-                        //     get_or_add_mint_indicies(&all_mints, graph.clone(), &mut mint_indicies)
-                        //         .await;
-
-                        // let parent_mint_ix = indicies[0];
-                        // for (i, _) in all_mints.iter().enumerate().skip(1) {
-                        //     let mint_ix = indicies[i];
-                        //     let edge_res =
-                        //         access_or_add_edge(mint_ix, parent_mint_ix, graph.clone(), |e| {
-                        //             e.market == Some(discriminant_id.clone())
-                        //         })
-                        //         .await;
-
-                        //     let mut edge = match edge_res {
-                        //         Ok(edge) => edge,
-                        //         Err(e) => {
-                        //             log::error!("Error accessing or adding edge: {}", e);
-                        //             continue;
-                        //         }
-                        //     };
-
-                        //     edge.last_updated = time;
-                        //     edge.liquidity.replace(MintLiquidity {
-                        //         liquidity: total_underlying_amounts.clone(),
-                        //         mints: mints.clone(),
-                        //     });
-                        //     let price_val = mints_qty_per_one_parent[i - 1];
-                        //     let price_val_decimal =
-                        //         Decimal::from_f64(price_val).unwrap_or_else(|| {
-                        //             panic!(
-                        //                 "UNREACHABLE - Cannot parse Decimal from f64: {price_val}"
-                        //             )
-                        //         });
-                        //     edge.this_per_that.replace(price_val_decimal);
-                        // }
-
-                        // // Add a liquidity relation between every underlying mint
-                        // for mint_a in mints.iter() {
-                        //     for mint_b in mints.iter() {
-                        //         if mint_a == mint_b {
-                        //             continue;
-                        //         }
-
-                        //         let indicies = get_or_add_mint_indicies(
-                        //             &[mint_a, mint_b],
-                        //             graph.clone(),
-                        //             &mut mint_indicies,
-                        //         )
-                        //         .await;
-
-                        //         let mint_a_ix = indicies[0];
-                        //         let mint_b_ix = indicies[1];
-
-                        //         let edge_res =
-                        //             access_or_add_edge(mint_a_ix, mint_b_ix, graph.clone(), |e| {
-                        //                 e.market == Some(discriminant_id.clone())
-                        //             })
-                        //             .await;
-
-                        //         let mut edge = match edge_res {
-                        //             Ok(edge) => edge,
-                        //             Err(e) => {
-                        //                 log::error!("Error accessing or adding edge: {}", e);
-                        //                 continue;
-                        //             }
-                        //         };
-
-                        //         edge.last_updated = time;
-                        //         edge.liquidity.replace(MintLiquidity {
-                        //             mints: mints.clone(),
-                        //             liquidity: total_underlying_amounts.clone(),
-                        //         });
-                        //     }
-                        // }
-                    }
-                    Dooot::OraclePriceEvent(oracle_price) => {
-                        let feed_id = &oracle_price.feed_account_pubkey;
-                        if feed_id != USDC_FEED_ACCOUNT_ID {
-                            continue;
+                                calculator_sender
+                                    .send(CalculatorUpdate::OracleUSDPrice(ix))
+                                    .await
+                                    .unwrap();
+                            } else {
+                                log::warn!(
+                                    "Mint {} not in graph, cannot send OracleUSDPrice update",
+                                    feed_mint
+                                );
+                            }
                         }
+                        Dooot::MintInfo(info) => {
+                            let MintInfoDooot { mint, decimals, .. } = info;
 
-                        let price = oracle_price.price;
-                        let ix = mint_indicies.get(USDC_MINT).cloned();
-                        if let Some(ix) = ix {
-                            calculator_sender
-                                .send(CalculatorUpdate::OracleUSDPrice(price, ix))
-                                .await
-                                .unwrap();
-                        } else {
-                            log::error!("USDC not in graph, cannot recalc atm");
+                            if let Some(decimals) = decimals {
+                                let mint_str = mint.to_string();
+                                let mut decimal_cache_write = decimal_cache.write().await;
+                                let decimals = decimals as u8;
+                                decimal_cache_write.insert(mint_str, decimals);
+                            }
+                        }
+                        Dooot::LPInfo(info) => {
+                            let LPInfoDooot {
+                                lp_mint,
+                                curve_type,
+                                ..
+                            } = info;
+
+                            let Some(lp_mint) = lp_mint else {
+                                counter.fetch_sub(1, Ordering::Relaxed);
+                                return;
+                            };
+
+                            let l_read = lp_cache.read().await;
+                            if l_read.contains_key(&lp_mint) {
+                                counter.fetch_sub(1, Ordering::Relaxed);
+                                return;
+                            }
+
+                            // LP doesn't exist, drop the read and grab a write lock,
+                            // then insert the new LP
+                            drop(l_read);
+                            let mut l_write = lp_cache.write().await;
+                            l_write.insert(lp_mint, LiquidityPool { curve_type });
+                        }
+                        _ => {
+                            counter.fetch_sub(1, Ordering::Relaxed);
+                            return;
                         }
                     }
-                    Dooot::MintInfo(info) => {
-                        let MintInfoDooot { mint, decimals, .. } = info;
 
-                        if let Some(decimals) = decimals {
-                            let mint_str = mint.to_string();
-                            let mut decimal_cache_write = decimal_cache.write().await;
-                            decimal_cache_write.insert(mint_str, decimals as u8);
-                        }
+                    log::debug!("PPL task finished in {:?}", now.elapsed());
+
+                    // Quick debug dump of the graph
+                    #[cfg(feature = "debug-graph")]
+                    {
+                        let g_read = graph.read().await;
+
+                        use petgraph::dot::Dot;
+                        use std::fs;
+                        let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
+                        fs::write("./graph.dot", formatted_dot_str).unwrap();
+
+                        // // Quick debug dump of the graph size
+                        // use veritas_sdk::ppl_graph::graph::EDGE_SIZE;
+                        // use veritas_sdk::ppl_graph::graph::NODE_SIZE;
+                        // let num_nodes = g_read.node_count();
+                        // let num_edges = g_read.edge_count();
+                        // let node_bytes = num_nodes * NODE_SIZE;
+                        // let edge_bytes = num_edges * EDGE_SIZE;
+                        // // in KB
+                        // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
+                        // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
+                        // log::info!(
+                        //     "Total bytes: {:.2}K",
+                        //     (node_bytes + edge_bytes) as f64 / 1024.0
+                        // );
                     }
-                    _ => {
-                        continue;
-                    }
-                }
 
-                // Quick debug dump of the graph
-                #[cfg(feature = "debug-graph")]
-                {
-                    use petgraph::dot::Dot;
-                    use std::fs;
-                    let g_read = graph.read().await;
-                    let formatted_dot_str = format!("{:?}", Dot::new(&(*g_read)));
-                    fs::write("./graph.dot", formatted_dot_str).unwrap();
-
-                    // // Quick debug dump of the graph size
-                    // let num_nodes = g_read.node_count();
-                    // let num_edges = g_read.edge_count();
-                    // let node_bytes = num_nodes * NODE_SIZE;
-                    // let edge_bytes = num_edges * EDGE_SIZE;
-                    // // in KB
-                    // log::info!("Num nodes: {num_nodes}, num edges: {num_edges}");
-                    // log::info!("Node bytes: {node_bytes}, edge bytes: {edge_bytes}");
-                    // log::info!(
-                    //     "Total bytes: {:.2}K",
-                    //     (node_bytes + edge_bytes) as f64 / 1024.0
-                    // );
-                }
+                    counter.fetch_sub(1, Ordering::Relaxed);
+                });
             }
 
             log::warn!("Price points liquidity task (PPL) shutting down. Channel closed.");
@@ -324,71 +367,172 @@ pub fn spawn_price_points_liquidity_task(
     Ok(task)
 }
 
-pub async fn get_or_add_mint_indicies(
-    mints: &[&str],
-    graph: WrappedMintPricingGraph,
+/// Returns the decimals for a mint, or None if the decimals are not in the cache
+///
+/// If the decimals are not in the cache, it will dispatch a request to get the decimals
+#[inline]
+fn get_or_dispatch_decimals(
+    sender_arc: &Sender<String>,
+    dc_read: &HashMap<String, u8>,
+    mint_x: &str,
+) -> Option<u8> {
+    let decimals_x = match dc_read.get(mint_x) {
+        Some(&d) => d,
+        None => {
+            // Dispatch a request to get the decimals
+            sender_arc.try_send(mint_x.to_string()).ok();
+            return None;
+        }
+    };
+    Some(decimals_x)
+}
+
+/// Returns the decimal factor for a mint, or None if the decimal factor is not in the cache
+///
+/// If the decimal factor is not in the cache, it will dispatch a request to get the decimal factor
+#[inline]
+fn get_or_dispatch_decimal_factor(
+    sender_arc: &Sender<String>,
+    dc_read: &HashMap<String, u8>,
+    mint_x: &str,
+) -> Option<Decimal> {
+    let dec = get_or_dispatch_decimals(sender_arc, dc_read, mint_x)?;
+
+    let dec_factor = Decimal::from(10).checked_powi(dec as i64);
+
+    if dec_factor.is_none() {
+        log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {dec}");
+    }
+
+    dec_factor
+}
+
+#[derive(Deserialize, Row)]
+pub struct DecimalResult {
+    decimals: Option<u8>,
+}
+
+#[inline]
+pub async fn query_decimals(
+    clickhouse_client: &clickhouse::Client,
+    mint: &str,
+) -> Result<Option<u8>> {
+    let query = clickhouse_client
+        .query(
+            "
+                SELECT
+                    anyLastMerge(decimals) as decimals
+                FROM lookup_mint_info
+                WHERE mint = base58Decode(?)
+                GROUP BY mint
+            ",
+        )
+        .bind(mint);
+
+    match query.fetch_one::<DecimalResult>().await {
+        Ok(v) => match v.decimals {
+            Some(d) => Ok(Some(d)),
+            None => Ok(None),
+        },
+        Err(e) => match e {
+            clickhouse::error::Error::RowNotFound => Ok(None),
+            _ => Err(e.into()),
+        },
+    }
+}
+
+#[inline]
+pub fn get_or_add_mint_ix(
+    mint: &str,
+    graph: &mut MintPricingGraph,
     mint_indicies: &mut MintIndiciesMap,
-) -> Vec<NodeIndex> {
-    let mut result = Vec::with_capacity(mints.len());
-
-    let mut g_write = None;
-    for mint in mints {
-        if let Some(node_ix) = mint_indicies.get(*mint) {
-            result.push(*node_ix);
-        } else {
-            let mut write_lock = match g_write {
-                Some(g_w) => g_w,
-                None => graph.write().await,
-            };
-
-            let ix = write_lock.add_node(Arc::new(RwLock::new(MintNode {
+) -> NodeIndex {
+    let ix = match mint_indicies.get(mint).cloned() {
+        Some(ix) => ix,
+        None => {
+            let ix = graph.add_node(MintNode {
                 mint: mint.to_string(),
-                usd_price: None,
-            })));
+                usd_price: RwLock::new(None),
+            });
 
             mint_indicies.insert(mint.to_string(), ix);
 
-            result.push(ix);
-
-            g_write = Some(write_lock);
+            ix
         }
-    }
+    };
 
-    result
+    ix
 }
 
-pub async fn access_or_add_edge<P>(
+#[inline]
+pub fn get_edge_by_predicate<P>(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
-    graph: WrappedMintPricingGraph,
+    graph: &MintPricingGraph,
     edge_predicate: P,
-) -> Result<OwnedRwLockWriteGuard<MintEdge>>
+) -> Option<EdgeIndex>
 where
     P: Fn(&MintEdge) -> bool,
 {
-    let g_read = graph.read().await;
-    let mut edge_ix = None;
-    for edge in g_read.edges_connecting(ix_a, ix_b) {
-        let e_read = &edge.weight().read().await;
-        if edge_predicate(e_read) {
-            edge_ix = Some(edge.id());
-            break;
+    for edge in graph.edges_connecting(ix_a, ix_b) {
+        let e = edge.weight();
+        if edge_predicate(e) {
+            return Some(edge.id());
         }
     }
 
-    if let Some(edge_ix) = edge_ix {
-        let edge = g_read
-            .edge_weight(edge_ix)
-            .context("UNREACHABLE - EdgeIndex should exist in graph!")?
-            .clone();
-        Ok(edge.write_owned().await)
-    } else {
-        drop(g_read);
-        let mut g_write = graph.write().await;
-        let new_edge = Arc::new(RwLock::new(MintEdge::default()));
+    None
+}
 
-        g_write.add_edge(ix_a, ix_b, new_edge.clone());
+/// Returns the edge idx that was updated
+#[inline]
+#[allow(clippy::unwrap_used)]
+pub async fn add_or_update_relation_edge<P>(
+    ix_a: NodeIndex,
+    ix_b: NodeIndex,
+    graph: &mut MintPricingGraph,
+    get_predicate: P,
+    update_with: LiqRelation,
+    discriminant_id: &str,
+    time: NaiveDateTime,
+) -> EdgeIndex
+where
+    P: Fn(&MintEdge) -> bool,
+{
+    let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
 
-        Ok(new_edge.write_owned().await)
+    log::debug!("Adding or updating relation edge for {discriminant_id}: {update_with:?}");
+
+    match edge {
+        Some(edge_ix) => {
+            // Edge already exists, update it
+            // Guaranteed by being Some
+            let e_w = graph.edge_weight_mut(edge_ix).unwrap();
+            e_w.dirty = true;
+
+            // Quick update of the last updated time
+            {
+                let mut last_updated = e_w.last_updated.write().await;
+                *last_updated = time;
+            }
+
+            // Quick update of the relation
+            {
+                let mut relation = e_w.inner_relation.write().await;
+                *relation = update_with;
+            }
+
+            edge_ix
+        }
+        None => {
+            let new_edge = MintEdge {
+                id: discriminant_id.to_string(),
+                dirty: true,
+                last_updated: RwLock::new(time),
+                inner_relation: RwLock::new(update_with),
+            };
+
+            graph.add_edge(ix_a, ix_b, new_edge)
+        }
     }
 }

@@ -1,78 +1,43 @@
-use anyhow::{Context, Result};
-use std::sync::Arc;
+use std::{fmt::Debug, sync::Arc};
 
 use chrono::NaiveDateTime;
 use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
-pub type MintPricingGraph = Graph<Arc<RwLock<MintNode>>, Arc<RwLock<MintEdge>>, Directed>;
+use super::structs::LiqRelation;
+
+pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
+
+pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
+pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
 pub struct MintNode {
     pub mint: String,
-    pub usd_price: Option<USDPriceWithSource>,
+    pub usd_price: RwLock<Option<USDPriceWithSource>>,
 }
 
 #[cfg(feature = "debug-graph")]
-impl std::fmt::Debug for MintNode {
+impl Debug for MintNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let price = self
-            .usd_price
-            .as_ref()
-            .map(|p| p.extract_price())
-            .unwrap_or(&Decimal::ZERO);
-        write!(f, "{:.5} {:.4}", self.mint, price)
+        write!(f, "{:.5}\n{:?}", self.mint, self.usd_price)
     }
 }
 
-pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
-
 #[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
-#[derive(Default)]
 pub struct MintEdge {
-    pub this_per_that: Option<Decimal>,
-    pub market: Option<String>,
-    pub liquidity: Option<MintLiquidity>,
-    pub last_updated: NaiveDateTime,
+    pub id: String,
+    pub dirty: bool,
+    pub last_updated: RwLock<NaiveDateTime>,
+    pub inner_relation: RwLock<LiqRelation>,
 }
 
 #[cfg(feature = "debug-graph")]
-impl std::fmt::Debug for MintEdge {
+impl Debug for MintEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} {:?}", self.this_per_that, self.liquidity)
-    }
-}
-
-#[cfg_attr(not(feature = "debug-graph"), derive(Debug))]
-pub struct MintLiquidity {
-    pub mints: Vec<String>,
-    pub liquidity: Vec<Decimal>,
-}
-
-#[cfg(feature = "debug-graph")]
-impl std::fmt::Debug for MintLiquidity {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.liquidity)
-    }
-}
-
-impl MintLiquidity {
-    pub fn get_liq_for_mint(&self, mint: &str) -> Result<&Decimal> {
-        let mut opt = None;
-        for (idx, c_mint) in self.mints.iter().enumerate() {
-            if c_mint != mint {
-                continue;
-            }
-
-            opt = self.liquidity.get(idx);
-            break;
-        }
-
-        opt.context(format!(
-            "Cannot find liquidity for {mint} in {self:?}. Must be malformed MintUnderlying!"
-        ))
+        write!(f, "{:.5}\n{:?}", self.id, self.inner_relation)
     }
 }
 
@@ -95,23 +60,5 @@ impl USDPriceWithSource {
     #[inline]
     pub fn is_oracle(&self) -> bool {
         matches!(self, Self::Oracle(_))
-    }
-}
-
-pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
-
-impl MintEdge {
-    pub fn new(
-        ratio: Option<Decimal>,
-        liquidity: Option<MintLiquidity>,
-        market: Option<String>,
-        last_updated: NaiveDateTime,
-    ) -> Self {
-        Self {
-            this_per_that: ratio,
-            liquidity,
-            market,
-            last_updated,
-        }
     }
 }
