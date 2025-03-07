@@ -1,4 +1,7 @@
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use anyhow::Result;
 use chrono::NaiveDateTime;
@@ -55,7 +58,10 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
 pub async fn bootstrap_graph(
     clickhouse_client: clickhouse::Client,
     dooot_tx: Arc<Sender<Dooot>>,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) -> Result<()> {
+    bootstrap_in_progress.store(true, Ordering::Relaxed);
+
     load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
         MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY,
         "MintUnderlyingsGlobal",
@@ -65,6 +71,8 @@ pub async fn bootstrap_graph(
     .await?;
 
     // TODO: Add other Dooots (Clmm, Dlmm)
+
+    bootstrap_in_progress.store(false, Ordering::Relaxed);
 
     Ok(())
 }

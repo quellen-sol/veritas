@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use amqp::AMQPManager;
 use anyhow::Result;
@@ -174,6 +177,7 @@ async fn main() -> Result<()> {
         tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(false));
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
@@ -185,6 +189,7 @@ async fn main() -> Result<()> {
         decimal_cache.clone(),
         Arc::new(publish_dooot_tx),
         args.max_calculator_subtasks,
+        bootstrap_in_progress.clone(),
     );
 
     // "CU" or "Cache Updator" Task
@@ -193,6 +198,7 @@ async fn main() -> Result<()> {
         clickhouse_client.clone(),
         ch_cache_updator_req_rx,
         args.cache_updator_batch_size,
+        bootstrap_in_progress.clone(),
     );
 
     // "PPL" or "Price Points Liquidity" Task
@@ -216,7 +222,12 @@ async fn main() -> Result<()> {
 
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
     log::info!("Bootstrapping the graph with `current` Clickhouse data...");
-    bootstrap_graph(clickhouse_client.clone(), amqp_dooot_tx_bootstrap_copy).await?;
+    bootstrap_graph(
+        clickhouse_client.clone(),
+        amqp_dooot_tx_bootstrap_copy,
+        bootstrap_in_progress.clone(),
+    )
+    .await?;
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
     // Completing the pipeline AMQP -> PPL (+CU) -> CS -> DP

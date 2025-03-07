@@ -1,5 +1,11 @@
 use anyhow::Result;
-use std::{sync::Arc, time::Duration};
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    time::Duration,
+};
 
 use clickhouse::{query::RowCursor, Row};
 use serde::Deserialize;
@@ -23,26 +29,35 @@ pub async fn spawn_ch_cache_updator_task(
     clickhouse_client: clickhouse::Client,
     mut req_rx: Receiver<String>,
     cache_updator_batch_size: usize,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let requests_lock = Arc::new(RwLock::new(Vec::with_capacity(cache_updator_batch_size)));
 
     let (wake_channel_tx, mut wake_channel_rx) = tokio::sync::mpsc::channel::<()>(1);
 
     // Receiver task
-    let receiver_lock = requests_lock.clone();
+    let receiver_request_lock = requests_lock.clone();
     let receiver_task = tokio::spawn(async move {
         while let Some(mint) = req_rx.recv().await {
-            let mut requests = receiver_lock.write().await;
+            if bootstrap_in_progress.load(Ordering::Relaxed) {
+                // Do not process graph updates while bootstrapping,
+                // We already have all the decimals that are possible to have at this point
+                continue;
+            }
+
+            let mut requests = receiver_request_lock.write().await;
             requests.push(mint);
 
             if requests.len() >= cache_updator_batch_size {
+                // Very important we drop here, since we can deadlock with the query task, which could have a full channel & is waiting on the lock
+                drop(requests);
                 wake_channel_tx.send(()).await.unwrap();
             }
         }
     });
 
     // Query task
-    let query_task_lock = requests_lock.clone();
+    let query_request_lock = requests_lock.clone();
     let query_task = tokio::spawn(async move {
         loop {
             let recv_fut = wake_channel_rx.recv();
@@ -55,15 +70,19 @@ pub async fn spawn_ch_cache_updator_task(
                 Err(_) | Ok(Some(_)) => {
                     // Query the decimals
                     let mints = {
-                        let mut lock = query_task_lock.write().await;
+                        let mut requests = query_request_lock.write().await;
+
+                        if requests.is_empty() {
+                            // Don't perform the mem replacement
+                            continue;
+                        }
 
                         // Take the Vec out of the lock, and leaves an empty Vec in its place
-                        std::mem::replace(&mut *lock, Vec::with_capacity(cache_updator_batch_size))
+                        std::mem::replace(
+                            &mut *requests,
+                            Vec::with_capacity(cache_updator_batch_size),
+                        )
                     };
-
-                    if mints.is_empty() {
-                        continue;
-                    }
 
                     match query_decimals(&clickhouse_client, &mints).await {
                         Ok(result) => {

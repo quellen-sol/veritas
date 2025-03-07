@@ -2,7 +2,7 @@
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     time::{Duration, Instant},
@@ -39,6 +39,7 @@ pub async fn spawn_calculator_task(
     decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     log::info!("Spawning Calculator tasks...");
 
@@ -51,6 +52,12 @@ pub async fn spawn_calculator_task(
         let counter = Arc::new(AtomicU8::new(0));
 
         while let Some(update) = calculator_receiver.recv().await {
+            if bootstrap_in_progress.load(Ordering::Relaxed) {
+                // Do not process graph updates while bootstrapping,
+                // Avoids thousands of recalcs while bootstrapping
+                continue;
+            }
+
             while counter.load(Ordering::Relaxed) >= max_calculator_subtasks {
                 // Wait for a task to become available
                 tokio::time::sleep(Duration::from_millis(1)).await;
