@@ -55,6 +55,7 @@ pub async fn spawn_calculator_task(
             if bootstrap_in_progress.load(Ordering::Relaxed) {
                 // Do not process graph updates while bootstrapping,
                 // Avoids thousands of recalcs while bootstrapping
+                log::trace!("Bootstrap in progress, skipping update");
                 continue;
             }
 
