@@ -9,7 +9,7 @@ use std::{
 
 use clickhouse::{query::RowCursor, Row};
 use serde::Deserialize;
-use tokio::sync::{mpsc::Receiver, RwLock};
+use tokio::{sync::{mpsc::Receiver, RwLock}, task::JoinHandle};
 use veritas_sdk::utils::decimal_cache::DecimalCache;
 
 #[derive(Deserialize, Row)]
@@ -24,13 +24,13 @@ pub struct DecimalResult {
 ///
 /// No `Arc` for the clickhouse client, since we can clone it and use a pool
 #[allow(clippy::unwrap_used)]
-pub async fn spawn_ch_cache_updator_task(
+pub fn spawn_ch_cache_updator_task(
     decimals_cache: Arc<RwLock<DecimalCache>>,
     clickhouse_client: clickhouse::Client,
     mut req_rx: Receiver<String>,
     cache_updator_batch_size: usize,
     bootstrap_in_progress: Arc<AtomicBool>,
-) {
+) -> [JoinHandle<()>; 2] {
     let requests_lock = Arc::new(RwLock::new(Vec::with_capacity(cache_updator_batch_size)));
 
     let (wake_channel_tx, mut wake_channel_rx) = tokio::sync::mpsc::channel::<()>(1);
@@ -117,14 +117,10 @@ pub async fn spawn_ch_cache_updator_task(
         }
     });
 
-    tokio::select! {
-        _ = query_task => {
-            log::warn!("Cache Updator query task exited!");
-        }
-        _ = receiver_task => {
-            log::warn!("Cache Updator receiver task exited!");
-        }
-    }
+    [
+        receiver_task,
+        query_task,
+    ]
 }
 
 #[inline]

@@ -183,7 +183,7 @@ async fn main() -> Result<()> {
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
     // "CS" or "Calculator" Task
-    let calculator_task = spawn_calculator_task(
+    let [calc_update_task, calc_periodic_task] = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
         decimal_cache.clone(),
@@ -193,7 +193,7 @@ async fn main() -> Result<()> {
     );
 
     // "CU" or "Cache Updator" Task
-    let ch_cache_updator_task = spawn_ch_cache_updator_task(
+    let [ch_cache_updator_receiver_task, ch_cache_updator_query_task] = spawn_ch_cache_updator_task(
         decimal_cache.clone(),
         clickhouse_client.clone(),
         ch_cache_updator_req_rx,
@@ -243,11 +243,17 @@ async fn main() -> Result<()> {
         _ = dooot_publisher_task => {
             log::warn!("Dooot publisher task exited");
         }
-        _ = calculator_task => {
-            log::warn!("Calculator task exited");
+        _ = calc_update_task => {
+            log::warn!("Calculator update task exited");
         }
-        _ = ch_cache_updator_task => {
-            log::warn!("CH cache updator task exited");
+        _ = calc_periodic_task => {
+            log::warn!("Calculator periodic task exited");
+        }
+        _ = ch_cache_updator_receiver_task => {
+            log::warn!("CH cache updator receiver task exited");
+        }
+        _ = ch_cache_updator_query_task => {
+            log::warn!("CH cache updator query task exited");
         }
     }
 

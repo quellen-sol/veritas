@@ -12,10 +12,10 @@ use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
-use tokio::sync::{
+use tokio::{sync::{
     mpsc::{Receiver, Sender},
     RwLock,
-};
+}, task::JoinHandle};
 use veritas_sdk::{
     ppl_graph::{
         graph::{MintPricingGraph, USDPriceWithSource},
@@ -33,14 +33,14 @@ pub enum CalculatorUpdate {
 }
 
 #[allow(clippy::too_many_arguments)]
-pub async fn spawn_calculator_task(
+pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
-) {
+) -> [JoinHandle<()>; 2] {
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
@@ -55,7 +55,6 @@ pub async fn spawn_calculator_task(
             if bootstrap_in_progress.load(Ordering::Relaxed) {
                 // Do not process graph updates while bootstrapping,
                 // Avoids thousands of recalcs while bootstrapping
-                log::trace!("Bootstrap in progress, skipping update");
                 continue;
             }
 
@@ -144,14 +143,10 @@ pub async fn spawn_calculator_task(
         }
     });
 
-    tokio::select! {
-        _ = update_task => {
-            log::warn!("Update task exited!");
-        }
-        _ = periodic_task => {
-            log::warn!("Graph copier task exited!")
-        }
-    }
+    [
+        update_task,
+        periodic_task,
+    ]
 }
 
 #[allow(clippy::unwrap_used)]
