@@ -53,6 +53,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "2000")]
     pub dooot_publisher_buffer_size: usize,
+
+    #[clap(long, env, default_value = "10000")]
+    pub cache_updator_batch_size: usize,
 }
 
 #[derive(Parser)]
@@ -142,8 +145,6 @@ async fn main() -> Result<()> {
         )
         .await?,
     );
-    amqp_manager.set_prefetch().await?;
-    amqp_manager.assert_amqp_topology().await?;
 
     // CHANNELS for tasks
     log::info!("Creating channels with the following buffer sizes...");
@@ -192,7 +193,7 @@ async fn main() -> Result<()> {
         decimal_cache.clone(),
         clickhouse_client.clone(),
         ch_cache_updator_req_rx,
-        args.max_cache_updator_subtasks,
+        args.cache_updator_batch_size,
     );
 
     // "PPL" or "Price Points Liquidity" Task

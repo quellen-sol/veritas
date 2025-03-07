@@ -75,7 +75,7 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
     clickhouse_client: clickhouse::Client,
     dooot_tx: Arc<Sender<Dooot>>,
 ) -> Result<()> {
-    log::info!("Loading current Dooots from Clickhouse...");
+    log::info!("Loading current {dooot_name} Dooots from Clickhouse...");
 
     let mut cursor = clickhouse_client.query(sql_query).fetch::<I>()?;
 

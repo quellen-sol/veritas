@@ -9,13 +9,11 @@ use std::{
 
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use clickhouse::Row;
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
 };
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
-use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{
     CurveType, Dooot, LPInfoDooot, MintInfoDooot, MintUnderlyingsGlobalDooot,
 };
@@ -402,40 +400,6 @@ fn get_or_dispatch_decimal_factor(
     }
 
     dec_factor
-}
-
-#[derive(Deserialize, Row)]
-pub struct DecimalResult {
-    decimals: Option<u8>,
-}
-
-#[inline]
-pub async fn query_decimals(
-    clickhouse_client: &clickhouse::Client,
-    mint: &str,
-) -> Result<Option<u8>> {
-    let query = clickhouse_client
-        .query(
-            "
-                SELECT
-                    anyLastMerge(decimals) as decimals
-                FROM lookup_mint_info
-                WHERE mint = base58Decode(?)
-                GROUP BY mint
-            ",
-        )
-        .bind(mint);
-
-    match query.fetch_one::<DecimalResult>().await {
-        Ok(v) => match v.decimals {
-            Some(d) => Ok(Some(d)),
-            None => Ok(None),
-        },
-        Err(e) => match e {
-            clickhouse::error::Error::RowNotFound => Ok(None),
-            _ => Err(e.into()),
-        },
-    }
 }
 
 #[inline]
