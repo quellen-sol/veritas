@@ -179,7 +179,6 @@ async fn main() -> Result<()> {
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
     // "CS" or "Calculator" Task
-    // DO NOT `await` THIS, LET THE `select!` BLOCK HANDLE IT
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
