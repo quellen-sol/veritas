@@ -12,10 +12,13 @@ use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
-use tokio::{sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
-}, task::JoinHandle};
+use tokio::{
+    sync::{
+        mpsc::{Receiver, Sender},
+        RwLock,
+    },
+    task::JoinHandle,
+};
 use veritas_sdk::{
     ppl_graph::{
         graph::{MintPricingGraph, USDPriceWithSource},
@@ -40,15 +43,11 @@ pub fn spawn_calculator_task(
     dooot_tx: Arc<Sender<Dooot>>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
-) -> [JoinHandle<()>; 2] {
+) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
-    let updator_graph = graph.clone();
-    let updator_decimals_cache = decimals_cache.clone();
-    let updator_dooot_tx = dooot_tx.clone();
-
-    let update_task = tokio::spawn(async move {
+    tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
 
         while let Some(update) = calculator_receiver.recv().await {
@@ -66,9 +65,9 @@ pub fn spawn_calculator_task(
             let now = Instant::now();
 
             // Make clones for the task
-            let graph = updator_graph.clone();
-            let decimals_cache = updator_decimals_cache.clone();
-            let dooot_tx = updator_dooot_tx.clone();
+            let graph = graph.clone();
+            let decimals_cache = decimals_cache.clone();
+            let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
 
             tokio::spawn(async move {
@@ -82,7 +81,7 @@ pub fn spawn_calculator_task(
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
                         log::trace!("Starting BFS recalculation for OracleUSDPrice update");
-                        bfs_recalculate(    
+                        bfs_recalculate(
                             &g_read,
                             decimals_cache.clone(),
                             token,
@@ -115,38 +114,7 @@ pub fn spawn_calculator_task(
                 counter.fetch_sub(1, Ordering::Relaxed);
             });
         }
-    });
-
-    // Task to periodically recalc the entire graph
-    let periodic_task = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-
-            let decimals_cache = decimals_cache.clone();
-            let dooot_tx = dooot_tx.clone();
-
-            log::trace!("Getting graph read lock for periodic task");
-            let g_read = graph.read().await;
-            log::trace!("Got graph read lock for periodic task");
-            let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
-
-            log::trace!("Starting BFS recalculation for periodic task");
-            bfs_recalculate(
-                &g_read,
-                decimals_cache,
-                NodeIndex::new(0),
-                &mut visited,
-                dooot_tx,
-            )
-            .await;
-            log::trace!("Finished BFS recalculation for periodic task");
-        }
-    });
-
-    [
-        update_task,
-        periodic_task,
-    ]
+    })
 }
 
 #[allow(clippy::unwrap_used)]

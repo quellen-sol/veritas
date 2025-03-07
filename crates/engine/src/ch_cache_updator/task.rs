@@ -24,7 +24,7 @@ pub struct DecimalResult {
 ///
 /// No `Arc` for the clickhouse client, since we can clone it and use a pool
 #[allow(clippy::unwrap_used)]
-pub fn spawn_ch_cache_updator_task(
+pub fn spawn_ch_cache_updator_tasks(
     decimals_cache: Arc<RwLock<DecimalCache>>,
     clickhouse_client: clickhouse::Client,
     mut req_rx: Receiver<String>,
@@ -140,7 +140,7 @@ pub async fn query_decimals(
                     anyLastMerge(decimals) as decimals
                 FROM lookup_mint_info
                 WHERE mint IN (
-                    SELECT * FROM arrayMap(x -> base58Decode(x), ?)
+                    SELECT arrayJoin(arrayMap(x -> base58Decode(x), ?))
                 )
                 GROUP BY mint
             ",

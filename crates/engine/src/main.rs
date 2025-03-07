@@ -6,7 +6,7 @@ use std::{
 use amqp::AMQPManager;
 use anyhow::Result;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
-use ch_cache_updator::task::spawn_ch_cache_updator_task;
+use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use step_ingestooor_sdk::dooot::Dooot;
@@ -183,7 +183,7 @@ async fn main() -> Result<()> {
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
     // "CS" or "Calculator" Task
-    let [calc_update_task, calc_periodic_task] = spawn_calculator_task(
+    let calculator_task = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
         decimal_cache.clone(),
@@ -193,13 +193,14 @@ async fn main() -> Result<()> {
     );
 
     // "CU" or "Cache Updator" Task
-    let [ch_cache_updator_receiver_task, ch_cache_updator_query_task] = spawn_ch_cache_updator_task(
-        decimal_cache.clone(),
-        clickhouse_client.clone(),
-        ch_cache_updator_req_rx,
-        args.cache_updator_batch_size,
-        bootstrap_in_progress.clone(),
-    );
+    let [ch_cache_updator_receiver_task, ch_cache_updator_query_task] =
+        spawn_ch_cache_updator_tasks(
+            decimal_cache.clone(),
+            clickhouse_client.clone(),
+            ch_cache_updator_req_rx,
+            args.cache_updator_batch_size,
+            bootstrap_in_progress.clone(),
+        );
 
     // "PPL" or "Price Points Liquidity" Task
     let ppl_task = spawn_price_points_liquidity_task(
@@ -240,20 +241,17 @@ async fn main() -> Result<()> {
         _ = ppl_task => {
             log::warn!("PPL task exited");
         }
-        _ = dooot_publisher_task => {
-            log::warn!("Dooot publisher task exited");
-        }
-        _ = calc_update_task => {
-            log::warn!("Calculator update task exited");
-        }
-        _ = calc_periodic_task => {
-            log::warn!("Calculator periodic task exited");
-        }
         _ = ch_cache_updator_receiver_task => {
             log::warn!("CH cache updator receiver task exited");
         }
         _ = ch_cache_updator_query_task => {
             log::warn!("CH cache updator query task exited");
+        }
+        _ = calculator_task => {
+            log::warn!("Calculator update task exited");
+        }
+        _ = dooot_publisher_task => {
+            log::warn!("Dooot publisher task exited");
         }
     }
 

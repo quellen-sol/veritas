@@ -99,7 +99,11 @@ pub async fn handle_mint_underlyings(
 
         let update = CalculatorUpdate::NewTokenRatio(parent_ix);
         log::trace!("Sending NewTokenRatio update for {parent_mint}");
-        calculator_sender.send(update).await.unwrap();
+        calculator_sender
+            .send(update)
+            .await
+            .inspect_err(|e| log::error!("Error sending NewTokenRatio update for {parent_mint}: {e}"))
+            .unwrap();
         log::trace!("Sent NewTokenRatio update for {parent_mint}");
     } else {
         // No longer needed
@@ -176,7 +180,11 @@ pub async fn handle_mint_underlyings(
         for ix in updated_ixs {
             let update = CalculatorUpdate::NewTokenRatio(ix);
             log::trace!("Sending NewTokenRatio update for {ix:?}");
-            calculator_sender.send(update).await.unwrap();
+            calculator_sender
+                .send(update)
+                .await
+                .inspect_err(|e| log::error!("Error sending NewTokenRatio update for {ix:?}: {e}"))
+                .unwrap();
             log::trace!("Sent NewTokenRatio update for {ix:?}");
         }
     }
