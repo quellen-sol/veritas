@@ -156,8 +156,9 @@ pub async fn bfs_recalculate(
 
     visited_nodes.insert(node);
 
-    // Guaranteed to be Some
-    let node_weight = graph.node_weight(node).unwrap();
+    let Some(node_weight) = graph.node_weight(node) else {
+        return;
+    };
     let is_oracle = {
         let p_read = node_weight.usd_price.read().await;
         p_read.as_ref().is_some_and(|p| p.is_oracle())

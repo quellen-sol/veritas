@@ -35,8 +35,12 @@ pub async fn handle_mint_underlyings(
         ..
     } = mu_dooot;
 
+    log::trace!("Getting graph write lock");
     let mut g_write = graph.write().await;
+    log::trace!("Got graph write lock");
+    log::trace!("Getting mint indicies write lock");
     let mut mint_indicies = mint_indicies.write().await;
+    log::trace!("Got mint indicies write lock");
 
     // Ordered with `mints`
     let mut underlying_idxs = Vec::with_capacity(mints.len());
@@ -47,7 +51,9 @@ pub async fn handle_mint_underlyings(
         underlying_idxs.push(mint_ix);
     }
 
+    log::trace!("Getting decimal cache read lock");
     let dc_read = decimal_cache.read().await;
+    log::trace!("Got decimal cache read lock");
 
     // Add a Fixed relation to the parent if theres only one mint
     if mints.len() == 1 {
@@ -92,14 +98,18 @@ pub async fn handle_mint_underlyings(
         drop(g_write);
 
         let update = CalculatorUpdate::NewTokenRatio(parent_ix);
+        log::trace!("Sending NewTokenRatio update for {parent_mint}");
         calculator_sender.send(update).await.unwrap();
+        log::trace!("Sent NewTokenRatio update for {parent_mint}");
     } else {
         // No longer needed
         drop(mint_indicies);
 
         // None if theres no LP associated with this
         let curve_type = {
+            log::trace!("Getting LP cache read lock");
             let lpc_read = lp_cache.read().await;
+            log::trace!("Got LP cache read lock");
             lpc_read.get(&parent_mint).map(|lp| lp.curve_type.clone())
         };
 
@@ -165,7 +175,9 @@ pub async fn handle_mint_underlyings(
 
         for ix in updated_ixs {
             let update = CalculatorUpdate::NewTokenRatio(ix);
+            log::trace!("Sending NewTokenRatio update for {ix:?}");
             calculator_sender.send(update).await.unwrap();
+            log::trace!("Sent NewTokenRatio update for {ix:?}");
         }
     }
 }

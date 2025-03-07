@@ -255,8 +255,6 @@ where
 {
     let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
 
-    log::trace!("Adding or updating relation edge for {discriminant_id}: {update_with:?}");
-
     match edge {
         Some(edge_ix) => {
             // Edge already exists, update it
