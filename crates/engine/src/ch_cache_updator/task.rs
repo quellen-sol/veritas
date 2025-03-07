@@ -49,7 +49,7 @@ pub async fn spawn_ch_cache_updator_task(
             requests.push(mint);
 
             if requests.len() >= cache_updator_batch_size {
-                // Very important we drop here, since we can deadlock with the query task, which could have a full channel & is waiting on the lock
+                // Drop to avoid a potential deadlock
                 drop(requests);
                 wake_channel_tx.send(()).await.unwrap();
             }

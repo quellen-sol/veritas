@@ -323,7 +323,7 @@ pub fn spawn_price_points_liquidity_task(
                         }
                     }
 
-                    log::debug!("PPL task finished in {:?}", now.elapsed());
+                    log::trace!("PPL task finished in {:?}", now.elapsed());
 
                     // Quick debug dump of the graph
                     #[cfg(feature = "debug-graph")]
@@ -462,7 +462,7 @@ where
 {
     let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
 
-    log::debug!("Adding or updating relation edge for {discriminant_id}: {update_with:?}");
+    log::trace!("Adding or updating relation edge for {discriminant_id}: {update_with:?}");
 
     match edge {
         Some(edge_ix) => {
