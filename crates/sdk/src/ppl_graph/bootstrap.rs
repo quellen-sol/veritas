@@ -84,6 +84,10 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
     while let Some(row) = cursor.next().await? {
         dooot_tx.send(row.into()).await?;
         count += 1;
+
+        if count % 1000 == 0 {
+            log::info!("Loaded {count} {dooot_name} Dooots from Clickhouse");
+        }
     }
 
     log::info!("Loaded {count} {dooot_name} Dooots from Clickhouse");
