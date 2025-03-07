@@ -8,6 +8,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+use anyhow::{Context, Result};
 use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
@@ -81,7 +82,7 @@ pub fn spawn_calculator_task(
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
                         log::trace!("Starting BFS recalculation for OracleUSDPrice update");
-                        bfs_recalculate(
+                        let recalc_result = bfs_recalculate(
                             &g_read,
                             decimals_cache.clone(),
                             token,
@@ -89,7 +90,17 @@ pub fn spawn_calculator_task(
                             dooot_tx.clone(),
                         )
                         .await;
-                        log::trace!("Finished BFS recalculation for OracleUSDPrice update");
+
+                        match recalc_result {
+                            Ok(_) => {
+                                log::trace!("Finished BFS recalculation for OracleUSDPrice update");
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Error during BFS recalculation for OracleUSDPrice update: {e}"
+                                );
+                            }
+                        }
                     }
                     CalculatorUpdate::NewTokenRatio(token) => {
                         log::trace!("Getting graph read lock for NewTokenRatio update");
@@ -98,7 +109,7 @@ pub fn spawn_calculator_task(
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
                         log::trace!("Starting BFS recalculation for NewTokenRatio update");
-                        bfs_recalculate(
+                        let recalc_result = bfs_recalculate(
                             &g_read,
                             decimals_cache.clone(),
                             token,
@@ -106,7 +117,17 @@ pub fn spawn_calculator_task(
                             dooot_tx.clone(),
                         )
                         .await;
-                        log::trace!("Finished BFS recalculation for NewTokenRatio update");
+
+                        match recalc_result {
+                            Ok(_) => {
+                                log::trace!("Finished BFS recalculation for NewTokenRatio update");
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Error during BFS recalculation for NewTokenRatio update: {e}"
+                                );
+                            }
+                        }
                     }
                 }
 
@@ -117,22 +138,21 @@ pub fn spawn_calculator_task(
     })
 }
 
-#[allow(clippy::unwrap_used)]
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     node: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Arc<Sender<Dooot>>,
-) {
+) -> Result<()> {
     if visited_nodes.contains(&node) {
-        return;
+        return Ok(());
     }
 
     visited_nodes.insert(node);
 
     let Some(node_weight) = graph.node_weight(node) else {
-        return;
+        return Ok(());
     };
     let is_oracle = {
         let p_read = node_weight.usd_price.read().await;
@@ -145,7 +165,7 @@ pub async fn bfs_recalculate(
         let mint = node_weight.mint.clone();
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
-            return;
+            return Ok(());
         };
 
         log::debug!("Calculated price of {mint}: {new_price}");
@@ -155,9 +175,12 @@ pub async fn bfs_recalculate(
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
                 let pct_diff = ((new_price - old_price) / old_price).abs();
-                if pct_diff < Decimal::from_f64(0.001).unwrap() {
+                let diff_limit =
+                    Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
+
+                if pct_diff < diff_limit {
                     // Not a significant enough change. Stop here and don't emit a dooot
-                    return;
+                    return Ok(());
                 }
             }
 
@@ -170,7 +193,10 @@ pub async fn bfs_recalculate(
             time: Utc::now().naive_utc(),
         });
 
-        dooot_tx.send(dooot).await.unwrap();
+        dooot_tx
+            .send(dooot)
+            .await
+            .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
     }
 
     for neighbor in graph.neighbors(node) {
@@ -181,8 +207,10 @@ pub async fn bfs_recalculate(
             visited_nodes,
             dooot_tx.clone(),
         ))
-        .await;
+        .await?;
     }
+
+    Ok(())
 }
 
 pub async fn get_total_weighted_price(
