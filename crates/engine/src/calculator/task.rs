@@ -64,7 +64,6 @@ pub async fn spawn_calculator_task(
             }
 
             let now = Instant::now();
-            counter.fetch_add(1, Ordering::Relaxed);
 
             // Make clones for the task
             let graph = updator_graph.clone();
@@ -73,13 +72,17 @@ pub async fn spawn_calculator_task(
             let counter = counter.clone();
 
             tokio::spawn(async move {
+                counter.fetch_add(1, Ordering::Relaxed);
                 // Do a full BFS and update price of every token if Oracle
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token) => {
+                        log::trace!("Getting graph read lock for OracleUSDPrice update");
                         let g_read = graph.read().await;
+                        log::trace!("Got graph read lock for OracleUSDPrice update");
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
-                        bfs_recalculate(
+                        log::trace!("Starting BFS recalculation for OracleUSDPrice update");
+                        bfs_recalculate(    
                             &g_read,
                             decimals_cache.clone(),
                             token,
@@ -87,11 +90,15 @@ pub async fn spawn_calculator_task(
                             dooot_tx.clone(),
                         )
                         .await;
+                        log::trace!("Finished BFS recalculation for OracleUSDPrice update");
                     }
                     CalculatorUpdate::NewTokenRatio(token) => {
+                        log::trace!("Getting graph read lock for NewTokenRatio update");
                         let g_read = graph.read().await;
+                        log::trace!("Got graph read lock for NewTokenRatio update");
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
+                        log::trace!("Starting BFS recalculation for NewTokenRatio update");
                         bfs_recalculate(
                             &g_read,
                             decimals_cache.clone(),
@@ -100,6 +107,7 @@ pub async fn spawn_calculator_task(
                             dooot_tx.clone(),
                         )
                         .await;
+                        log::trace!("Finished BFS recalculation for NewTokenRatio update");
                     }
                 }
 
@@ -114,13 +122,15 @@ pub async fn spawn_calculator_task(
         loop {
             tokio::time::sleep(Duration::from_secs(30)).await;
 
-            let graph = graph.clone();
             let decimals_cache = decimals_cache.clone();
             let dooot_tx = dooot_tx.clone();
 
+            log::trace!("Getting graph read lock for periodic task");
             let g_read = graph.read().await;
+            log::trace!("Got graph read lock for periodic task");
             let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
+            log::trace!("Starting BFS recalculation for periodic task");
             bfs_recalculate(
                 &g_read,
                 decimals_cache,
@@ -129,6 +139,7 @@ pub async fn spawn_calculator_task(
                 dooot_tx,
             )
             .await;
+            log::trace!("Finished BFS recalculation for periodic task");
         }
     });
 
