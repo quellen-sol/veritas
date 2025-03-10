@@ -187,7 +187,7 @@ async fn main() -> Result<()> {
         calculator_receiver,
         mint_price_graph.clone(),
         decimal_cache.clone(),
-        Arc::new(publish_dooot_tx),
+        publish_dooot_tx,
         args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
     );
@@ -213,16 +213,15 @@ async fn main() -> Result<()> {
         oracle_feed_map.clone(),
         args.max_ppl_subtasks,
         ch_cache_updator_req_tx,
+        bootstrap_in_progress.clone(),
     )?;
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
 
-    let amqp_dooot_tx = Arc::new(amqp_dooot_tx);
     let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
 
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
-    log::info!("Bootstrapping the graph with `current` Clickhouse data...");
     bootstrap_graph(
         clickhouse_client.clone(),
         amqp_dooot_tx_bootstrap_copy,
@@ -254,6 +253,8 @@ async fn main() -> Result<()> {
             log::warn!("Dooot publisher task exited");
         }
     }
+
+    log::warn!("Shutting down...");
 
     Ok(())
 }

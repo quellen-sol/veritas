@@ -1,4 +1,7 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
@@ -10,9 +13,12 @@ use veritas_sdk::{
 
 use crate::{
     calculator::task::CalculatorUpdate,
-    price_points_liquidity::task::{
-        add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimal_factor,
-        get_or_dispatch_decimals, MintIndiciesMap,
+    price_points_liquidity::{
+        handlers::utils::send_update_to_calculator,
+        task::{
+            add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimal_factor,
+            get_or_dispatch_decimals, MintIndiciesMap,
+        },
     },
 };
 
@@ -22,9 +28,10 @@ pub async fn handle_mint_underlyings(
     lp_cache: Arc<RwLock<LpCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    sender_arc: Arc<Sender<String>>,
-    calculator_sender: Arc<Sender<CalculatorUpdate>>,
+    sender_arc: Sender<String>,
+    calculator_sender: Sender<CalculatorUpdate>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let MintUnderlyingsGlobalDooot {
         time,
@@ -99,13 +106,7 @@ pub async fn handle_mint_underlyings(
 
         let update = CalculatorUpdate::NewTokenRatio(parent_ix);
         log::trace!("Sending NewTokenRatio update for {parent_mint}");
-        calculator_sender
-            .send(update)
-            .await
-            .inspect_err(|e| {
-                log::error!("Error sending NewTokenRatio update for {parent_mint}: {e}")
-            })
-            .unwrap();
+        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
         log::trace!("Sent NewTokenRatio update for {parent_mint}");
     } else {
         // No longer needed
@@ -182,11 +183,7 @@ pub async fn handle_mint_underlyings(
         for ix in updated_ixs {
             let update = CalculatorUpdate::NewTokenRatio(ix);
             log::trace!("Sending NewTokenRatio update for {ix:?}");
-            calculator_sender
-                .send(update)
-                .await
-                .inspect_err(|e| log::error!("Error sending NewTokenRatio update for {ix:?}: {e}"))
-                .unwrap();
+            send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
             log::trace!("Sent NewTokenRatio update for {ix:?}");
         }
     }

@@ -1,4 +1,7 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use step_ingestooor_sdk::dooot::OraclePriceEventDooot;
 use tokio::sync::{mpsc::Sender, RwLock};
@@ -7,7 +10,10 @@ use veritas_sdk::{
     utils::oracle_cache::OraclePriceCache,
 };
 
-use crate::{calculator::task::CalculatorUpdate, price_points_liquidity::task::MintIndiciesMap};
+use crate::{
+    calculator::task::CalculatorUpdate,
+    price_points_liquidity::{handlers::utils::send_update_to_calculator, task::MintIndiciesMap},
+};
 
 #[allow(clippy::unwrap_used)]
 pub async fn handle_oracle_price_event(
@@ -16,7 +22,8 @@ pub async fn handle_oracle_price_event(
     oracle_cache: Arc<RwLock<OraclePriceCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
-    calculator_sender: Arc<Sender<CalculatorUpdate>>,
+    calculator_sender: Sender<CalculatorUpdate>,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let feed_id = &oracle_price.feed_account_pubkey;
     let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned() else {
@@ -46,10 +53,8 @@ pub async fn handle_oracle_price_event(
             p_write.replace(USDPriceWithSource::Oracle(price));
         }
 
-        calculator_sender
-            .send(CalculatorUpdate::OracleUSDPrice(ix))
-            .await
-            .unwrap();
+        let update = CalculatorUpdate::OracleUSDPrice(ix);
+        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
     } else {
         log::warn!(
             "Mint {} not in graph, cannot send OracleUSDPrice update",

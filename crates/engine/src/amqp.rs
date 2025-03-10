@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use lapin::{
@@ -64,7 +62,7 @@ impl AMQPManager {
         Ok(())
     }
 
-    pub async fn spawn_amqp_listener(&self, msg_tx: Arc<Sender<Dooot>>) -> Result<JoinHandle<()>> {
+    pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
         self.set_prefetch().await?;
         self.assert_amqp_topology().await?;
 

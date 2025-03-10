@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
     time::Duration,
@@ -40,7 +40,6 @@ use crate::{
 
 pub type MintIndiciesMap = HashMap<String, NodeIndex>;
 
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
     graph: WrappedMintPricingGraph,
@@ -51,6 +50,7 @@ pub fn spawn_price_points_liquidity_task(
     oracle_feed_map: Arc<HashMap<String, String>>,
     max_ppl_subtasks: u8,
     ch_cache_updator_req_tx: Sender<String>,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -58,13 +58,10 @@ pub fn spawn_price_points_liquidity_task(
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
     let mint_indicies = Arc::new(RwLock::new(HashMap::new()));
 
-    let calculator_sender = Arc::new(calculator_sender);
-
     let task = tokio::spawn(
         #[allow(clippy::unwrap_used)]
         async move {
             let counter = Arc::new(AtomicU8::new(0));
-            let sender_arc = Arc::new(ch_cache_updator_req_tx);
 
             while let Some(dooot) = msg_rx.recv().await {
                 while counter.load(Ordering::Relaxed) >= max_ppl_subtasks {
@@ -82,7 +79,8 @@ pub fn spawn_price_points_liquidity_task(
                 let oracle_feed_map = oracle_feed_map.clone();
                 let mint_indicies = mint_indicies.clone();
                 let oracle_cache = oracle_cache.clone();
-                let sender_arc = sender_arc.clone();
+                let sender_arc = ch_cache_updator_req_tx.clone();
+                let bootstrap_in_progress = bootstrap_in_progress.clone();
 
                 tokio::spawn(async move {
                     match dooot {
@@ -95,6 +93,7 @@ pub fn spawn_price_points_liquidity_task(
                                 sender_arc,
                                 calculator_sender,
                                 mint_indicies,
+                                bootstrap_in_progress,
                             )
                             .await;
                         }
@@ -106,6 +105,7 @@ pub fn spawn_price_points_liquidity_task(
                                 graph,
                                 mint_indicies,
                                 calculator_sender,
+                                bootstrap_in_progress,
                             )
                             .await;
                         }

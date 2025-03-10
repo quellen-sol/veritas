@@ -36,12 +36,11 @@ pub enum CalculatorUpdate {
     NewTokenRatio(NodeIndex),
 }
 
-#[allow(clippy::too_many_arguments)]
 pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    dooot_tx: Arc<Sender<Dooot>>,
+    dooot_tx: Sender<Dooot>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
@@ -53,6 +52,9 @@ pub fn spawn_calculator_task(
 
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
+                log::info!(
+                    "Bootstrap in progress, skipping calculator updates (we should not see this)"
+                );
                 // Do not process graph updates while bootstrapping,
                 // Avoids thousands of recalcs while bootstrapping
                 continue;
@@ -142,7 +144,7 @@ pub async fn bfs_recalculate(
     decimals_cache: Arc<RwLock<DecimalCache>>,
     node: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
-    dooot_tx: Arc<Sender<Dooot>>,
+    dooot_tx: Sender<Dooot>,
 ) -> Result<()> {
     if visited_nodes.contains(&node) {
         return Ok(());
@@ -153,6 +155,7 @@ pub async fn bfs_recalculate(
     let Some(node_weight) = graph.node_weight(node) else {
         return Ok(());
     };
+
     let is_oracle = {
         let p_read = node_weight.usd_price.read().await;
         p_read.as_ref().is_some_and(|p| p.is_oracle())
