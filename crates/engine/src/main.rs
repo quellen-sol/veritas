@@ -231,6 +231,8 @@ async fn main() -> Result<()> {
             bootstrap_in_progress.clone(),
         )
         .await?;
+    } else {
+        log::info!("Skipping bootstrap (flag set)");
     }
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
