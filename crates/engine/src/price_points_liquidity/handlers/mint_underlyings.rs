@@ -28,7 +28,7 @@ pub async fn handle_mint_underlyings(
     lp_cache: Arc<RwLock<LpCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    sender_arc: Sender<String>,
+    cache_updator_sender: Sender<String>,
     calculator_sender: Sender<CalculatorUpdate>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     bootstrap_in_progress: Arc<AtomicBool>,
@@ -73,13 +73,16 @@ pub async fn handle_mint_underlyings(
         let parent_ix = get_or_add_mint_ix(&parent_mint, &mut g_write, &mut mint_indicies);
         drop(mint_indicies);
 
-        let Some(dec_parent) = get_or_dispatch_decimals(&sender_arc, &dc_read, &parent_mint) else {
+        let Some(dec_parent) =
+            get_or_dispatch_decimals(&cache_updator_sender, &dc_read, &parent_mint)
+        else {
             return;
         };
 
         let this_mint = &mints[0];
 
-        let Some(dec_this) = get_or_dispatch_decimals(&sender_arc, &dc_read, this_mint) else {
+        let Some(dec_this) = get_or_dispatch_decimals(&cache_updator_sender, &dc_read, this_mint)
+        else {
             return;
         };
 
@@ -131,7 +134,8 @@ pub async fn handle_mint_underlyings(
         for (i_x, un_x) in underlying_idxs.iter().cloned().enumerate() {
             let mint_x = &mints[i_x];
 
-            let Some(dec_factor_x) = get_or_dispatch_decimal_factor(&sender_arc, &dc_read, mint_x)
+            let Some(dec_factor_x) =
+                get_or_dispatch_decimal_factor(&cache_updator_sender, &dc_read, mint_x)
             else {
                 continue;
             };
@@ -146,7 +150,7 @@ pub async fn handle_mint_underlyings(
                 let mint_y = &mints[i_y];
 
                 let Some(dec_factor_y) =
-                    get_or_dispatch_decimal_factor(&sender_arc, &dc_read, mint_y)
+                    get_or_dispatch_decimal_factor(&cache_updator_sender, &dc_read, mint_y)
                 else {
                     continue;
                 };

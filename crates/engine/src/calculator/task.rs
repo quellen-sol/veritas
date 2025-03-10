@@ -52,9 +52,6 @@ pub fn spawn_calculator_task(
 
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
-                log::info!(
-                    "Bootstrap in progress, skipping calculator updates (we should not see this)"
-                );
                 // Do not process graph updates while bootstrapping,
                 // Avoids thousands of recalcs while bootstrapping
                 continue;

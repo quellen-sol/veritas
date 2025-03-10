@@ -59,6 +59,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "10000")]
     pub cache_updator_batch_size: usize,
+
+    #[clap(long, env, default_value = "false")]
+    pub skip_bootstrap: bool,
 }
 
 #[derive(Parser)]
@@ -219,15 +222,16 @@ async fn main() -> Result<()> {
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
 
-    let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
-
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
-    bootstrap_graph(
-        clickhouse_client.clone(),
-        amqp_dooot_tx_bootstrap_copy,
-        bootstrap_in_progress.clone(),
-    )
-    .await?;
+    if !args.skip_bootstrap {
+        let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
+        bootstrap_graph(
+            clickhouse_client.clone(),
+            amqp_dooot_tx_bootstrap_copy,
+            bootstrap_in_progress.clone(),
+        )
+        .await?;
+    }
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
     // Completing the pipeline AMQP -> PPL (+CU) -> CS -> DP
