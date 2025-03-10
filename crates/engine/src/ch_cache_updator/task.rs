@@ -9,7 +9,10 @@ use std::{
 
 use clickhouse::{query::RowCursor, Row};
 use serde::Deserialize;
-use tokio::{sync::{mpsc::Receiver, RwLock}, task::JoinHandle};
+use tokio::{
+    sync::{mpsc::Receiver, RwLock},
+    task::JoinHandle,
+};
 use veritas_sdk::utils::decimal_cache::DecimalCache;
 
 #[derive(Deserialize, Row)]
@@ -117,10 +120,7 @@ pub fn spawn_ch_cache_updator_tasks(
         }
     });
 
-    [
-        receiver_task,
-        query_task,
-    ]
+    [receiver_task, query_task]
 }
 
 #[inline]

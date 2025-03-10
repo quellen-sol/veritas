@@ -102,7 +102,9 @@ pub async fn handle_mint_underlyings(
         calculator_sender
             .send(update)
             .await
-            .inspect_err(|e| log::error!("Error sending NewTokenRatio update for {parent_mint}: {e}"))
+            .inspect_err(|e| {
+                log::error!("Error sending NewTokenRatio update for {parent_mint}: {e}")
+            })
             .unwrap();
         log::trace!("Sent NewTokenRatio update for {parent_mint}");
     } else {

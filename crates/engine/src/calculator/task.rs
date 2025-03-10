@@ -5,7 +5,7 @@ use std::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
 use anyhow::{Context, Result};
@@ -62,8 +62,6 @@ pub fn spawn_calculator_task(
                 // Wait for a task to become available
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
-
-            let now = Instant::now();
 
             // Make clones for the task
             let graph = graph.clone();
@@ -131,10 +129,11 @@ pub fn spawn_calculator_task(
                     }
                 }
 
-                log::debug!("Calculator task finished in {:?}", now.elapsed());
                 counter.fetch_sub(1, Ordering::Relaxed);
             });
         }
+
+        log::warn!("Calculator task finished");
     })
 }
 
