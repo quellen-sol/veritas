@@ -42,9 +42,6 @@ pub struct Args {
     #[clap(long, env, default_value = "20")]
     pub max_ppl_subtasks: u8,
 
-    #[clap(long, env, default_value = "20")]
-    pub max_cache_updator_subtasks: u8,
-
     #[clap(long, env, default_value = "10000")]
     pub cache_updator_buffer_size: usize,
 

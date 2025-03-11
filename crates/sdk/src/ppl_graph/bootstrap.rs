@@ -9,7 +9,7 @@ use clickhouse::Row;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{Dooot, DoootTrait, MintUnderlyingsGlobalDooot};
-use tokio::sync::mpsc::Sender;
+use tokio::{sync::mpsc::Sender, time::Instant};
 
 #[derive(Deserialize, Row)]
 pub struct MintUnderlyingBootstrapRow {
@@ -92,13 +92,18 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
     let mut cursor = clickhouse_client.query(sql_query).fetch::<I>()?;
 
     let mut count: usize = 0;
+    let mut now = Instant::now();
 
     while let Some(row) = cursor.next().await? {
         dooot_tx.send(row.into()).await?;
         count += 1;
 
         if count % 1000 == 0 {
-            log::info!("Loaded {count} {dooot_name} Dooots from Clickhouse");
+            log::info!(
+                "Loaded {count} {dooot_name} Dooots from Clickhouse in {:?}",
+                now.elapsed()
+            );
+            now = Instant::now();
         }
     }
 
