@@ -233,7 +233,7 @@ pub async fn get_total_weighted_price(
             LiqAmount::Inf => return Some(weighted),
         };
 
-        cm_weighted_price += weighted.checked_mul(liq)?;
+        cm_weighted_price = cm_weighted_price.checked_add(weighted.checked_mul(liq)?)?;
         total_liq = total_liq.checked_add(liq)?;
     }
 
