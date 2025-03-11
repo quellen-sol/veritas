@@ -25,7 +25,7 @@ use veritas_sdk::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::decimal_cache::DecimalCache,
+    utils::{checked_math::checked_pct_diff, decimal_cache::DecimalCache},
 };
 
 #[derive(Debug)]
@@ -173,8 +173,7 @@ pub async fn bfs_recalculate(
             let mut price_mut = node_weight.usd_price.write().await;
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
-                if *old_price != Decimal::ZERO {
-                    let pct_diff = ((new_price - old_price) / old_price).abs();
+                if let Some(pct_diff) = checked_pct_diff(&old_price, &new_price) {
                     let diff_limit =
                         Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
 
@@ -183,6 +182,8 @@ pub async fn bfs_recalculate(
                         return Ok(());
                     }
                 }
+
+                // Should we add `else` and `return Ok(())` if price_diff fails?
             }
 
             price_mut.replace(USDPriceWithSource::Relation(new_price));
@@ -232,15 +233,15 @@ pub async fn get_total_weighted_price(
             LiqAmount::Inf => return Some(weighted),
         };
 
-        cm_weighted_price += weighted * liq;
-        total_liq += liq;
+        cm_weighted_price += weighted.checked_mul(liq)?;
+        total_liq = total_liq.checked_add(liq)?;
     }
 
     if total_liq == Decimal::ZERO {
         return None;
     }
 
-    let final_price = cm_weighted_price / total_liq;
+    let final_price = cm_weighted_price.checked_div(total_liq)?;
 
     Some(final_price)
 }
@@ -274,7 +275,9 @@ pub async fn get_single_wighted_price(
         let relation = e_read.inner_relation.read().await;
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
-        let liq = relation.get_liquidity(price_a, Decimal::ZERO);
+        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
+            continue;
+        };
 
         let liq = match liq {
             LiqAmount::Amount(amt) => {
@@ -283,20 +286,22 @@ pub async fn get_single_wighted_price(
                 }
                 amt
             }
-            LiqAmount::Inf => return Some((relation.get_price(price_a), LiqAmount::Inf)),
+            LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
         };
 
-        let price_b_usd = relation.get_price(price_a);
+        let Some(price_b_usd) = relation.get_price(price_a) else {
+            continue;
+        };
 
-        cm_weighted_price += price_b_usd * liq;
-        total_liq += liq;
+        cm_weighted_price = cm_weighted_price.checked_add(price_b_usd.checked_mul(liq)?)?;
+        total_liq = total_liq.checked_add(liq)?;
     }
 
     if total_liq == Decimal::ZERO {
         return None;
     }
 
-    let weighted_price = cm_weighted_price / total_liq;
+    let weighted_price = cm_weighted_price.checked_div(total_liq)?;
 
     Some((weighted_price, LiqAmount::Amount(total_liq)))
 }

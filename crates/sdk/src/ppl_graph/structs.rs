@@ -40,22 +40,18 @@ pub enum LiqRelation {
 }
 
 impl LiqRelation {
+    /// Returns `None` if unable to calculate the price of this relation (through overflows, divs by 0, etc)
     #[inline]
-    pub fn get_price(&self, usd_price_origin: Decimal) -> Decimal {
+    pub fn get_price(&self, usd_price_origin: Decimal) -> Option<Decimal> {
         match self {
             LiqRelation::CpLp {
                 amt_origin,
                 amt_dest,
                 ..
-            } => {
-                if *amt_dest != Decimal::ZERO {
-                    (amt_origin / amt_dest) * usd_price_origin
-                } else {
-                    // Or `None`?
-                    Decimal::ZERO
-                }
-            }
-            LiqRelation::Fixed { amt_per_parent } => usd_price_origin * amt_per_parent,
+            } => amt_origin
+                .checked_div(*amt_dest)?
+                .checked_mul(usd_price_origin),
+            LiqRelation::Fixed { amt_per_parent } => amt_per_parent.checked_mul(usd_price_origin),
         }
     }
 
@@ -72,15 +68,27 @@ impl LiqRelation {
     //     LiqLevels::default()
     // }
 
+    /// Returns `None` if unable to calculate liquidity of this relation (through overflows, divs by 0, etc)
     #[inline]
-    pub fn get_liquidity(&self, price_source_usd: Decimal, price_dest_usd: Decimal) -> LiqAmount {
+    pub fn get_liquidity(
+        &self,
+        price_source_usd: Decimal,
+        price_dest_usd: Decimal,
+    ) -> Option<LiqAmount> {
         match self {
             LiqRelation::CpLp {
                 amt_origin,
                 amt_dest,
                 ..
-            } => LiqAmount::Amount(amt_origin * price_source_usd + amt_dest * price_dest_usd),
-            LiqRelation::Fixed { .. } => LiqAmount::Inf,
+            } => {
+                let liq_origin = amt_origin.checked_mul(price_source_usd)?;
+                let liq_dest = amt_dest.checked_mul(price_dest_usd)?;
+                // Just allow to max out. One less failure point
+                let total_liq = liq_origin.saturating_add(liq_dest);
+
+                Some(LiqAmount::Amount(total_liq))
+            }
+            LiqRelation::Fixed { .. } => Some(LiqAmount::Inf),
         }
     }
 }

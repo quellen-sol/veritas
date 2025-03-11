@@ -96,7 +96,9 @@ pub async fn handle_mint_underlyings(
             return;
         };
 
-        let amt_per_parent = amt_per_parent * dec_factor;
+        let Some(amt_per_parent) = amt_per_parent.checked_mul(dec_factor) else {
+            return;
+        };
         let relation = LiqRelation::Fixed { amt_per_parent };
 
         add_or_update_relation_edge(
@@ -147,7 +149,9 @@ pub async fn handle_mint_underlyings(
                 continue;
             };
 
-            let amt_x = total_underlying_amounts[i_x] / dec_factor_x;
+            let Some(amt_x) = total_underlying_amounts[i_x].checked_div(dec_factor_x) else {
+                continue;
+            };
 
             for (i_y, un_y) in underlying_idxs.iter().cloned().enumerate() {
                 if un_x == un_y {
@@ -162,7 +166,9 @@ pub async fn handle_mint_underlyings(
                     continue;
                 };
 
-                let amt_y = total_underlying_amounts[i_y] / dec_factor_y;
+                let Some(amt_y) = total_underlying_amounts[i_y].checked_div(dec_factor_y) else {
+                    continue;
+                };
 
                 match curve_type {
                     CurveType::ConstantProduct => {
