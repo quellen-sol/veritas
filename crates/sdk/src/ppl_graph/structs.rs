@@ -47,7 +47,14 @@ impl LiqRelation {
                 amt_origin,
                 amt_dest,
                 ..
-            } => (amt_origin / amt_dest) * usd_price_origin,
+            } => {
+                if *amt_dest != Decimal::ZERO {
+                    (amt_origin / amt_dest) * usd_price_origin
+                } else {
+                    // Or `None`?
+                    Decimal::ZERO
+                }
+            }
             LiqRelation::Fixed { amt_per_parent } => usd_price_origin * amt_per_parent,
         }
     }

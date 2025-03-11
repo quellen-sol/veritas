@@ -195,6 +195,7 @@ pub async fn handle_mint_underlyings(
 
         drop(edge_indicies);
         drop(g_write);
+        drop(dc_read);
 
         for ix in updated_ixs {
             let update = CalculatorUpdate::NewTokenRatio(ix);

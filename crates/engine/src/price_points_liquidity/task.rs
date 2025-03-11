@@ -24,7 +24,7 @@ use veritas_sdk::{
         graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
         structs::LiqRelation,
     },
-    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, oracle_cache::OraclePriceCache},
+    utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
 use crate::{
@@ -44,7 +44,6 @@ pub fn spawn_price_points_liquidity_task(
     calculator_sender: Sender<CalculatorUpdate>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     lp_cache: Arc<RwLock<LpCache>>,
-    oracle_cache: Arc<RwLock<OraclePriceCache>>,
     oracle_feed_map: Arc<HashMap<String, String>>,
     max_ppl_subtasks: u8,
     ch_cache_updator_req_tx: Sender<String>,
@@ -78,7 +77,6 @@ pub fn spawn_price_points_liquidity_task(
                 let oracle_feed_map = oracle_feed_map.clone();
                 let mint_indicies = mint_indicies.clone();
                 let edge_indicies = edge_indicies.clone();
-                let oracle_cache = oracle_cache.clone();
                 let sender_arc = ch_cache_updator_req_tx.clone();
                 let bootstrap_in_progress = bootstrap_in_progress.clone();
 
@@ -102,7 +100,6 @@ pub fn spawn_price_points_liquidity_task(
                             handle_oracle_price_event(
                                 oracle_price,
                                 oracle_feed_map,
-                                oracle_cache,
                                 graph,
                                 mint_indicies,
                                 calculator_sender,
@@ -181,11 +178,11 @@ pub fn get_or_dispatch_decimals(
 /// If the decimal factor is not in the cache, it will dispatch a request to get the decimal factor
 #[inline]
 pub fn get_or_dispatch_decimal_factor(
-    sender_arc: &Sender<String>,
+    sender: &Sender<String>,
     dc_read: &HashMap<String, u8>,
     mint_x: &str,
 ) -> Option<Decimal> {
-    let dec = get_or_dispatch_decimals(sender_arc, dc_read, mint_x)?;
+    let dec = get_or_dispatch_decimals(sender, dc_read, mint_x)?;
 
     let dec_factor = Decimal::from(10).checked_powi(dec as i64);
 

@@ -5,10 +5,7 @@ use std::{
 
 use step_ingestooor_sdk::dooot::OraclePriceEventDooot;
 use tokio::sync::{mpsc::Sender, RwLock};
-use veritas_sdk::{
-    ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
-    utils::oracle_cache::OraclePriceCache,
-};
+use veritas_sdk::ppl_graph::graph::{MintPricingGraph, USDPriceWithSource};
 
 use crate::{
     calculator::task::CalculatorUpdate,
@@ -19,7 +16,6 @@ use crate::{
 pub async fn handle_oracle_price_event(
     oracle_price: OraclePriceEventDooot,
     oracle_feed_map: Arc<HashMap<String, String>>,
-    oracle_cache: Arc<RwLock<OraclePriceCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     calculator_sender: Sender<CalculatorUpdate>,
@@ -34,16 +30,11 @@ pub async fn handle_oracle_price_event(
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
-    // Quick lock to update the oracle cache
-    {
-        let mut oc_write = oracle_cache.write().await;
-        oc_write.insert(feed_mint.clone(), price);
-    }
-
     let ix = {
         let mint_indicies_read = mint_indicies.read().await;
         mint_indicies_read.get(&feed_mint).cloned()
     };
+
     if let Some(ix) = ix {
         // Update the price of the mint in the graph
         {

@@ -14,10 +14,7 @@ use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::{bootstrap::bootstrap_graph, graph::MintPricingGraph},
-    utils::{
-        decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
-        oracle_cache::OraclePriceCache,
-    },
+    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache},
 };
 
 mod amqp;
@@ -129,7 +126,6 @@ async fn main() -> Result<()> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<HashMap<String, String>>(),
     );
-    let oracle_cache = Arc::new(RwLock::new(OraclePriceCache::new()));
 
     // Connect to amqp
     let AMQPArgs {
@@ -209,7 +205,6 @@ async fn main() -> Result<()> {
         calculator_sender,
         decimal_cache.clone(),
         lp_cache.clone(),
-        oracle_cache.clone(),
         oracle_feed_map.clone(),
         args.max_ppl_subtasks,
         ch_cache_updator_req_tx,
