@@ -17,7 +17,7 @@ use crate::{
         handlers::utils::send_update_to_calculator,
         task::{
             add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimal_factor,
-            get_or_dispatch_decimals, MintIndiciesMap,
+            get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
         },
     },
 };
@@ -31,6 +31,7 @@ pub async fn handle_mint_underlyings(
     cache_updator_sender: Sender<String>,
     calculator_sender: Sender<CalculatorUpdate>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let MintUnderlyingsGlobalDooot {
@@ -48,6 +49,9 @@ pub async fn handle_mint_underlyings(
     log::trace!("Getting mint indicies write lock");
     let mut mint_indicies = mint_indicies.write().await;
     log::trace!("Got mint indicies write lock");
+    log::trace!("Getting edge indicies write lock");
+    let mut edge_indicies = edge_indicies.write().await;
+    log::trace!("Got edge indicies write lock");
 
     // Ordered with `mints`
     let mut underlying_idxs = Vec::with_capacity(mints.len());
@@ -98,14 +102,17 @@ pub async fn handle_mint_underlyings(
         add_or_update_relation_edge(
             underlying_idxs[0],
             parent_ix,
+            &mut edge_indicies,
             &mut g_write,
-            |e| e.id == parent_mint,
             relation,
             &parent_mint,
             time,
         )
-        .await;
+        .await
+        .inspect_err(|e| log::error!("Error inserting relation into edge: {e}"))
+        .ok();
         drop(g_write);
+        drop(edge_indicies);
 
         let update = CalculatorUpdate::NewTokenRatio(parent_ix);
         log::trace!("Sending NewTokenRatio update for {parent_mint}");
@@ -167,13 +174,15 @@ pub async fn handle_mint_underlyings(
                         add_or_update_relation_edge(
                             un_x,
                             un_y,
+                            &mut edge_indicies,
                             &mut g_write,
-                            |e| e.id == parent_mint,
                             new_relation,
                             &parent_mint,
                             time,
                         )
-                        .await;
+                        .await
+                        .inspect_err(|e| log::error!("Error inserting relation into edge: {e}"))
+                        .ok();
 
                         updated_ixs.insert(un_y);
                     }
@@ -183,6 +192,9 @@ pub async fn handle_mint_underlyings(
                 }
             }
         }
+
+        drop(edge_indicies);
+        drop(g_write);
 
         for ix in updated_ixs {
             let update = CalculatorUpdate::NewTokenRatio(ix);

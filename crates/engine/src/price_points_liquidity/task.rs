@@ -9,10 +9,7 @@ use std::{
 
 use anyhow::Result;
 use chrono::NaiveDateTime;
-use petgraph::{
-    graph::{EdgeIndex, NodeIndex},
-    visit::EdgeRef,
-};
+use petgraph::graph::{EdgeIndex, NodeIndex};
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::{
@@ -39,6 +36,7 @@ use crate::{
 };
 
 pub type MintIndiciesMap = HashMap<String, NodeIndex>;
+pub type EdgeIndiciesMap = HashMap<String, [Option<EdgeIndex>; 2]>; // Relations can be 2-way
 
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
@@ -56,7 +54,8 @@ pub fn spawn_price_points_liquidity_task(
 
     // Only to be used if we never *remove* nodes from the graph
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
-    let mint_indicies = Arc::new(RwLock::new(HashMap::new()));
+    let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
+    let edge_indicies = Arc::new(RwLock::new(EdgeIndiciesMap::new()));
 
     let task = tokio::spawn(
         #[allow(clippy::unwrap_used)]
@@ -78,6 +77,7 @@ pub fn spawn_price_points_liquidity_task(
                 let decimal_cache = decimal_cache.clone();
                 let oracle_feed_map = oracle_feed_map.clone();
                 let mint_indicies = mint_indicies.clone();
+                let edge_indicies = edge_indicies.clone();
                 let oracle_cache = oracle_cache.clone();
                 let sender_arc = ch_cache_updator_req_tx.clone();
                 let bootstrap_in_progress = bootstrap_in_progress.clone();
@@ -93,6 +93,7 @@ pub fn spawn_price_points_liquidity_task(
                                 sender_arc,
                                 calculator_sender,
                                 mint_indicies,
+                                edge_indicies,
                                 bootstrap_in_progress,
                             )
                             .await;
@@ -218,20 +219,24 @@ pub fn get_or_add_mint_ix(
     ix
 }
 
+/// Get edge from A -> B that matches the discriminant ID
 #[inline]
-pub fn get_edge_by_predicate<P>(
+pub fn get_edge_by_discriminant(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     graph: &MintPricingGraph,
-    edge_predicate: P,
-) -> Option<EdgeIndex>
-where
-    P: Fn(&MintEdge) -> bool,
-{
-    for edge in graph.edges_connecting(ix_a, ix_b) {
-        let e = edge.weight();
-        if edge_predicate(e) {
-            return Some(edge.id());
+    edge_indicies: &EdgeIndiciesMap,
+    discriminant_id: &str,
+) -> Option<EdgeIndex> {
+    let indexed_edge = edge_indicies.get(discriminant_id)?;
+
+    for i_edge in indexed_edge.iter().flatten() {
+        let Some((src, target)) = graph.edge_endpoints(*i_edge) else {
+            continue;
+        };
+
+        if src == ix_a && target == ix_b {
+            return Some(*i_edge);
         }
     }
 
@@ -241,19 +246,18 @@ where
 /// Returns the edge idx that was updated
 #[inline]
 #[allow(clippy::unwrap_used)]
-pub async fn add_or_update_relation_edge<P>(
+pub async fn add_or_update_relation_edge(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
+    edge_indicies: &mut EdgeIndiciesMap,
     graph: &mut MintPricingGraph,
-    get_predicate: P,
     update_with: LiqRelation,
     discriminant_id: &str,
     time: NaiveDateTime,
-) -> EdgeIndex
+) -> Result<EdgeIndex>
 where
-    P: Fn(&MintEdge) -> bool,
 {
-    let edge = get_edge_by_predicate(ix_a, ix_b, graph, get_predicate);
+    let edge = get_edge_by_discriminant(ix_a, ix_b, graph, edge_indicies, discriminant_id);
 
     match edge {
         Some(edge_ix) => {
@@ -274,7 +278,9 @@ where
                 *relation = update_with;
             }
 
-            edge_ix
+            update_edge_index(edge_indicies, discriminant_id, edge_ix)?;
+
+            Ok(edge_ix)
         }
         None => {
             let new_edge = MintEdge {
@@ -284,7 +290,133 @@ where
                 inner_relation: RwLock::new(update_with),
             };
 
-            graph.add_edge(ix_a, ix_b, new_edge)
+            let new_ix = graph.add_edge(ix_a, ix_b, new_edge);
+
+            update_edge_index(edge_indicies, discriminant_id, new_ix)?;
+
+            Ok(new_ix)
         }
+    }
+}
+
+pub fn update_edge_index(
+    edge_indicies: &mut EdgeIndiciesMap,
+    discriminant_id: &str,
+    index: EdgeIndex,
+) -> Result<()> {
+    match edge_indicies.get_mut(discriminant_id) {
+        None => {
+            edge_indicies.insert(discriminant_id.to_string(), [Some(index), None]);
+            Ok(())
+        }
+        Some(entry) => {
+            for item in entry.iter_mut() {
+                match item {
+                    Some(ix) => {
+                        if *ix == index {
+                            // Leave unchanged
+                            return Ok(());
+                        }
+                    }
+                    None => {
+                        *item = Some(index);
+                        return Ok(());
+                    }
+                }
+            }
+
+            // If we get here, we're trying to add a third edge with the same discriminant,
+            // This is not allowed, so error!
+            Err(anyhow::anyhow!(
+                "Trying to add a third edge with the same discriminant"
+            ))
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+
+    use super::*;
+
+    #[test]
+    fn test_updating_edge_indicies() {
+        let mut edge_indicies = EdgeIndiciesMap::new();
+        let discriminant_id = "test_disc";
+
+        let ix_a = EdgeIndex::new(0);
+        let ix_b = EdgeIndex::new(1);
+
+        update_edge_index(&mut edge_indicies, discriminant_id, ix_a).unwrap();
+        update_edge_index(&mut edge_indicies, discriminant_id, ix_b).unwrap();
+
+        assert_eq!(
+            edge_indicies.get(discriminant_id),
+            Some(&[Some(ix_a), Some(ix_b)])
+        );
+
+        update_edge_index(&mut edge_indicies, discriminant_id, ix_b).unwrap();
+
+        assert_eq!(
+            edge_indicies.get(discriminant_id),
+            Some(&[Some(ix_a), Some(ix_b)])
+        );
+
+        update_edge_index(&mut edge_indicies, discriminant_id, ix_a).unwrap();
+
+        assert_eq!(
+            edge_indicies.get(discriminant_id),
+            Some(&[Some(ix_a), Some(ix_b)])
+        );
+    }
+
+    #[test]
+    fn test_get_edge_by_discriminant() {
+        let mut graph = MintPricingGraph::new();
+        let mut edge_indicies = EdgeIndiciesMap::new();
+
+        let ix_a = graph.add_node(MintNode {
+            mint: "test_mint_a".to_string(),
+            usd_price: RwLock::new(None),
+        });
+        let ix_b = graph.add_node(MintNode {
+            mint: "test_mint_b".to_string(),
+            usd_price: RwLock::new(None),
+        });
+
+        let ix_edge = graph.add_edge(
+            ix_a,
+            ix_b,
+            MintEdge {
+                id: "test_disc".to_string(),
+                dirty: true,
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+                inner_relation: RwLock::new(LiqRelation::Fixed {
+                    amt_per_parent: Decimal::from(100),
+                }),
+            },
+        );
+
+        let ix_edge_2 = graph.add_edge(
+            ix_b,
+            ix_a,
+            MintEdge {
+                id: "test_disc".to_string(),
+                dirty: true,
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+                inner_relation: RwLock::new(LiqRelation::Fixed {
+                    amt_per_parent: Decimal::from(100),
+                }),
+            },
+        );
+
+        update_edge_index(&mut edge_indicies, "test_disc", ix_edge).unwrap();
+        update_edge_index(&mut edge_indicies, "test_disc", ix_edge_2).unwrap();
+        let edge_1 = get_edge_by_discriminant(ix_a, ix_b, &graph, &edge_indicies, "test_disc");
+        let edge_2 = get_edge_by_discriminant(ix_b, ix_a, &graph, &edge_indicies, "test_disc");
+
+        assert_eq!(edge_1, Some(ix_edge));
+        assert_eq!(edge_2, Some(ix_edge_2));
     }
 }
