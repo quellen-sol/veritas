@@ -7,7 +7,6 @@ struct VeritasServerState {
     bootstrap_in_progress: Arc<AtomicBool>,
 }
 
-/// Returns the Serve future that will go in our `tokio::select`
 pub fn spawn_axum_server(bootstrap_in_progress: Arc<AtomicBool>) -> JoinHandle<()> {
     tokio::spawn(
         #[allow(clippy::unwrap_used)]
