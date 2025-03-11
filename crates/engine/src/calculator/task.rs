@@ -173,13 +173,15 @@ pub async fn bfs_recalculate(
             let mut price_mut = node_weight.usd_price.write().await;
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
-                let pct_diff = ((new_price - old_price) / old_price).abs();
-                let diff_limit =
-                    Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
+                if *old_price != Decimal::ZERO {
+                    let pct_diff = ((new_price - old_price) / old_price).abs();
+                    let diff_limit =
+                        Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
 
-                if pct_diff < diff_limit {
-                    // Not a significant enough change. Stop here and don't emit a dooot
-                    return Ok(());
+                    if pct_diff < diff_limit {
+                        // Not a significant enough change. Stop here and don't emit a dooot
+                        return Ok(());
+                    }
                 }
             }
 
