@@ -74,8 +74,6 @@ pub async fn bootstrap_graph(
 
     // TODO: Add other Dooots (Clmm, Dlmm)
 
-    bootstrap_in_progress.store(false, Ordering::Relaxed);
-
     log::info!("Bootstrap complete");
 
     Ok(())
@@ -98,8 +96,8 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
         dooot_tx.send(row.into()).await?;
         count += 1;
 
-        if count % 1000 == 0 {
-            log::info!(
+        if count % 10000 == 0 {
+            log::debug!(
                 "Loaded {count} {dooot_name} Dooots from Clickhouse in {:?}",
                 now.elapsed()
             );

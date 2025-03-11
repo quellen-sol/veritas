@@ -1,10 +1,14 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
 };
 
 use amqp::AMQPManager;
 use anyhow::Result;
+use axum::task::spawn_axum_server;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
@@ -18,6 +22,7 @@ use veritas_sdk::{
 };
 
 mod amqp;
+mod axum;
 mod calculator;
 mod ch_cache_updator;
 mod price_points_liquidity;
@@ -173,7 +178,9 @@ async fn main() -> Result<()> {
         tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
-    let bootstrap_in_progress = Arc::new(AtomicBool::new(false));
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
+
+    let axum_server_task = spawn_axum_server(bootstrap_in_progress.clone());
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
@@ -223,9 +230,17 @@ async fn main() -> Result<()> {
             bootstrap_in_progress.clone(),
         )
         .await?;
+
+        let g_read = mint_price_graph.read().await;
+        let nodes = g_read.node_count();
+        let edges = g_read.edge_count();
+
+        log::info!("Pricing Graph contains {nodes} nodes and {edges} edges post-bootstrap");
     } else {
         log::info!("Skipping bootstrap (flag set)");
     }
+
+    bootstrap_in_progress.store(false, Ordering::Relaxed);
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
     // Completing the pipeline AMQP -> PPL (+CU) -> CS -> DP
@@ -249,6 +264,9 @@ async fn main() -> Result<()> {
         }
         _ = dooot_publisher_task => {
             log::warn!("Dooot publisher task exited");
+        }
+        _ = axum_server_task => {
+            log::warn!("Axum server task exited");
         }
     }
 
