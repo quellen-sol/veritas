@@ -173,7 +173,7 @@ pub async fn bfs_recalculate(
             let mut price_mut = node_weight.usd_price.write().await;
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
-                if let Some(pct_diff) = checked_pct_diff(&old_price, &new_price) {
+                if let Some(pct_diff) = checked_pct_diff(old_price, &new_price) {
                     let diff_limit =
                         Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
 
