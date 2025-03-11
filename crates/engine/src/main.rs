@@ -100,6 +100,10 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    // Start serving the axum server as early as possible
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
+    let axum_server_task = spawn_axum_server(bootstrap_in_progress.clone());
+
     // Connect to clickhouse
     let ClickhouseArgs {
         clickhouse_user,
@@ -178,9 +182,6 @@ async fn main() -> Result<()> {
         tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
-    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
-
-    let axum_server_task = spawn_axum_server(bootstrap_in_progress.clone());
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
