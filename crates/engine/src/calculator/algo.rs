@@ -40,7 +40,7 @@ pub async fn bfs_recalculate(
     // Don't calc this token if it's an orcale
     if !is_oracle {
         let mint = node_weight.mint.clone();
-        log::trace!("Getting total weighted price");
+        log::trace!("Getting total weighted price for {mint}");
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
             return Ok(());
