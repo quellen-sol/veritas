@@ -93,9 +93,9 @@ pub fn spawn_calculator_task(
                                     // Not enough to warrant recalcing everything (avoids stuff like USDC moving around same price)
                                     return;
                                 }
-
-                                p_write.replace(USDPriceWithSource::Oracle(new_price));
                             }
+
+                            p_write.replace(USDPriceWithSource::Oracle(new_price));
                         }
 
                         log::trace!("Starting BFS recalculation for OracleUSDPrice update");
@@ -221,8 +221,7 @@ pub async fn bfs_recalculate(
             .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
     } else if !is_start {
         // Not the beginning of the algo, and this is an oracle token.
-        // Don't continue. If there's a path to something beyond this oracle token that needs pricing,
-        // it'll be considered during liquidity calc
+        // Don't continue. Shouldn't ever need to pass *through* an oracle token to price something else.
         return Ok(());
     }
 
