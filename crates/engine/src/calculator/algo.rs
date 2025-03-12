@@ -31,9 +31,9 @@ pub async fn bfs_recalculate(
     };
 
     let is_oracle = {
-        log::trace!("Getting price read lock");
+        log::trace!("Getting price read lock for Oracle check");
         let p_read = node_weight.usd_price.read().await;
-        log::trace!("Got price read lock");
+        log::trace!("Got price read lock for Oracle check");
         p_read.as_ref().is_some_and(|p| p.is_oracle())
     };
 
@@ -48,9 +48,9 @@ pub async fn bfs_recalculate(
         log::debug!("Calculated price of {mint}: {new_price}");
 
         {
-            log::trace!("Getting price write lock");
+            log::trace!("Getting price write lock for price calc");
             let mut price_mut = node_weight.usd_price.write().await;
-            log::trace!("Got price write lock");
+            log::trace!("Got price write lock for price calc");
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
 
@@ -60,7 +60,7 @@ pub async fn bfs_recalculate(
             }
 
             price_mut.replace(USDPriceWithSource::Relation(new_price));
-            log::trace!("Replaced price");
+            log::trace!("Replaced price for price calc");
         }
 
         let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {

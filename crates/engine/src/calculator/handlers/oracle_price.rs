@@ -28,7 +28,9 @@ pub async fn handle_oracle_price_update(
         let Some(node_weight) = g_read.node_weight(token) else {
             return;
         };
+        log::trace!("Getting price write lock for OracleUSDPrice update");
         let mut p_write = node_weight.usd_price.write().await;
+        log::trace!("Got price write lock for OracleUSDPrice update");
         let old_price = p_write.as_ref().map(|p| p.extract_price());
         if let Some(old_price) = old_price {
             if !is_significant_change(old_price, &new_price) {
@@ -38,6 +40,7 @@ pub async fn handle_oracle_price_update(
         }
 
         p_write.replace(USDPriceWithSource::Oracle(new_price));
+        log::trace!("Replaced price for OracleUSDPrice update");
     }
 
     log::trace!("Starting BFS recalculation for OracleUSDPrice update");
