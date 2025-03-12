@@ -57,6 +57,8 @@ pub fn spawn_calculator_task(
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
 
+            counter.fetch_add(1, Ordering::Relaxed);
+
             // Make clones for the task
             let graph = graph.clone();
             let decimals_cache = decimals_cache.clone();
@@ -64,8 +66,6 @@ pub fn spawn_calculator_task(
             let counter = counter.clone();
 
             tokio::spawn(async move {
-                counter.fetch_add(1, Ordering::Relaxed);
-
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token, new_price) => {
                         handle_oracle_price_update(

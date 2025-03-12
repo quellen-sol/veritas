@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use chrono::Utc;
 use rust_decimal::Decimal;
 use std::{collections::HashSet, sync::Arc};
@@ -31,7 +31,9 @@ pub async fn bfs_recalculate(
     };
 
     let is_oracle = {
+        log::trace!("Getting price read lock");
         let p_read = node_weight.usd_price.read().await;
+        log::trace!("Got price read lock");
         p_read.as_ref().is_some_and(|p| p.is_oracle())
     };
 
@@ -46,7 +48,9 @@ pub async fn bfs_recalculate(
         log::debug!("Calculated price of {mint}: {new_price}");
 
         {
+            log::trace!("Getting price write lock");
             let mut price_mut = node_weight.usd_price.write().await;
+            log::trace!("Got price write lock");
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
 
@@ -56,6 +60,7 @@ pub async fn bfs_recalculate(
             }
 
             price_mut.replace(USDPriceWithSource::Relation(new_price));
+            log::trace!("Replaced price");
         }
 
         let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
@@ -64,10 +69,12 @@ pub async fn bfs_recalculate(
             time: Utc::now().naive_utc(),
         });
 
+        log::trace!("Sending Dooot");
         dooot_tx
             .send(dooot)
             .await
-            .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
+            .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
+        log::trace!("Sent Dooot");
     } else if !is_start {
         // Not the beginning of the algo, and this is an oracle token.
         // Don't continue. Shouldn't ever need to pass *through* an oracle token to price something else.
