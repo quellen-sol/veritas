@@ -1,27 +1,31 @@
 // #![allow(unused)]
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashSet,
     sync::{
-        atomic::{AtomicU8, Ordering},
+        atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
     },
-    time::{Duration, Instant},
+    time::Duration,
 };
 
+use anyhow::{Context, Result};
 use chrono::Utc;
 use petgraph::{graph::NodeIndex, Direction};
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
+use tokio::{
+    sync::{
+        mpsc::{Receiver, Sender},
+        RwLock,
+    },
+    task::JoinHandle,
 };
 use veritas_sdk::{
     ppl_graph::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, oracle_cache::OraclePriceCache},
+    utils::{checked_math::checked_pct_diff, decimal_cache::DecimalCache},
 };
 
 #[derive(Debug)]
@@ -32,136 +36,123 @@ pub enum CalculatorUpdate {
     NewTokenRatio(NodeIndex),
 }
 
-#[allow(clippy::too_many_arguments)]
-pub async fn spawn_calculator_task(
+pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
-    clickhouse_client: Arc<clickhouse::Client>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
-    _lp_cache: Arc<RwLock<LpCache>>,
-    _oracle_cache: Arc<RwLock<OraclePriceCache>>,
-    _oracle_feed_map: Arc<HashMap<String, String>>,
-    dooot_tx: Arc<Sender<Dooot>>,
+    dooot_tx: Sender<Dooot>,
     max_calculator_subtasks: u8,
-) {
+    bootstrap_in_progress: Arc<AtomicBool>,
+) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
-    let updator_graph = graph.clone();
-    let updator_clickhouse_client = clickhouse_client.clone();
-    let updator_decimals_cache = decimals_cache.clone();
-    let updator_dooot_tx = dooot_tx.clone();
-
-    let update_task = tokio::spawn(async move {
+    tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
 
         while let Some(update) = calculator_receiver.recv().await {
+            if bootstrap_in_progress.load(Ordering::Relaxed) {
+                // Do not process graph updates while bootstrapping,
+                // Avoids thousands of recalcs while bootstrapping
+                continue;
+            }
+
             while counter.load(Ordering::Relaxed) >= max_calculator_subtasks {
                 // Wait for a task to become available
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
 
-            let now = Instant::now();
-            counter.fetch_add(1, Ordering::Relaxed);
-
             // Make clones for the task
-            let graph = updator_graph.clone();
-            let clickhouse_client = updator_clickhouse_client.clone();
-            let decimals_cache = updator_decimals_cache.clone();
-            let dooot_tx = updator_dooot_tx.clone();
+            let graph = graph.clone();
+            let decimals_cache = decimals_cache.clone();
+            let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
 
             tokio::spawn(async move {
+                counter.fetch_add(1, Ordering::Relaxed);
                 // Do a full BFS and update price of every token if Oracle
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token) => {
+                        log::trace!("Getting graph read lock for OracleUSDPrice update");
                         let g_read = graph.read().await;
+                        log::trace!("Got graph read lock for OracleUSDPrice update");
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
-                        bfs_recalculate(
+                        log::trace!("Starting BFS recalculation for OracleUSDPrice update");
+                        let recalc_result = bfs_recalculate(
                             &g_read,
-                            clickhouse_client.clone(),
                             decimals_cache.clone(),
                             token,
                             &mut visited,
                             dooot_tx.clone(),
                         )
                         .await;
+
+                        match recalc_result {
+                            Ok(_) => {
+                                log::trace!("Finished BFS recalculation for OracleUSDPrice update");
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Error during BFS recalculation for OracleUSDPrice update: {e}"
+                                );
+                            }
+                        }
                     }
                     CalculatorUpdate::NewTokenRatio(token) => {
+                        log::trace!("Getting graph read lock for NewTokenRatio update");
                         let g_read = graph.read().await;
+                        log::trace!("Got graph read lock for NewTokenRatio update");
                         let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
 
-                        bfs_recalculate(
+                        log::trace!("Starting BFS recalculation for NewTokenRatio update");
+                        let recalc_result = bfs_recalculate(
                             &g_read,
-                            clickhouse_client.clone(),
                             decimals_cache.clone(),
                             token,
                             &mut visited,
                             dooot_tx.clone(),
                         )
                         .await;
+
+                        match recalc_result {
+                            Ok(_) => {
+                                log::trace!("Finished BFS recalculation for NewTokenRatio update");
+                            }
+                            Err(e) => {
+                                log::error!(
+                                    "Error during BFS recalculation for NewTokenRatio update: {e}"
+                                );
+                            }
+                        }
                     }
                 }
 
-                log::debug!("Calculator task finished in {:?}", now.elapsed());
                 counter.fetch_sub(1, Ordering::Relaxed);
             });
         }
-    });
 
-    // Task to periodically recalc the entire graph
-    let periodic_task = tokio::spawn(async move {
-        loop {
-            tokio::time::sleep(Duration::from_secs(30)).await;
-
-            let graph = graph.clone();
-            let clickhouse_client = clickhouse_client.clone();
-            let decimals_cache = decimals_cache.clone();
-            let dooot_tx = dooot_tx.clone();
-
-            let g_read = graph.read().await;
-            let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
-
-            bfs_recalculate(
-                &g_read,
-                clickhouse_client,
-                decimals_cache,
-                NodeIndex::new(0),
-                &mut visited,
-                dooot_tx,
-            )
-            .await;
-        }
-    });
-
-    tokio::select! {
-        _ = update_task => {
-            log::warn!("Update task exited!");
-        }
-        _ = periodic_task => {
-            log::warn!("Graph copier task exited!")
-        }
-    }
+        log::warn!("Calculator task finished");
+    })
 }
 
-#[allow(clippy::unwrap_used)]
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
-    clickhouse_client: Arc<clickhouse::Client>,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     node: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
-    dooot_tx: Arc<Sender<Dooot>>,
-) {
+    dooot_tx: Sender<Dooot>,
+) -> Result<()> {
     if visited_nodes.contains(&node) {
-        return;
+        return Ok(());
     }
 
     visited_nodes.insert(node);
 
-    // Guaranteed to be Some
-    let node_weight = graph.node_weight(node).unwrap();
+    let Some(node_weight) = graph.node_weight(node) else {
+        return Ok(());
+    };
+
     let is_oracle = {
         let p_read = node_weight.usd_price.read().await;
         p_read.as_ref().is_some_and(|p| p.is_oracle())
@@ -173,7 +164,7 @@ pub async fn bfs_recalculate(
         let mint = node_weight.mint.clone();
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
-            return;
+            return Ok(());
         };
 
         log::debug!("Calculated price of {mint}: {new_price}");
@@ -182,11 +173,17 @@ pub async fn bfs_recalculate(
             let mut price_mut = node_weight.usd_price.write().await;
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
-                let pct_diff = ((new_price - old_price) / old_price).abs();
-                if pct_diff < Decimal::from_f64(0.001).unwrap() {
-                    // Not a significant enough change. Stop here and don't emit a dooot
-                    return;
+                if let Some(pct_diff) = checked_pct_diff(old_price, &new_price) {
+                    let diff_limit =
+                        Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
+
+                    if pct_diff < diff_limit {
+                        // Not a significant enough change. Stop here and don't emit a dooot
+                        return Ok(());
+                    }
                 }
+
+                // Should we add `else` and `return Ok(())` if price_diff fails?
             }
 
             price_mut.replace(USDPriceWithSource::Relation(new_price));
@@ -198,20 +195,24 @@ pub async fn bfs_recalculate(
             time: Utc::now().naive_utc(),
         });
 
-        dooot_tx.send(dooot).await.unwrap();
+        dooot_tx
+            .send(dooot)
+            .await
+            .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
     }
 
     for neighbor in graph.neighbors(node) {
         Box::pin(bfs_recalculate(
             graph,
-            clickhouse_client.clone(),
             decimals_cache.clone(),
             neighbor,
             visited_nodes,
             dooot_tx.clone(),
         ))
-        .await;
+        .await?;
     }
+
+    Ok(())
 }
 
 pub async fn get_total_weighted_price(
@@ -232,15 +233,15 @@ pub async fn get_total_weighted_price(
             LiqAmount::Inf => return Some(weighted),
         };
 
-        cm_weighted_price += weighted * liq;
-        total_liq += liq;
+        cm_weighted_price = cm_weighted_price.checked_add(weighted.checked_mul(liq)?)?;
+        total_liq = total_liq.checked_add(liq)?;
     }
 
     if total_liq == Decimal::ZERO {
         return None;
     }
 
-    let final_price = cm_weighted_price / total_liq;
+    let final_price = cm_weighted_price.checked_div(total_liq)?;
 
     Some(final_price)
 }
@@ -274,7 +275,9 @@ pub async fn get_single_wighted_price(
         let relation = e_read.inner_relation.read().await;
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
-        let liq = relation.get_liquidity(price_a, Decimal::ZERO);
+        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
+            continue;
+        };
 
         let liq = match liq {
             LiqAmount::Amount(amt) => {
@@ -283,20 +286,22 @@ pub async fn get_single_wighted_price(
                 }
                 amt
             }
-            LiqAmount::Inf => return Some((relation.get_price(price_a), LiqAmount::Inf)),
+            LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
         };
 
-        let price_b_usd = relation.get_price(price_a);
+        let Some(price_b_usd) = relation.get_price(price_a) else {
+            continue;
+        };
 
-        cm_weighted_price += price_b_usd * liq;
-        total_liq += liq;
+        cm_weighted_price = cm_weighted_price.checked_add(price_b_usd.checked_mul(liq)?)?;
+        total_liq = total_liq.checked_add(liq)?;
     }
 
     if total_liq == Decimal::ZERO {
         return None;
     }
 
-    let weighted_price = cm_weighted_price / total_liq;
+    let weighted_price = cm_weighted_price.checked_div(total_liq)?;
 
     Some((weighted_price, LiqAmount::Amount(total_liq)))
 }

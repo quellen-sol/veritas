@@ -19,7 +19,6 @@ pub struct AMQPManager {
     queue_name: String,
     dlx_name: String,
     dlq_name: String,
-    is_debug: bool,
     prefetch: u16,
     db_writes: bool,
 }
@@ -35,12 +34,10 @@ impl AMQPManager {
         let client = Connection::connect(&url, ConnectionProperties::default()).await?;
         let channel = client.create_channel().await?;
 
-        let mut is_debug = false;
         let mut queue_name = String::from("veritas.dooot");
         let mut dlx_name = String::from("veritas.dooot.dead-letter");
         let mut dlq_name = dlx_name.clone();
         if let Some(user) = debug_user {
-            is_debug = true;
             queue_name.push_str(format!(".debug.{user}").as_str());
             dlx_name.push_str(format!(".debug.{user}").as_str());
             dlq_name.push_str(format!(".debug.{user}").as_str());
@@ -52,7 +49,6 @@ impl AMQPManager {
             queue_name,
             dlx_name,
             dlq_name,
-            is_debug,
             prefetch,
             db_writes,
         })
@@ -67,6 +63,9 @@ impl AMQPManager {
     }
 
     pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
+        self.set_prefetch().await?;
+        self.assert_amqp_topology().await?;
+
         let mut consumer = self
             .channel
             .basic_consume(
@@ -156,8 +155,8 @@ impl AMQPManager {
                 &self.dlx_name,
                 lapin::ExchangeKind::Topic,
                 ExchangeDeclareOptions {
-                    auto_delete: self.is_debug,
-                    durable: !self.is_debug,
+                    auto_delete: true,
+                    durable: false,
                     ..Default::default()
                 },
                 FieldTable::default(),
@@ -170,9 +169,9 @@ impl AMQPManager {
             .queue_declare(
                 &self.dlq_name,
                 QueueDeclareOptions {
-                    auto_delete: self.is_debug,
-                    durable: !self.is_debug,
-                    exclusive: self.is_debug,
+                    auto_delete: true,
+                    exclusive: true,
+                    durable: false,
                     ..Default::default()
                 },
                 FieldTable::default(),
@@ -202,9 +201,9 @@ impl AMQPManager {
             .queue_declare(
                 &self.queue_name,
                 QueueDeclareOptions {
-                    auto_delete: self.is_debug,
-                    exclusive: self.is_debug,
-                    durable: !self.is_debug,
+                    auto_delete: true,
+                    exclusive: true,
+                    durable: false,
                     ..Default::default()
                 },
                 queue_args,
