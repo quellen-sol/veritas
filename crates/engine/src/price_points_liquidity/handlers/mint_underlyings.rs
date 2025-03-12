@@ -50,7 +50,7 @@ pub async fn handle_mint_underlyings(
     let mut mint_indicies = mint_indicies.write().await;
     log::trace!("Got mint indicies write lock");
     log::trace!("Getting edge indicies write lock");
-    let mut edge_indicies = edge_indicies.write().await;
+    let mut ei_write = edge_indicies.write().await;
     log::trace!("Got edge indicies write lock");
 
     // Ordered with `mints`
@@ -101,22 +101,29 @@ pub async fn handle_mint_underlyings(
         };
         let relation = LiqRelation::Fixed { amt_per_parent };
 
-        add_or_update_relation_edge(
+        let edge_update_result = add_or_update_relation_edge(
             underlying_idxs[0],
             parent_ix,
-            &mut edge_indicies,
+            &mut ei_write,
             &mut g_write,
             relation,
             &parent_mint,
             time,
         )
-        .await
-        .inspect_err(|e| log::error!("Error inserting relation into edge: {e}"))
-        .ok();
-        drop(g_write);
-        drop(edge_indicies);
+        .await;
 
-        let update = CalculatorUpdate::NewTokenRatio(parent_ix);
+        let updated_edge = match edge_update_result {
+            Ok(e_ix) => e_ix,
+            Err(e) => {
+                log::error!("Error adding or updating edge for {parent_mint}: {e}");
+                return;
+            }
+        };
+
+        drop(g_write);
+        drop(ei_write);
+
+        let update = CalculatorUpdate::NewTokenRatio(parent_ix, updated_edge);
         log::trace!("Sending NewTokenRatio update for {parent_mint}");
         send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
         log::trace!("Sent NewTokenRatio update for {parent_mint}");
@@ -177,20 +184,26 @@ pub async fn handle_mint_underlyings(
                             amt_dest: amt_y,
                         };
 
-                        add_or_update_relation_edge(
+                        let edge_update_result = add_or_update_relation_edge(
                             un_x,
                             un_y,
-                            &mut edge_indicies,
+                            &mut ei_write,
                             &mut g_write,
                             new_relation,
                             &parent_mint,
                             time,
                         )
-                        .await
-                        .inspect_err(|e| log::error!("Error inserting relation into edge: {e}"))
-                        .ok();
+                        .await;
 
-                        updated_ixs.insert(un_y);
+                        let updated_edge = match edge_update_result {
+                            Ok(e_ix) => e_ix,
+                            Err(e) => {
+                                log::error!("Error adding or updating edge for {parent_mint}: {e}");
+                                return;
+                            }
+                        };
+
+                        updated_ixs.insert((un_y, updated_edge));
                     }
                     _ => {
                         // Unsupported CurveType
@@ -199,12 +212,12 @@ pub async fn handle_mint_underlyings(
             }
         }
 
-        drop(edge_indicies);
+        drop(ei_write);
         drop(g_write);
         drop(dc_read);
 
-        for ix in updated_ixs {
-            let update = CalculatorUpdate::NewTokenRatio(ix);
+        for (ix, edge) in updated_ixs {
+            let update = CalculatorUpdate::NewTokenRatio(ix, edge);
             log::trace!("Sending NewTokenRatio update for {ix:?}");
             send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
             log::trace!("Sent NewTokenRatio update for {ix:?}");

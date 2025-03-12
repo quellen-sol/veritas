@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use rust_decimal::{Decimal, MathematicalOps};
@@ -36,7 +36,7 @@ use crate::{
 };
 
 pub type MintIndiciesMap = HashMap<String, NodeIndex>;
-pub type EdgeIndiciesMap = HashMap<String, [Option<EdgeIndex>; 2]>; // Relations can be 2-way
+pub type EdgeIndiciesMap = HashMap<String, [Option<EdgeIndex>; 2]>; // Given one discriminant (market), we should only have max 2 relations (A -> B, and B -> A)
 
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
@@ -100,7 +100,6 @@ pub fn spawn_price_points_liquidity_task(
                             handle_oracle_price_event(
                                 oracle_price,
                                 oracle_feed_map,
-                                graph,
                                 mint_indicies,
                                 calculator_sender,
                                 bootstrap_in_progress,
@@ -260,7 +259,9 @@ where
         Some(edge_ix) => {
             // Edge already exists, update it
             // Guaranteed by being Some
-            let e_w = graph.edge_weight_mut(edge_ix).unwrap();
+            let e_w = graph
+                .edge_weight_mut(edge_ix)
+                .context("UNREACHABLE - Edge index {edge_ix:?} should be present in graph!")?;
             e_w.dirty = true;
 
             // Quick update of the last updated time
@@ -304,6 +305,7 @@ pub fn update_edge_index(
     match edge_indicies.get_mut(discriminant_id) {
         None => {
             edge_indicies.insert(discriminant_id.to_string(), [Some(index), None]);
+
             Ok(())
         }
         Some(entry) => {

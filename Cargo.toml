@@ -11,7 +11,7 @@ lto = true
 panic = "abort"
 
 [workspace.dependencies]
-step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "ac1a4ba6447e0e597d56b81f5f4916afb44df824" }
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "843b670747a372a21d8ca20469d1a12d34102d6f" }
 solana-transaction-status = "=2.0.13"
 solana-program = "=2.0.13"
 solana-sdk = "=2.0.13"
