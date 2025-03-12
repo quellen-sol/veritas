@@ -65,6 +65,7 @@ pub fn spawn_calculator_task(
             let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
 
+            log::trace!("Spawning task for token update");
             tokio::spawn(async move {
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token, new_price) => {

@@ -69,17 +69,19 @@ pub async fn bfs_recalculate(
             time: Utc::now().naive_utc(),
         });
 
-        log::trace!("Sending Dooot");
+        log::trace!("Sending price calc Dooot");
         dooot_tx
             .send(dooot)
             .await
             .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
-        log::trace!("Sent Dooot");
+        log::trace!("Sent price calc Dooot");
     } else if !is_start {
         // Not the beginning of the algo, and this is an oracle token.
         // Don't continue. Shouldn't ever need to pass *through* an oracle token to price something else.
         return Ok(());
     }
+
+    log::trace!("Continuing BFS for oracle?{is_oracle} is_start?{is_start}");
 
     for neighbor in graph.neighbors(node) {
         if visited_nodes.contains(&neighbor) {
@@ -145,7 +147,9 @@ pub async fn get_single_wighted_price(
 ) -> Option<(Decimal, LiqAmount)> {
     let node_a = graph.node_weight(a)?;
     let price_a = {
+        log::trace!("Getting price read lock for get_single_wighted_price");
         let n_read = node_a.usd_price.read().await;
+        log::trace!("Got price read lock for get_single_wighted_price");
         *n_read.as_ref()?.extract_price()
     };
 
@@ -157,7 +161,9 @@ pub async fn get_single_wighted_price(
     for edge in edges_iter {
         let e_read = edge.weight();
 
+        log::trace!("Getting relation read lock for get_single_wighted_price");
         let relation = e_read.inner_relation.read().await;
+        log::trace!("Got relation read lock for get_single_wighted_price");
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
         let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
