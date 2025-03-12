@@ -1,5 +1,6 @@
 // #![allow(unused)]
 use std::{
+    collections::HashSet,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         Arc,
@@ -38,12 +39,14 @@ pub fn spawn_calculator_task(
     dooot_tx: Sender<Dooot>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
+    oracle_mint_set: HashSet<String>,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
     tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
+        let oracle_mint_set = Arc::new(oracle_mint_set);
 
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
@@ -64,6 +67,7 @@ pub fn spawn_calculator_task(
             let decimals_cache = decimals_cache.clone();
             let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
+            let oracle_mint_set = oracle_mint_set.clone();
 
             log::trace!("Spawning task for token update");
             tokio::spawn(async move {
@@ -75,6 +79,7 @@ pub fn spawn_calculator_task(
                             new_price,
                             decimals_cache,
                             dooot_tx,
+                            &oracle_mint_set,
                         )
                         .await;
                     }
@@ -85,6 +90,7 @@ pub fn spawn_calculator_task(
                             updated_edge,
                             decimals_cache,
                             dooot_tx,
+                            &oracle_mint_set,
                         )
                         .await;
                     }

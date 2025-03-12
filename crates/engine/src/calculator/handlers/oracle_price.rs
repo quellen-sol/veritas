@@ -17,6 +17,7 @@ pub async fn handle_oracle_price_update(
     new_price: Decimal,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
+    oracle_mint_set: &HashSet<String>,
 ) {
     log::trace!("Getting graph read lock for OracleUSDPrice update");
     let g_read = graph.read().await;
@@ -28,6 +29,7 @@ pub async fn handle_oracle_price_update(
         let Some(node_weight) = g_read.node_weight(token) else {
             return;
         };
+
         log::trace!("Getting price write lock for OracleUSDPrice update");
         let mut p_write = node_weight.usd_price.write().await;
         log::trace!("Got price write lock for OracleUSDPrice update");
@@ -51,6 +53,7 @@ pub async fn handle_oracle_price_update(
         &mut visited,
         dooot_tx.clone(),
         true,
+        oracle_mint_set,
     )
     .await;
 

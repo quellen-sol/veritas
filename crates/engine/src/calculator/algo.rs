@@ -21,6 +21,7 @@ pub async fn bfs_recalculate(
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Sender<Dooot>,
     is_start: bool,
+    oracle_mint_set: &HashSet<String>,
 ) -> Result<()> {
     if !visited_nodes.insert(node) {
         return Ok(());
@@ -30,16 +31,11 @@ pub async fn bfs_recalculate(
         return Ok(());
     };
 
-    let is_oracle = {
-        log::trace!("Getting price read lock for Oracle check");
-        let p_read = node_weight.usd_price.read().await;
-        log::trace!("Got price read lock for Oracle check");
-        p_read.as_ref().is_some_and(|p| p.is_oracle())
-    };
+    let mint = &node_weight.mint;
+    let is_oracle = oracle_mint_set.contains(mint);
 
-    // Don't calc this token if it's an orcale
+    // Don't calc this token if it's an oracle
     if !is_oracle {
-        let mint = node_weight.mint.clone();
         log::trace!("Getting total weighted price for {mint}");
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
@@ -65,7 +61,7 @@ pub async fn bfs_recalculate(
         }
 
         let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            mint,
+            mint: mint.to_owned(),
             price_usd: new_price,
             time: Utc::now().naive_utc(),
         });
@@ -96,6 +92,7 @@ pub async fn bfs_recalculate(
             visited_nodes,
             dooot_tx.clone(),
             false,
+            oracle_mint_set,
         ))
         .await?;
     }

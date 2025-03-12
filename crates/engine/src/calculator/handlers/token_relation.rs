@@ -13,6 +13,7 @@ pub async fn handle_token_relation_update(
     updated_edge: EdgeIndex,
     decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
+    oracle_mint_set: &HashSet<String>,
 ) {
     log::trace!("Getting graph read lock for NewTokenRatio update");
     let g_read = graph.read().await;
@@ -34,6 +35,7 @@ pub async fn handle_token_relation_update(
         &mut visited,
         dooot_tx.clone(),
         true,
+        oracle_mint_set,
     )
     .await;
 
