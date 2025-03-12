@@ -8,10 +8,13 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use chrono::Utc;
-use petgraph::{graph::NodeIndex, Direction};
-use rust_decimal::{prelude::FromPrimitive, Decimal};
+use petgraph::{
+    graph::{EdgeIndex, NodeIndex},
+    Direction,
+};
+use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::{
     sync::{
@@ -25,15 +28,15 @@ use veritas_sdk::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::{checked_math::checked_pct_diff, decimal_cache::DecimalCache},
+    utils::{checked_math::is_significant_change, decimal_cache::DecimalCache},
 };
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
     /// Price of USD (from oracle) and index in the graph
-    OracleUSDPrice(NodeIndex),
-    /// A Relation pointing TO this token has changed,
-    NewTokenRatio(NodeIndex),
+    OracleUSDPrice(NodeIndex, Decimal),
+    /// A Relation pointing TO this token has changed (edge id provided)
+    NewTokenRatio(NodeIndex, EdgeIndex),
 }
 
 pub fn spawn_calculator_task(
@@ -72,11 +75,28 @@ pub fn spawn_calculator_task(
                 counter.fetch_add(1, Ordering::Relaxed);
                 // Do a full BFS and update price of every token if Oracle
                 match update {
-                    CalculatorUpdate::OracleUSDPrice(token) => {
+                    CalculatorUpdate::OracleUSDPrice(token, new_price) => {
                         log::trace!("Getting graph read lock for OracleUSDPrice update");
                         let g_read = graph.read().await;
                         log::trace!("Got graph read lock for OracleUSDPrice update");
-                        let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
+                        let mut visited = HashSet::with_capacity(g_read.node_count());
+
+                        {
+                            // Update the price of the mint in the graph
+                            let Some(node_weight) = g_read.node_weight(token) else {
+                                return;
+                            };
+                            let mut p_write = node_weight.usd_price.write().await;
+                            let old_price = p_write.as_ref().map(|p| p.extract_price());
+                            if let Some(old_price) = old_price {
+                                if !is_significant_change(old_price, &new_price) {
+                                    // Not enough to warrant recalcing everything (avoids stuff like USDC moving around same price)
+                                    return;
+                                }
+
+                                p_write.replace(USDPriceWithSource::Oracle(new_price));
+                            }
+                        }
 
                         log::trace!("Starting BFS recalculation for OracleUSDPrice update");
                         let recalc_result = bfs_recalculate(
@@ -99,11 +119,18 @@ pub fn spawn_calculator_task(
                             }
                         }
                     }
-                    CalculatorUpdate::NewTokenRatio(token) => {
+                    CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
                         log::trace!("Getting graph read lock for NewTokenRatio update");
                         let g_read = graph.read().await;
                         log::trace!("Got graph read lock for NewTokenRatio update");
-                        let mut visited: HashSet<_> = HashSet::with_capacity(g_read.node_count());
+                        let mut visited = HashSet::with_capacity(g_read.node_count());
+
+                        let Some((src, _)) = g_read.edge_endpoints(updated_edge) else {
+                            return;
+                        };
+
+                        // Do not consider the source token of this relation
+                        visited.insert(src);
 
                         log::trace!("Starting BFS recalculation for NewTokenRatio update");
                         let recalc_result = bfs_recalculate(
@@ -143,11 +170,9 @@ pub async fn bfs_recalculate(
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Sender<Dooot>,
 ) -> Result<()> {
-    if visited_nodes.contains(&node) {
+    if !visited_nodes.insert(node) {
         return Ok(());
     }
-
-    visited_nodes.insert(node);
 
     let Some(node_weight) = graph.node_weight(node) else {
         return Ok(());
@@ -158,8 +183,7 @@ pub async fn bfs_recalculate(
         p_read.as_ref().is_some_and(|p| p.is_oracle())
     };
 
-    // Don't calc this token if it's an orcale,
-    // but we still want to recurse, so this is a non-guarding branch
+    // Don't calc this token if it's an orcale
     if !is_oracle {
         let mint = node_weight.mint.clone();
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
@@ -173,17 +197,10 @@ pub async fn bfs_recalculate(
             let mut price_mut = node_weight.usd_price.write().await;
             if let Some(old_price) = price_mut.as_ref() {
                 let old_price = old_price.extract_price();
-                if let Some(pct_diff) = checked_pct_diff(old_price, &new_price) {
-                    let diff_limit =
-                        Decimal::from_f64(0.001).context("Failed to convert 0.001 to Decimal")?;
 
-                    if pct_diff < diff_limit {
-                        // Not a significant enough change. Stop here and don't emit a dooot
-                        return Ok(());
-                    }
+                if !is_significant_change(old_price, &new_price) {
+                    return Ok(());
                 }
-
-                // Should we add `else` and `return Ok(())` if price_diff fails?
             }
 
             price_mut.replace(USDPriceWithSource::Relation(new_price));
@@ -199,9 +216,17 @@ pub async fn bfs_recalculate(
             .send(dooot)
             .await
             .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
+    } else {
+        // Don't continue. If there's a path to something beyond this oracle token that needs pricing,
+        // it'll be considered during liquidity calc
+        return Ok(());
     }
 
     for neighbor in graph.neighbors(node) {
+        if visited_nodes.contains(&neighbor) {
+            continue;
+        }
+
         Box::pin(bfs_recalculate(
             graph,
             decimals_cache.clone(),
