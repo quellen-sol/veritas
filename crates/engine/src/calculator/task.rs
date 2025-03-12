@@ -105,6 +105,7 @@ pub fn spawn_calculator_task(
                             token,
                             &mut visited,
                             dooot_tx.clone(),
+                            true,
                         )
                         .await;
 
@@ -139,6 +140,7 @@ pub fn spawn_calculator_task(
                             token,
                             &mut visited,
                             dooot_tx.clone(),
+                            true,
                         )
                         .await;
 
@@ -169,6 +171,7 @@ pub async fn bfs_recalculate(
     node: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Sender<Dooot>,
+    is_start: bool,
 ) -> Result<()> {
     if !visited_nodes.insert(node) {
         return Ok(());
@@ -216,7 +219,8 @@ pub async fn bfs_recalculate(
             .send(dooot)
             .await
             .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
-    } else {
+    } else if !is_start {
+        // Not the beginning of the algo, and this is an oracle token.
         // Don't continue. If there's a path to something beyond this oracle token that needs pricing,
         // it'll be considered during liquidity calc
         return Ok(());
@@ -233,6 +237,7 @@ pub async fn bfs_recalculate(
             neighbor,
             visited_nodes,
             dooot_tx.clone(),
+            false,
         ))
         .await?;
     }
