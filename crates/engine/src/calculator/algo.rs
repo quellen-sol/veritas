@@ -40,6 +40,7 @@ pub async fn bfs_recalculate(
     // Don't calc this token if it's an orcale
     if !is_oracle {
         let mint = node_weight.mint.clone();
+        log::trace!("Getting total weighted price");
         let Some(new_price) = get_total_weighted_price(graph, node).await else {
             // log::warn!("Failed to calculate price for {mint}");
             return Ok(());
@@ -147,9 +148,7 @@ pub async fn get_single_wighted_price(
 ) -> Option<(Decimal, LiqAmount)> {
     let node_a = graph.node_weight(a)?;
     let price_a = {
-        log::trace!("Getting price read lock for get_single_wighted_price");
         let n_read = node_a.usd_price.read().await;
-        log::trace!("Got price read lock for get_single_wighted_price");
         *n_read.as_ref()?.extract_price()
     };
 
@@ -161,9 +160,7 @@ pub async fn get_single_wighted_price(
     for edge in edges_iter {
         let e_read = edge.weight();
 
-        log::trace!("Getting relation read lock for get_single_wighted_price");
         let relation = e_read.inner_relation.read().await;
-        log::trace!("Got relation read lock for get_single_wighted_price");
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
         let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
