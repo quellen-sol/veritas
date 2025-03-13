@@ -1,100 +1,99 @@
 use anyhow::{anyhow, Result};
 use chrono::Utc;
 use rust_decimal::Decimal;
-use std::{collections::HashSet, sync::Arc};
+use std::collections::{HashSet, VecDeque};
 
 use petgraph::{graph::NodeIndex, Direction};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
-use tokio::sync::{mpsc::Sender, RwLock};
+use tokio::sync::mpsc::Sender;
 use veritas_sdk::{
     ppl_graph::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::{checked_math::is_significant_change, decimal_cache::DecimalCache},
+    utils::checked_math::is_significant_change,
 };
 
 pub async fn bfs_recalculate(
     graph: &MintPricingGraph,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
-    node: NodeIndex,
+    start: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Sender<Dooot>,
-    is_start: bool,
     oracle_mint_set: &HashSet<String>,
 ) -> Result<()> {
-    if !visited_nodes.insert(node) {
-        return Ok(());
-    }
+    let mut is_start = true;
+    let mut queue = VecDeque::with_capacity(graph.node_count());
+    queue.push_back(start);
 
-    let Some(node_weight) = graph.node_weight(node) else {
-        return Ok(());
-    };
-
-    let mint = &node_weight.mint;
-    let is_oracle = oracle_mint_set.contains(mint);
-
-    // Don't calc this token if it's an oracle
-    if !is_oracle {
-        log::trace!("Getting total weighted price for {mint}");
-        let Some(new_price) = get_total_weighted_price(graph, node).await else {
-            // log::warn!("Failed to calculate price for {mint}");
+    while !queue.is_empty() {
+        let Some(node) = queue.pop_front() else {
+            log::error!(
+                "UNREACHABLE - There should always be one entry in the queue by this point"
+            );
             return Ok(());
         };
 
-        log::debug!("Calculated price of {mint}: {new_price}");
+        // Calc
+        let Some(node_weight) = graph.node_weight(node) else {
+            log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
+            return Ok(());
+        };
 
-        {
-            log::trace!("Getting price write lock for price calc");
-            let mut price_mut = node_weight.usd_price.write().await;
-            log::trace!("Got price write lock for price calc");
-            if let Some(old_price) = price_mut.as_ref() {
-                let old_price = old_price.extract_price();
+        let mint = &node_weight.mint;
+        let is_oracle = oracle_mint_set.contains(mint);
 
-                if !is_significant_change(old_price, &new_price) {
-                    return Ok(());
+        // Don't calc this token if it's an oracle
+        if !is_oracle {
+            log::trace!("Getting total weighted price for {mint}");
+            let Some(new_price) = get_total_weighted_price(graph, node).await else {
+                // log::warn!("Failed to calculate price for {mint}");
+                return Ok(());
+            };
+
+            log::debug!("Calculated price of {mint}: {new_price}");
+
+            {
+                log::trace!("Getting price write lock for price calc");
+                let mut price_mut = node_weight.usd_price.write().await;
+                log::trace!("Got price write lock for price calc");
+                if let Some(old_price) = price_mut.as_ref() {
+                    let old_price = old_price.extract_price();
+
+                    if !is_significant_change(old_price, &new_price) {
+                        return Ok(());
+                    }
                 }
+
+                price_mut.replace(USDPriceWithSource::Relation(new_price));
+                log::trace!("Replaced price for price calc");
             }
 
-            price_mut.replace(USDPriceWithSource::Relation(new_price));
-            log::trace!("Replaced price for price calc");
-        }
+            let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                mint: mint.to_owned(),
+                price_usd: new_price,
+                time: Utc::now().naive_utc(),
+            });
 
-        let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            mint: mint.to_owned(),
-            price_usd: new_price,
-            time: Utc::now().naive_utc(),
-        });
-
-        log::trace!("Sending price calc Dooot");
-        dooot_tx
-            .send(dooot)
-            .await
-            .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
-        log::trace!("Sent price calc Dooot");
-    } else if !is_start {
-        // Not the beginning of the algo, and this is an oracle token.
-        // Don't continue. Shouldn't ever need to pass *through* an oracle token to price something else.
-        return Ok(());
-    }
-
-    log::trace!("Continuing BFS for oracle?{is_oracle} is_start?{is_start}");
-
-    for neighbor in graph.neighbors(node) {
-        if visited_nodes.contains(&neighbor) {
+            log::trace!("Sending price calc Dooot");
+            dooot_tx
+                .send(dooot)
+                .await
+                .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
+            log::trace!("Sent price calc Dooot");
+        } else if !is_start {
+            // Stop at oracles when travering throughout the graph, but allow us to at least start at one
             continue;
         }
 
-        Box::pin(bfs_recalculate(
-            graph,
-            decimals_cache.clone(),
-            neighbor,
-            visited_nodes,
-            dooot_tx.clone(),
-            false,
-            oracle_mint_set,
-        ))
-        .await?;
+        is_start = false;
+
+        for neighbor in graph.neighbors(node) {
+            if !visited_nodes.insert(neighbor) {
+                continue;
+            }
+
+            queue.push_back(neighbor);
+        }
     }
 
     Ok(())

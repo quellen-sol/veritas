@@ -18,7 +18,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use veritas_sdk::{ppl_graph::graph::MintPricingGraph, utils::decimal_cache::DecimalCache};
+use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 use crate::calculator::handlers::{
     oracle_price::handle_oracle_price_update, token_relation::handle_token_relation_update,
@@ -35,7 +35,6 @@ pub enum CalculatorUpdate {
 pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
@@ -64,7 +63,6 @@ pub fn spawn_calculator_task(
 
             // Make clones for the task
             let graph = graph.clone();
-            let decimals_cache = decimals_cache.clone();
             let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
             let oracle_mint_set = oracle_mint_set.clone();
@@ -77,7 +75,6 @@ pub fn spawn_calculator_task(
                             graph,
                             token,
                             new_price,
-                            decimals_cache,
                             dooot_tx,
                             &oracle_mint_set,
                         )
@@ -88,7 +85,6 @@ pub fn spawn_calculator_task(
                             graph,
                             token,
                             updated_edge,
-                            decimals_cache,
                             dooot_tx,
                             &oracle_mint_set,
                         )

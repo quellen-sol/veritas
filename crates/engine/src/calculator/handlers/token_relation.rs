@@ -3,7 +3,7 @@ use std::{collections::HashSet, sync::Arc};
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
-use veritas_sdk::{ppl_graph::graph::MintPricingGraph, utils::decimal_cache::DecimalCache};
+use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 use crate::calculator::algo::bfs_recalculate;
 
@@ -11,7 +11,6 @@ pub async fn handle_token_relation_update(
     graph: Arc<RwLock<MintPricingGraph>>,
     token: NodeIndex,
     updated_edge: EdgeIndex,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
 ) {
@@ -30,11 +29,9 @@ pub async fn handle_token_relation_update(
     log::trace!("Starting BFS recalculation for NewTokenRatio update");
     let recalc_result = bfs_recalculate(
         &g_read,
-        decimals_cache.clone(),
         token,
         &mut visited,
         dooot_tx.clone(),
-        true,
         oracle_mint_set,
     )
     .await;

@@ -6,7 +6,7 @@ use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
-    utils::{checked_math::is_significant_change, decimal_cache::DecimalCache},
+    utils::checked_math::is_significant_change,
 };
 
 use crate::calculator::algo::bfs_recalculate;
@@ -15,7 +15,6 @@ pub async fn handle_oracle_price_update(
     graph: Arc<RwLock<MintPricingGraph>>,
     token: NodeIndex,
     new_price: Decimal,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
 ) {
@@ -48,11 +47,9 @@ pub async fn handle_oracle_price_update(
     log::trace!("Starting BFS recalculation for OracleUSDPrice update");
     let recalc_result = bfs_recalculate(
         &g_read,
-        decimals_cache.clone(),
         token,
         &mut visited,
         dooot_tx.clone(),
-        true,
         oracle_mint_set,
     )
     .await;

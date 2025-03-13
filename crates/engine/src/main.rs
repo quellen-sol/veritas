@@ -194,7 +194,6 @@ async fn main() -> Result<()> {
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
-        decimal_cache.clone(),
         publish_dooot_tx,
         args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
