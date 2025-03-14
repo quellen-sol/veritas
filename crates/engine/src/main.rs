@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
         Arc,
@@ -135,6 +135,10 @@ async fn main() -> Result<()> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<HashMap<String, String>>(),
     );
+    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
+        .iter()
+        .map(|(_, v)| v.to_string())
+        .collect::<HashSet<String>>();
 
     // Connect to amqp
     let AMQPArgs {
@@ -190,10 +194,10 @@ async fn main() -> Result<()> {
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
-        decimal_cache.clone(),
         publish_dooot_tx,
         args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
+        oracle_mint_set,
     );
 
     // "CU" or "Cache Updator" Task

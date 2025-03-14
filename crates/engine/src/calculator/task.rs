@@ -8,14 +8,9 @@ use std::{
     time::Duration,
 };
 
-use anyhow::Result;
-use chrono::Utc;
-use petgraph::{
-    graph::{EdgeIndex, NodeIndex},
-    Direction,
-};
+use petgraph::graph::{EdgeIndex, NodeIndex};
 use rust_decimal::Decimal;
-use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
+use step_ingestooor_sdk::dooot::Dooot;
 use tokio::{
     sync::{
         mpsc::{Receiver, Sender},
@@ -23,12 +18,10 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use veritas_sdk::{
-    ppl_graph::{
-        graph::{MintPricingGraph, USDPriceWithSource},
-        structs::LiqAmount,
-    },
-    utils::{checked_math::is_significant_change, decimal_cache::DecimalCache},
+use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+
+use crate::calculator::handlers::{
+    oracle_price::handle_oracle_price_update, token_relation::handle_token_relation_update,
 };
 
 #[derive(Debug)]
@@ -42,16 +35,17 @@ pub enum CalculatorUpdate {
 pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
     dooot_tx: Sender<Dooot>,
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
+    oracle_mint_set: HashSet<String>,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
     // Spawn a task to accept token updates
     tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
+        let oracle_mint_set = Arc::new(oracle_mint_set);
 
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
@@ -65,95 +59,36 @@ pub fn spawn_calculator_task(
                 tokio::time::sleep(Duration::from_millis(1)).await;
             }
 
+            counter.fetch_add(1, Ordering::Relaxed);
+
             // Make clones for the task
             let graph = graph.clone();
-            let decimals_cache = decimals_cache.clone();
             let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
+            let oracle_mint_set = oracle_mint_set.clone();
 
+            log::trace!("Spawning task for token update");
             tokio::spawn(async move {
-                counter.fetch_add(1, Ordering::Relaxed);
-                // Do a full BFS and update price of every token if Oracle
                 match update {
                     CalculatorUpdate::OracleUSDPrice(token, new_price) => {
-                        log::trace!("Getting graph read lock for OracleUSDPrice update");
-                        let g_read = graph.read().await;
-                        log::trace!("Got graph read lock for OracleUSDPrice update");
-                        let mut visited = HashSet::with_capacity(g_read.node_count());
-
-                        {
-                            // Update the price of the mint in the graph
-                            let Some(node_weight) = g_read.node_weight(token) else {
-                                return;
-                            };
-                            let mut p_write = node_weight.usd_price.write().await;
-                            let old_price = p_write.as_ref().map(|p| p.extract_price());
-                            if let Some(old_price) = old_price {
-                                if !is_significant_change(old_price, &new_price) {
-                                    // Not enough to warrant recalcing everything (avoids stuff like USDC moving around same price)
-                                    return;
-                                }
-
-                                p_write.replace(USDPriceWithSource::Oracle(new_price));
-                            }
-                        }
-
-                        log::trace!("Starting BFS recalculation for OracleUSDPrice update");
-                        let recalc_result = bfs_recalculate(
-                            &g_read,
-                            decimals_cache.clone(),
+                        handle_oracle_price_update(
+                            graph,
                             token,
-                            &mut visited,
-                            dooot_tx.clone(),
-                            true,
+                            new_price,
+                            dooot_tx,
+                            &oracle_mint_set,
                         )
                         .await;
-
-                        match recalc_result {
-                            Ok(_) => {
-                                log::trace!("Finished BFS recalculation for OracleUSDPrice update");
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Error during BFS recalculation for OracleUSDPrice update: {e}"
-                                );
-                            }
-                        }
                     }
                     CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
-                        log::trace!("Getting graph read lock for NewTokenRatio update");
-                        let g_read = graph.read().await;
-                        log::trace!("Got graph read lock for NewTokenRatio update");
-                        let mut visited = HashSet::with_capacity(g_read.node_count());
-
-                        let Some((src, _)) = g_read.edge_endpoints(updated_edge) else {
-                            return;
-                        };
-
-                        // Do not consider the source token of this relation
-                        visited.insert(src);
-
-                        log::trace!("Starting BFS recalculation for NewTokenRatio update");
-                        let recalc_result = bfs_recalculate(
-                            &g_read,
-                            decimals_cache.clone(),
+                        handle_token_relation_update(
+                            graph,
                             token,
-                            &mut visited,
-                            dooot_tx.clone(),
-                            true,
+                            updated_edge,
+                            dooot_tx,
+                            &oracle_mint_set,
                         )
                         .await;
-
-                        match recalc_result {
-                            Ok(_) => {
-                                log::trace!("Finished BFS recalculation for NewTokenRatio update");
-                            }
-                            Err(e) => {
-                                log::error!(
-                                    "Error during BFS recalculation for NewTokenRatio update: {e}"
-                                );
-                            }
-                        }
                     }
                 }
 
@@ -163,274 +98,4 @@ pub fn spawn_calculator_task(
 
         log::warn!("Calculator task finished");
     })
-}
-
-pub async fn bfs_recalculate(
-    graph: &MintPricingGraph,
-    decimals_cache: Arc<RwLock<DecimalCache>>,
-    node: NodeIndex,
-    visited_nodes: &mut HashSet<NodeIndex>,
-    dooot_tx: Sender<Dooot>,
-    is_start: bool,
-) -> Result<()> {
-    if !visited_nodes.insert(node) {
-        return Ok(());
-    }
-
-    let Some(node_weight) = graph.node_weight(node) else {
-        return Ok(());
-    };
-
-    let is_oracle = {
-        let p_read = node_weight.usd_price.read().await;
-        p_read.as_ref().is_some_and(|p| p.is_oracle())
-    };
-
-    // Don't calc this token if it's an orcale
-    if !is_oracle {
-        let mint = node_weight.mint.clone();
-        let Some(new_price) = get_total_weighted_price(graph, node).await else {
-            // log::warn!("Failed to calculate price for {mint}");
-            return Ok(());
-        };
-
-        log::debug!("Calculated price of {mint}: {new_price}");
-
-        {
-            let mut price_mut = node_weight.usd_price.write().await;
-            if let Some(old_price) = price_mut.as_ref() {
-                let old_price = old_price.extract_price();
-
-                if !is_significant_change(old_price, &new_price) {
-                    return Ok(());
-                }
-            }
-
-            price_mut.replace(USDPriceWithSource::Relation(new_price));
-        }
-
-        let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-            mint,
-            price_usd: new_price,
-            time: Utc::now().naive_utc(),
-        });
-
-        dooot_tx
-            .send(dooot)
-            .await
-            .inspect_err(|e| log::error!("Error sending Dooot: {e}"))?
-    } else if !is_start {
-        // Not the beginning of the algo, and this is an oracle token.
-        // Don't continue. If there's a path to something beyond this oracle token that needs pricing,
-        // it'll be considered during liquidity calc
-        return Ok(());
-    }
-
-    for neighbor in graph.neighbors(node) {
-        if visited_nodes.contains(&neighbor) {
-            continue;
-        }
-
-        Box::pin(bfs_recalculate(
-            graph,
-            decimals_cache.clone(),
-            neighbor,
-            visited_nodes,
-            dooot_tx.clone(),
-            false,
-        ))
-        .await?;
-    }
-
-    Ok(())
-}
-
-pub async fn get_total_weighted_price(
-    graph: &MintPricingGraph,
-    this_node: NodeIndex,
-) -> Option<Decimal> {
-    let mut cm_weighted_price = Decimal::ZERO;
-    let mut total_liq = Decimal::ZERO;
-    for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
-        let Some((weighted, liq)) = get_single_wighted_price(neighbor, this_node, graph).await
-        else {
-            // Illiquid or price doesn't exist. Skip
-            continue;
-        };
-
-        let liq = match liq {
-            LiqAmount::Amount(amt) => amt,
-            LiqAmount::Inf => return Some(weighted),
-        };
-
-        cm_weighted_price = cm_weighted_price.checked_add(weighted.checked_mul(liq)?)?;
-        total_liq = total_liq.checked_add(liq)?;
-    }
-
-    if total_liq == Decimal::ZERO {
-        return None;
-    }
-
-    let final_price = cm_weighted_price.checked_div(total_liq)?;
-
-    Some(final_price)
-}
-
-/// From A -> B, directed
-///
-/// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
-///
-/// # Returns (weighted_price, total_liquidity)
-///
-/// ## `total_liquidity` is denominated in **`token_a_units`**
-pub async fn get_single_wighted_price(
-    a: NodeIndex,
-    b: NodeIndex,
-    graph: &MintPricingGraph,
-) -> Option<(Decimal, LiqAmount)> {
-    let node_a = graph.node_weight(a)?;
-    let price_a = {
-        let n_read = node_a.usd_price.read().await;
-        *n_read.as_ref()?.extract_price()
-    };
-
-    let edges_iter = graph.edges_connecting(a, b);
-
-    let mut cm_weighted_price = Decimal::ZERO;
-    let mut total_liq = Decimal::ZERO;
-
-    for edge in edges_iter {
-        let e_read = edge.weight();
-
-        let relation = e_read.inner_relation.read().await;
-        // THIS MAY BE WRONG AF
-        // Just get liquidity based on A, since this token may be exclusively "priced" by A
-        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
-            continue;
-        };
-
-        let liq = match liq {
-            LiqAmount::Amount(amt) => {
-                if amt == Decimal::ZERO {
-                    continue;
-                }
-                amt
-            }
-            LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
-        };
-
-        let Some(price_b_usd) = relation.get_price(price_a) else {
-            continue;
-        };
-
-        cm_weighted_price = cm_weighted_price.checked_add(price_b_usd.checked_mul(liq)?)?;
-        total_liq = total_liq.checked_add(liq)?;
-    }
-
-    if total_liq == Decimal::ZERO {
-        return None;
-    }
-
-    let weighted_price = cm_weighted_price.checked_div(total_liq)?;
-
-    Some((weighted_price, LiqAmount::Amount(total_liq)))
-}
-
-#[cfg(test)]
-mod tests {
-    use chrono::Utc;
-    use petgraph::Graph;
-    use rust_decimal::{prelude::FromPrimitive, Decimal};
-    use tokio::sync::RwLock;
-    use veritas_sdk::ppl_graph::{
-        graph::{MintEdge, MintNode, USDPriceWithSource},
-        structs::{LiqAmount, LiqRelation},
-    };
-
-    use crate::calculator::task::{get_single_wighted_price, get_total_weighted_price};
-
-    #[tokio::test]
-    async fn weighted_liq() {
-        let step_node = MintNode {
-            mint: "STEP".into(),
-            usd_price: RwLock::new(None),
-        };
-
-        let usdc_node = MintNode {
-            mint: "USDC".into(),
-            usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
-        };
-
-        let illiquid_node = MintNode {
-            mint: "DUMB".into(),
-            usd_price: RwLock::new(None),
-        };
-
-        let mut graph = Graph::new();
-
-        let step_x = graph.add_node(step_node);
-        let usdc_x = graph.add_node(usdc_node);
-        let il_x = graph.add_node(illiquid_node);
-
-        graph.add_edge(
-            usdc_x,
-            step_x,
-            MintEdge {
-                dirty: false,
-                id: "SomeMarket".into(),
-                inner_relation: RwLock::new(LiqRelation::CpLp {
-                    amt_origin: Decimal::from(10),
-                    amt_dest: Decimal::from(5),
-                }),
-                last_updated: RwLock::new(Utc::now().naive_utc()),
-            },
-        );
-
-        graph.add_edge(
-            usdc_x,
-            step_x,
-            MintEdge {
-                dirty: false,
-                id: "OtherMarket".into(),
-                inner_relation: RwLock::new(LiqRelation::CpLp {
-                    amt_origin: Decimal::from(10),
-                    amt_dest: Decimal::from(2),
-                }),
-                last_updated: RwLock::new(Utc::now().naive_utc()),
-            },
-        );
-
-        graph.add_edge(
-            il_x,
-            step_x,
-            MintEdge {
-                dirty: false,
-                id: "IlliquidMarket".into(),
-                inner_relation: RwLock::new(LiqRelation::CpLp {
-                    amt_origin: Decimal::from(10),
-                    amt_dest: Decimal::from(2),
-                }),
-                last_updated: RwLock::new(Utc::now().naive_utc()),
-            },
-        );
-
-        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph)
-            .await
-            .unwrap();
-
-        assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
-
-        let total = get_total_weighted_price(&graph, step_x).await;
-        assert!(total.is_some());
-        assert_eq!(total.unwrap(), Decimal::from_f64(3.5).unwrap());
-
-        match liq {
-            LiqAmount::Amount(amt) => {
-                assert_eq!(amt, Decimal::from(20));
-            }
-            LiqAmount::Inf => {
-                panic!("Liq for this test should not be Inf!");
-            }
-        };
-    }
 }
