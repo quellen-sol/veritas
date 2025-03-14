@@ -12,7 +12,7 @@ use axum::task::spawn_axum_server;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
-use price_points_liquidity::task::spawn_price_points_liquidity_task;
+use price_points_liquidity::task::{spawn_price_points_liquidity_task, MintIndiciesMap};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::{
@@ -100,9 +100,19 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+
+    // Only to be used if we never *remove* nodes from the graph
+    // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
+    let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
+
     // Start serving the axum server as early as possible
     let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
-    let axum_server_task = spawn_axum_server(bootstrap_in_progress.clone());
+    let axum_server_task = spawn_axum_server(
+        bootstrap_in_progress.clone(),
+        mint_price_graph.clone(),
+        mint_indicies.clone(),
+    );
 
     // Connect to clickhouse
     let ClickhouseArgs {
@@ -185,8 +195,6 @@ async fn main() -> Result<()> {
     let (publish_dooot_tx, publish_dooot_rx) =
         tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
 
-    let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
-
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
@@ -221,6 +229,7 @@ async fn main() -> Result<()> {
         args.max_ppl_subtasks,
         ch_cache_updator_req_tx,
         bootstrap_in_progress.clone(),
+        mint_indicies.clone(),
     )?;
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
