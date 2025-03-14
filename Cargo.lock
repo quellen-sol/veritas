@@ -72,7 +72,7 @@ dependencies = [
  "log",
  "solana-sdk",
  "solana-transaction-status",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -398,7 +398,7 @@ dependencies = [
  "nom",
  "num-traits",
  "rusticata-macros",
- "thiserror",
+ "thiserror 1.0.69",
  "time",
 ]
 
@@ -652,7 +652,7 @@ dependencies = [
  "ring 0.16.20",
  "time",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tracing",
  "zeroize",
 ]
@@ -835,7 +835,7 @@ dependencies = [
  "pin-project-lite",
  "rustls",
  "tokio",
- "tower",
+ "tower 0.4.13",
  "tracing",
 ]
 
@@ -873,7 +873,7 @@ dependencies = [
  "http 0.2.12",
  "http-body 0.4.6",
  "pin-project-lite",
- "tower",
+ "tower 0.4.13",
  "tracing",
 ]
 
@@ -979,6 +979,60 @@ dependencies = [
  "aws-smithy-types",
  "http 0.2.12",
  "rustc_version",
+ "tracing",
+]
+
+[[package]]
+name = "axum"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6d6fd624c75e18b3b4c6b9caf42b1afe24437daaee904069137d8bab077be8b8"
+dependencies = [
+ "axum-core",
+ "bytes",
+ "form_urlencoded",
+ "futures-util",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "hyper 1.5.2",
+ "hyper-util",
+ "itoa",
+ "matchit",
+ "memchr",
+ "mime",
+ "percent-encoding",
+ "pin-project-lite",
+ "rustversion",
+ "serde",
+ "serde_json",
+ "serde_path_to_error",
+ "serde_urlencoded",
+ "sync_wrapper 1.0.2",
+ "tokio",
+ "tower 0.5.2",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
+name = "axum-core"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "df1362f362fd16024ae199c1970ce98f9661bf5ef94b9808fee734bc3698b733"
+dependencies = [
+ "bytes",
+ "futures-util",
+ "http 1.2.0",
+ "http-body 1.0.1",
+ "http-body-util",
+ "mime",
+ "pin-project-lite",
+ "rustversion",
+ "sync_wrapper 1.0.2",
+ "tower-layer",
+ "tower-service",
  "tracing",
 ]
 
@@ -1394,7 +1448,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "190baaad529bcfbde9e1a19022c42781bdb6ff9de25721abdb8fd98c0807730b"
 dependencies = [
  "libc",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -1579,7 +1633,7 @@ dependencies = [
  "sealed",
  "serde",
  "static_assertions",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "url",
 ]
@@ -2697,7 +2751,7 @@ dependencies = [
  "solana-program 2.0.13",
  "solana-transaction-status",
  "strum 0.24.1",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -2822,6 +2876,7 @@ dependencies = [
  "http 1.2.0",
  "http-body 1.0.1",
  "httparse",
+ "httpdate",
  "itoa",
  "pin-project-lite",
  "smallvec",
@@ -3330,7 +3385,7 @@ dependencies = [
  "ark-bn254",
  "ark-ff",
  "num-bigint 0.4.6",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -3378,6 +3433,12 @@ name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ffbee8634e0d45d258acb448e7eaab3fce7a0a467395d4d9f228e3c1f01fb2e4"
+
+[[package]]
+name = "matchit"
+version = "0.8.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47e1ffaa40ddd1f3ed91f717a33c8c0ee23fff369e3aa8772b9605cc1d22f4c3"
 
 [[package]]
 name = "md-5"
@@ -4214,7 +4275,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash",
  "rustls",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tracing",
 ]
@@ -4232,7 +4293,7 @@ dependencies = [
  "rustls",
  "rustls-native-certs",
  "slab",
- "thiserror",
+ "thiserror 1.0.69",
  "tinyvec",
  "tracing",
 ]
@@ -4468,7 +4529,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "sync_wrapper",
+ "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
  "tokio-rustls",
@@ -4512,7 +4573,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_urlencoded",
- "sync_wrapper",
+ "sync_wrapper 0.1.2",
  "system-configuration",
  "tokio",
  "tokio-native-tls",
@@ -4536,7 +4597,7 @@ dependencies = [
  "reqwest 0.11.27",
  "serde",
  "task-local-extensions",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -4947,6 +5008,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_path_to_error"
+version = "0.1.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59fab13f937fa393d08645bf3a84bdfe86e296747b506ada67bb15f10f218b2a"
+dependencies = [
+ "itoa",
+ "serde",
+]
+
+[[package]]
 name = "serde_repr"
 version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5204,7 +5275,7 @@ dependencies = [
  "spl-token-2022",
  "spl-token-group-interface",
  "spl-token-metadata-interface",
- "thiserror",
+ "thiserror 1.0.69",
  "zstd 0.11.2+zstd.1.5.2",
 ]
 
@@ -5228,7 +5299,7 @@ dependencies = [
  "spl-token-2022",
  "spl-token-group-interface",
  "spl-token-metadata-interface",
- "thiserror",
+ "thiserror 1.0.69",
  "zstd 0.11.2+zstd.1.5.2",
 ]
 
@@ -5242,7 +5313,7 @@ dependencies = [
  "rpassword",
  "solana-remote-wallet",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
  "tiny-bip39",
  "uriparse",
  "url",
@@ -5276,7 +5347,7 @@ dependencies = [
  "solana-thin-client",
  "solana-tpu-client",
  "solana-udp-client",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -5342,7 +5413,7 @@ dependencies = [
  "solana-measure 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana-metrics 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -5356,7 +5427,7 @@ dependencies = [
  "bytemuck_derive",
  "curve25519-dalek",
  "solana-program 2.0.13",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5381,7 +5452,7 @@ dependencies = [
  "sha2 0.10.8",
  "solana-frozen-abi-macro",
  "subtle",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5447,7 +5518,7 @@ dependencies = [
  "log",
  "reqwest 0.11.27",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5461,7 +5532,7 @@ dependencies = [
  "log",
  "reqwest 0.11.27",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5561,7 +5632,7 @@ dependencies = [
  "solana-frozen-abi",
  "solana-frozen-abi-macro",
  "solana-sdk-macro 1.18.26",
- "thiserror",
+ "thiserror 1.0.69",
  "tiny-bip39",
  "wasm-bindgen",
  "zeroize",
@@ -5608,7 +5679,7 @@ dependencies = [
  "sha2 0.10.8",
  "sha3 0.10.8",
  "solana-sdk-macro 2.0.13",
- "thiserror",
+ "thiserror 1.0.69",
  "wasm-bindgen",
 ]
 
@@ -5638,7 +5709,7 @@ dependencies = [
  "solana-type-overrides 2.0.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "solana-vote 2.0.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "solana_rbpf",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5666,7 +5737,7 @@ dependencies = [
  "solana-type-overrides 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana-vote 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana_rbpf",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5685,7 +5756,7 @@ dependencies = [
  "solana-account-decoder 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana-rpc-client-api",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-stream",
  "tokio-tungstenite",
@@ -5714,7 +5785,7 @@ dependencies = [
  "solana-rpc-client-api",
  "solana-sdk",
  "solana-streamer",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -5741,7 +5812,7 @@ dependencies = [
  "qstring",
  "semver",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
  "uriparse",
 ]
 
@@ -5791,7 +5862,7 @@ dependencies = [
  "solana-sdk",
  "solana-transaction-status",
  "solana-version",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5803,7 +5874,7 @@ dependencies = [
  "solana-clap-utils",
  "solana-rpc-client",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -5849,7 +5920,7 @@ dependencies = [
  "siphasher 0.3.11",
  "solana-program 2.0.13",
  "solana-sdk-macro 2.0.13",
- "thiserror",
+ "thiserror 1.0.69",
  "uriparse",
  "wasm-bindgen",
 ]
@@ -5913,7 +5984,7 @@ dependencies = [
  "solana-perf",
  "solana-sdk",
  "solana-transaction-metrics-tracker",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "x509-parser",
 ]
@@ -5951,7 +6022,7 @@ dependencies = [
  "solana-rpc-client",
  "solana-rpc-client-api",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -5993,7 +6064,7 @@ dependencies = [
  "spl-token-2022",
  "spl-token-group-interface",
  "spl-token-metadata-interface",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6025,7 +6096,7 @@ dependencies = [
  "solana-net-utils",
  "solana-sdk",
  "solana-streamer",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
 ]
 
@@ -6054,7 +6125,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6068,7 +6139,7 @@ dependencies = [
  "serde",
  "serde_derive",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6087,7 +6158,7 @@ dependencies = [
  "solana-program 2.0.13",
  "solana-program-runtime 2.0.13 (git+https://github.com/step-finance/agave?rev=6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011)",
  "solana-sdk",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6117,7 +6188,7 @@ dependencies = [
  "solana-program 2.0.13",
  "solana-sdk",
  "subtle",
- "thiserror",
+ "thiserror 1.0.69",
  "zeroize",
 ]
 
@@ -6136,7 +6207,7 @@ dependencies = [
  "rand 0.8.5",
  "rustc-demangle",
  "scroll",
- "thiserror",
+ "thiserror 1.0.69",
  "winapi",
 ]
 
@@ -6168,7 +6239,7 @@ dependencies = [
  "solana-program 2.0.13",
  "spl-token 6.0.0",
  "spl-token-2022",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6203,7 +6274,7 @@ dependencies = [
  "quote",
  "sha2 0.10.8",
  "syn 2.0.96",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6239,7 +6310,7 @@ dependencies = [
  "num-traits",
  "solana-program 2.0.13",
  "spl-program-error-derive",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6280,7 +6351,7 @@ dependencies = [
  "num-traits",
  "num_enum",
  "solana-program 1.18.26",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6295,7 +6366,7 @@ dependencies = [
  "num-traits",
  "num_enum",
  "solana-program 2.0.13",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6319,7 +6390,7 @@ dependencies = [
  "spl-token-metadata-interface",
  "spl-transfer-hook-interface",
  "spl-type-length-value",
- "thiserror",
+ "thiserror 1.0.69",
 ]
 
 [[package]]
@@ -6393,7 +6464,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 [[package]]
 name = "step-common-rust"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=ac1a4ba6447e0e597d56b81f5f4916afb44df824#ac1a4ba6447e0e597d56b81f5f4916afb44df824"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=843b670747a372a21d8ca20469d1a12d34102d6f#843b670747a372a21d8ca20469d1a12d34102d6f"
 dependencies = [
  "anyhow",
  "chrono",
@@ -6413,7 +6484,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-clickhouse-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=ac1a4ba6447e0e597d56b81f5f4916afb44df824#ac1a4ba6447e0e597d56b81f5f4916afb44df824"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=843b670747a372a21d8ca20469d1a12d34102d6f#843b670747a372a21d8ca20469d1a12d34102d6f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6423,7 +6494,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-derive"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=ac1a4ba6447e0e597d56b81f5f4916afb44df824#ac1a4ba6447e0e597d56b81f5f4916afb44df824"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=843b670747a372a21d8ca20469d1a12d34102d6f#843b670747a372a21d8ca20469d1a12d34102d6f"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6434,7 +6505,7 @@ dependencies = [
 [[package]]
 name = "step-ingestooor-sdk"
 version = "0.4.1"
-source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=ac1a4ba6447e0e597d56b81f5f4916afb44df824#ac1a4ba6447e0e597d56b81f5f4916afb44df824"
+source = "git+ssh://git@github.com/step-finance/step-common-rust.git?rev=843b670747a372a21d8ca20469d1a12d34102d6f#843b670747a372a21d8ca20469d1a12d34102d6f"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -6473,7 +6544,7 @@ dependencies = [
  "step-ingestooor-derive",
  "strum 0.26.3",
  "strum_macros 0.26.4",
- "thiserror",
+ "thiserror 1.0.69",
  "tokio",
  "tokio-postgres",
  "ts-rs",
@@ -6583,6 +6654,12 @@ name = "sync_wrapper"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2047c6ded9c721764247e62cd3b03c09ffc529b2ba5b10ec482ae507a4a70160"
+
+[[package]]
+name = "sync_wrapper"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0bf256ce5efdfa370213c1dabab5935a12e49f2c58d15e9eac2870d3b4f27263"
 
 [[package]]
 name = "synstructure"
@@ -6711,7 +6788,16 @@ version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b6aaf5339b578ea85b50e080feb250a3e8ae8cfcdff9a461c9ec2904bc923f52"
 dependencies = [
- "thiserror-impl",
+ "thiserror-impl 1.0.69",
+]
+
+[[package]]
+name = "thiserror"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "567b8a2dae586314f7be2a752ec7474332959c6460e02bde30d702a66d488708"
+dependencies = [
+ "thiserror-impl 2.0.12",
 ]
 
 [[package]]
@@ -6719,6 +6805,17 @@ name = "thiserror-impl"
 version = "1.0.69"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4fee6c4efc90059e10f81e6d42c60a18f76588c3d74cb83a0b242a2b6c7504c1"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.96",
+]
+
+[[package]]
+name = "thiserror-impl"
+version = "2.0.12"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f7cf42b4507d8ea322120659672cf1b9dbb93f8f2d4ecfd6e51350ff5b17a1d"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -6769,7 +6866,7 @@ dependencies = [
  "rand 0.7.3",
  "rustc-hash",
  "sha2 0.9.9",
- "thiserror",
+ "thiserror 1.0.69",
  "unicode-normalization",
  "wasm-bindgen",
  "zeroize",
@@ -6957,6 +7054,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "tower"
+version = "0.5.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d039ad9159c98b70ecfd540b2573b97f7f52c3e8d9f8ad57a24b916a536975f9"
+dependencies = [
+ "futures-core",
+ "futures-util",
+ "pin-project-lite",
+ "sync_wrapper 1.0.2",
+ "tokio",
+ "tower-layer",
+ "tower-service",
+ "tracing",
+]
+
+[[package]]
 name = "tower-layer"
 version = "0.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7008,22 +7121,22 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "ts-rs"
-version = "8.1.0"
+version = "10.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09d3fa4606cdab1e9b668cc65ce2545941d01f52bc27536a195c66c55b91cb84"
+checksum = "e640d9b0964e9d39df633548591090ab92f7a4567bc31d3891af23471a3365c6"
 dependencies = [
  "chrono",
- "thiserror",
+ "lazy_static",
+ "thiserror 2.0.12",
  "ts-rs-macros",
 ]
 
 [[package]]
 name = "ts-rs-macros"
-version = "8.1.0"
+version = "10.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f86ae36cbb2d58b86677ad413054feeb0712e382e822131cf9a4a1e580c419b5"
+checksum = "0e9d8656589772eeec2cf7a8264d9cda40fb28b9bc53118ceb9e8c07f8f38730"
 dependencies = [
- "Inflector",
  "proc-macro2",
  "quote",
  "syn 2.0.96",
@@ -7045,7 +7158,7 @@ dependencies = [
  "rand 0.8.5",
  "rustls",
  "sha1",
- "thiserror",
+ "thiserror 1.0.69",
  "url",
  "utf-8",
  "webpki-roots 0.24.0",
@@ -7231,6 +7344,7 @@ name = "veritas"
 version = "1.0.0"
 dependencies = [
  "anyhow",
+ "axum",
  "bs58 0.5.1",
  "chrono",
  "clap 4.5.27",
@@ -7688,7 +7802,7 @@ dependencies = [
  "nom",
  "oid-registry",
  "rusticata-macros",
- "thiserror",
+ "thiserror 1.0.69",
  "time",
 ]
 

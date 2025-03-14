@@ -1,0 +1,290 @@
+use anyhow::{anyhow, Result};
+use chrono::Utc;
+use rust_decimal::Decimal;
+use std::collections::{HashSet, VecDeque};
+
+use petgraph::{graph::NodeIndex, Direction};
+use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
+use tokio::sync::mpsc::Sender;
+use veritas_sdk::{
+    ppl_graph::{
+        graph::{MintPricingGraph, USDPriceWithSource},
+        structs::LiqAmount,
+    },
+    utils::checked_math::is_significant_change,
+};
+
+pub async fn bfs_recalculate(
+    graph: &MintPricingGraph,
+    start: NodeIndex,
+    visited_nodes: &mut HashSet<NodeIndex>,
+    dooot_tx: Sender<Dooot>,
+    oracle_mint_set: &HashSet<String>,
+) -> Result<()> {
+    let mut is_start = true;
+    let mut queue = VecDeque::with_capacity(graph.node_count());
+    queue.push_back(start);
+
+    while !queue.is_empty() {
+        let Some(node) = queue.pop_front() else {
+            log::error!(
+                "UNREACHABLE - There should always be one entry in the queue by this point"
+            );
+            return Ok(());
+        };
+
+        // Calc
+        let Some(node_weight) = graph.node_weight(node) else {
+            log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
+            return Ok(());
+        };
+
+        let mint = &node_weight.mint;
+        let is_oracle = oracle_mint_set.contains(mint);
+
+        // Don't calc this token if it's an oracle
+        if !is_oracle {
+            log::trace!("Getting total weighted price for {mint}");
+            let Some(new_price) = get_total_weighted_price(graph, node).await else {
+                // log::warn!("Failed to calculate price for {mint}");
+                return Ok(());
+            };
+
+            log::debug!("Calculated price of {mint}: {new_price}");
+
+            {
+                log::trace!("Getting price write lock for price calc");
+                let mut price_mut = node_weight.usd_price.write().await;
+                log::trace!("Got price write lock for price calc");
+                if let Some(old_price) = price_mut.as_ref() {
+                    let old_price = old_price.extract_price();
+
+                    if !is_significant_change(old_price, &new_price) {
+                        return Ok(());
+                    }
+                }
+
+                price_mut.replace(USDPriceWithSource::Relation(new_price));
+                log::trace!("Replaced price for price calc");
+            }
+
+            let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                mint: mint.to_owned(),
+                price_usd: new_price,
+                time: Utc::now().naive_utc(),
+            });
+
+            log::trace!("Sending price calc Dooot");
+            dooot_tx
+                .send(dooot)
+                .await
+                .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
+            log::trace!("Sent price calc Dooot");
+        } else if !is_start {
+            // Stop at oracles when travering throughout the graph, but allow us to at least start at one
+            continue;
+        }
+
+        is_start = false;
+
+        for neighbor in graph.neighbors(node) {
+            if !visited_nodes.insert(neighbor) {
+                continue;
+            }
+
+            queue.push_back(neighbor);
+        }
+    }
+
+    Ok(())
+}
+
+pub async fn get_total_weighted_price(
+    graph: &MintPricingGraph,
+    this_node: NodeIndex,
+) -> Option<Decimal> {
+    let mut cm_weighted_price = Decimal::ZERO;
+    let mut total_liq = Decimal::ZERO;
+    for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
+        let Some((weighted, liq)) = get_single_wighted_price(neighbor, this_node, graph).await
+        else {
+            // Illiquid or price doesn't exist. Skip
+            continue;
+        };
+
+        let liq = match liq {
+            LiqAmount::Amount(amt) => amt,
+            LiqAmount::Inf => return Some(weighted),
+        };
+
+        cm_weighted_price = cm_weighted_price.checked_add(weighted.checked_mul(liq)?)?;
+        total_liq = total_liq.checked_add(liq)?;
+    }
+
+    if total_liq == Decimal::ZERO {
+        return None;
+    }
+
+    let final_price = cm_weighted_price.checked_div(total_liq)?;
+
+    Some(final_price)
+}
+
+/// From A -> B, directed
+///
+/// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
+///
+/// # Returns (weighted_price, total_liquidity)
+///
+/// ## `total_liquidity` is denominated in **`token_a_units`**
+pub async fn get_single_wighted_price(
+    a: NodeIndex,
+    b: NodeIndex,
+    graph: &MintPricingGraph,
+) -> Option<(Decimal, LiqAmount)> {
+    let node_a = graph.node_weight(a)?;
+    let price_a = {
+        let n_read = node_a.usd_price.read().await;
+        *n_read.as_ref()?.extract_price()
+    };
+
+    let edges_iter = graph.edges_connecting(a, b);
+
+    let mut cm_weighted_price = Decimal::ZERO;
+    let mut total_liq = Decimal::ZERO;
+
+    for edge in edges_iter {
+        let e_read = edge.weight();
+
+        let relation = e_read.inner_relation.read().await;
+        // THIS MAY BE WRONG AF
+        // Just get liquidity based on A, since this token may be exclusively "priced" by A
+        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
+            continue;
+        };
+
+        let liq = match liq {
+            LiqAmount::Amount(amt) => {
+                if amt == Decimal::ZERO {
+                    continue;
+                }
+                amt
+            }
+            LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
+        };
+
+        let Some(price_b_usd) = relation.get_price(price_a) else {
+            continue;
+        };
+
+        cm_weighted_price = cm_weighted_price.checked_add(price_b_usd.checked_mul(liq)?)?;
+        total_liq = total_liq.checked_add(liq)?;
+    }
+
+    if total_liq == Decimal::ZERO {
+        return None;
+    }
+
+    let weighted_price = cm_weighted_price.checked_div(total_liq)?;
+
+    Some((weighted_price, LiqAmount::Amount(total_liq)))
+}
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use petgraph::Graph;
+    use rust_decimal::{prelude::FromPrimitive, Decimal};
+    use tokio::sync::RwLock;
+    use veritas_sdk::ppl_graph::{
+        graph::{MintEdge, MintNode, USDPriceWithSource},
+        structs::{LiqAmount, LiqRelation},
+    };
+
+    use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};
+
+    #[tokio::test]
+    async fn weighted_liq() {
+        let step_node = MintNode {
+            mint: "STEP".into(),
+            usd_price: RwLock::new(None),
+        };
+
+        let usdc_node = MintNode {
+            mint: "USDC".into(),
+            usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
+        };
+
+        let illiquid_node = MintNode {
+            mint: "DUMB".into(),
+            usd_price: RwLock::new(None),
+        };
+
+        let mut graph = Graph::new();
+
+        let step_x = graph.add_node(step_node);
+        let usdc_x = graph.add_node(usdc_node);
+        let il_x = graph.add_node(illiquid_node);
+
+        graph.add_edge(
+            usdc_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "SomeMarket".into(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(5),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        graph.add_edge(
+            usdc_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "OtherMarket".into(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(2),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        graph.add_edge(
+            il_x,
+            step_x,
+            MintEdge {
+                dirty: false,
+                id: "IlliquidMarket".into(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(10),
+                    amt_dest: Decimal::from(2),
+                }),
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+            },
+        );
+
+        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph)
+            .await
+            .unwrap();
+
+        assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
+
+        let total = get_total_weighted_price(&graph, step_x).await;
+        assert!(total.is_some());
+        assert_eq!(total.unwrap(), Decimal::from_f64(3.5).unwrap());
+
+        match liq {
+            LiqAmount::Amount(amt) => {
+                assert_eq!(amt, Decimal::from(20));
+            }
+            LiqAmount::Inf => {
+                panic!("Liq for this test should not be Inf!");
+            }
+        };
+    }
+}

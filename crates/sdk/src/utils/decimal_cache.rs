@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::Arc};
+use std::collections::HashMap;
 
 use crate::constants::*;
 use anyhow::Result;
@@ -12,9 +12,7 @@ pub struct MintDecimals {
     pub decimals: Option<u8>,
 }
 
-pub async fn build_decimal_cache(
-    clickhouse_client: Arc<clickhouse::Client>,
-) -> Result<DecimalCache> {
+pub async fn build_decimal_cache(clickhouse_client: clickhouse::Client) -> Result<DecimalCache> {
     log::info!("Building decimal cache...");
     // Allow for 100M mints
     let mut decimal_cache = DecimalCache::with_capacity(100_000_000);
@@ -28,7 +26,7 @@ pub async fn build_decimal_cache(
     // Pull all mints from CH that have decimals > 0
     let query = "
         SELECT
-            base58Encode(reinterpretAsString(mint)) AS mint_pk,
+            base58Encode(mint) AS mint_pk,
             finalizeAggregation(decimals) AS decimals
         FROM lookup_mint_info lmi
         WHERE decimals > 0

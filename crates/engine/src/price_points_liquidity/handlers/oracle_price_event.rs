@@ -1,0 +1,45 @@
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+};
+
+use step_ingestooor_sdk::dooot::OraclePriceEventDooot;
+use tokio::sync::{mpsc::Sender, RwLock};
+
+use crate::{
+    calculator::task::CalculatorUpdate,
+    price_points_liquidity::{handlers::utils::send_update_to_calculator, task::MintIndiciesMap},
+};
+
+#[allow(clippy::unwrap_used)]
+pub async fn handle_oracle_price_event(
+    oracle_price: OraclePriceEventDooot,
+    oracle_feed_map: Arc<HashMap<String, String>>,
+    mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    calculator_sender: Sender<CalculatorUpdate>,
+    bootstrap_in_progress: Arc<AtomicBool>,
+) {
+    let feed_id = &oracle_price.feed_account_pubkey;
+    let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned() else {
+        return;
+    };
+
+    let price = oracle_price.price;
+
+    log::info!("New oracle price for {feed_mint}: {price}");
+
+    let ix = {
+        let mint_indicies_read = mint_indicies.read().await;
+        mint_indicies_read.get(&feed_mint).cloned()
+    };
+
+    if let Some(ix) = ix {
+        let update = CalculatorUpdate::OracleUSDPrice(ix, price);
+        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
+    } else {
+        log::warn!(
+            "Mint {} not in graph, cannot send OracleUSDPrice update",
+            feed_mint
+        );
+    }
+}
