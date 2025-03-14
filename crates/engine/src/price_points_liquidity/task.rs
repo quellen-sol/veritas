@@ -51,7 +51,7 @@ pub fn spawn_price_points_liquidity_task(
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
-    
+
     let edge_indicies = Arc::new(RwLock::new(EdgeIndiciesMap::new()));
 
     let task = tokio::spawn(

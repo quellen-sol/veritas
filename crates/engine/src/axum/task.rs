@@ -1,17 +1,13 @@
-use std::{
-    f32::consts::E,
-    sync::{atomic::AtomicBool, Arc},
-};
+use std::sync::{atomic::AtomicBool, Arc};
 
-use anyhow::Context;
 use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
-use serde::{Deserialize, Serialize};
+use rust_decimal::Decimal;
 use tokio::{sync::RwLock, task::JoinHandle};
-use veritas_sdk::ppl_graph::graph::WrappedMintPricingGraph;
+use veritas_sdk::ppl_graph::{graph::WrappedMintPricingGraph, utils::get_price_by_node_idx};
 
 use crate::price_points_liquidity::task::MintIndiciesMap;
 
-use super::types::{NodeInfo, NodeRelationInfo};
+use super::types::{NodeInfo, NodeRelationInfo, RelationWithLiq};
 
 struct VeritasServerState {
     bootstrap_in_progress: Arc<AtomicBool>,
@@ -67,8 +63,11 @@ async fn debug_node_info(
     };
 
     let g_read = state.graph.read().await;
+    let this_price = get_price_by_node_idx(&g_read, mint_ix).await;
+
     let mut node_info = NodeInfo {
         mint: mint.clone(),
+        calculated_price: this_price,
         neighbors: vec![],
     };
 
@@ -91,15 +90,26 @@ async fn debug_node_info(
             let e_weight = edge.weight();
             let relation = e_weight.inner_relation.read().await.clone();
 
-            relation_info.outgoing_relations.push(relation);
+            relation_info.outgoing_relations.push(RelationWithLiq {
+                relation,
+                liquidity: None,
+                price: None,
+            });
         }
 
         // All incoming edges
         for edge in g_read.edges_connecting(neighbor, mint_ix) {
             let e_weight = edge.weight();
             let relation = e_weight.inner_relation.read().await.clone();
+            let price_neighbor = get_price_by_node_idx(&g_read, neighbor).await;
+            let liq = price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
+            let derived_price = price_neighbor.and_then(|p| relation.get_price(p));
 
-            relation_info.incoming_relations.push(relation);
+            relation_info.incoming_relations.push(RelationWithLiq {
+                relation,
+                liquidity: liq,
+                price: derived_price,
+            });
         }
 
         node_info.neighbors.push(relation_info);

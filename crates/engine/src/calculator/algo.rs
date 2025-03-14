@@ -10,6 +10,7 @@ use veritas_sdk::{
     ppl_graph::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
+        utils::get_price_by_node_idx,
     },
     utils::checked_math::is_significant_change,
 };
@@ -142,11 +143,7 @@ pub async fn get_single_wighted_price(
     b: NodeIndex,
     graph: &MintPricingGraph,
 ) -> Option<(Decimal, LiqAmount)> {
-    let node_a = graph.node_weight(a)?;
-    let price_a = {
-        let n_read = node_a.usd_price.read().await;
-        *n_read.as_ref()?.extract_price()
-    };
+    let price_a = get_price_by_node_idx(graph, a).await?;
 
     let edges_iter = graph.edges_connecting(a, b);
 
