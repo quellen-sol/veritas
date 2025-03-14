@@ -15,7 +15,6 @@ pub struct LiqLevels {
 }
 
 #[derive(Serialize, Deserialize)]
-#[serde(tag = "type")]
 pub enum LiqAmount {
     Amount(Decimal),
     /// Used by `Fixed` relations, that will ALWAYS take prescidence when calculating price
