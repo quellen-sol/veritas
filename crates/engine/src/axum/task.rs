@@ -1,6 +1,14 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{
+    collections::HashMap,
+    sync::{atomic::AtomicBool, Arc},
+};
 
-use axum::{extract::State, http::StatusCode, routing::get, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    routing::get,
+    Json, Router,
+};
 use rust_decimal::Decimal;
 use tokio::{sync::RwLock, task::JoinHandle};
 use veritas_sdk::ppl_graph::{graph::WrappedMintPricingGraph, utils::get_price_by_node_idx};
@@ -55,11 +63,12 @@ async fn handle_healthcheck(State(state): State<Arc<VeritasServerState>>) -> Sta
 
 async fn debug_node_info(
     State(state): State<Arc<VeritasServerState>>,
-    mint: String,
+    Query(params): Query<HashMap<String, String>>,
 ) -> Result<Json<NodeInfo>, StatusCode> {
+    let mint = params.get("mint").ok_or(StatusCode::BAD_REQUEST)?;
     let mint_ix = {
         let mi_read = state.mint_indicies.read().await;
-        mi_read.get(&mint).cloned().ok_or(StatusCode::NOT_FOUND)?
+        mi_read.get(mint).cloned().ok_or(StatusCode::NOT_FOUND)?
     };
 
     let g_read = state.graph.read().await;
