@@ -11,7 +11,7 @@ use veritas_sdk::{
         graph::{MintPricingGraph, USDPriceWithSource},
         structs::LiqAmount,
     },
-    utils::checked_math::is_significant_change,
+    utils::checked_math::{clamp_to_scale, is_significant_change},
 };
 
 pub async fn bfs_recalculate(
@@ -125,7 +125,8 @@ pub async fn get_total_weighted_price(
         return None;
     }
 
-    let final_price = cm_weighted_price.checked_div(total_liq)?;
+    let final_decimal = cm_weighted_price.checked_div(total_liq)?;
+    let final_price = clamp_to_scale(&final_decimal);
 
     Some(final_price)
 }
