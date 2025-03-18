@@ -254,6 +254,9 @@ async fn main() -> Result<()> {
         log::info!("Skipping bootstrap (flag set)");
     }
 
+    // Wait 3 seconds to ensure that the graph is fully bootstrapped
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+
     bootstrap_in_progress.store(false, Ordering::Relaxed);
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
