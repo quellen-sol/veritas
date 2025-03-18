@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use chrono::Utc;
+use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::collections::{HashSet, VecDeque};
 
@@ -88,7 +89,7 @@ pub async fn bfs_recalculate(
 
         is_start = false;
 
-        for neighbor in graph.neighbors(node) {
+        for neighbor in graph.neighbors(node).unique() {
             if !visited_nodes.insert(neighbor) {
                 continue;
             }
@@ -106,7 +107,10 @@ pub async fn get_total_weighted_price(
 ) -> Option<Decimal> {
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
-    for neighbor in graph.neighbors_directed(this_node, Direction::Incoming) {
+    for neighbor in graph
+        .neighbors_directed(this_node, Direction::Incoming)
+        .unique()
+    {
         let Some((weighted, liq)) = get_single_wighted_price(neighbor, this_node, graph).await
         else {
             // Illiquid or price doesn't exist. Skip
