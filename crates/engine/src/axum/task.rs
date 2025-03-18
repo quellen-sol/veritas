@@ -9,6 +9,7 @@ use axum::{
     routing::get,
     Json, Router,
 };
+use itertools::Itertools;
 use rust_decimal::Decimal;
 use tokio::{sync::RwLock, task::JoinHandle};
 use veritas_sdk::ppl_graph::{graph::WrappedMintPricingGraph, utils::get_price_by_node_idx};
@@ -80,7 +81,7 @@ async fn debug_node_info(
         neighbors: vec![],
     };
 
-    for neighbor in g_read.neighbors_undirected(mint_ix) {
+    for neighbor in g_read.neighbors_undirected(mint_ix).unique() {
         let Some(neigh_weight) = g_read.node_weight(neighbor) else {
             log::error!("UNREACHABLE - {neighbor:?} should exist in graph??");
             return Err(StatusCode::INTERNAL_SERVER_ERROR);

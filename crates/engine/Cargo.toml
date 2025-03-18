@@ -33,3 +33,4 @@ rust_decimal = { workspace = true }
 chrono = { workspace = true }
 bs58 = { workspace = true }
 axum = { workspace = true }
+itertools = { workspace = true }
