@@ -22,6 +22,7 @@ pub async fn bfs_recalculate(
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
 ) -> Result<()> {
+    let upper_bound_price = Decimal::from(150_000); // Band-aid fix for extremely high prices. Nothing should be priced above this
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
@@ -48,8 +49,13 @@ pub async fn bfs_recalculate(
             log::trace!("Getting total weighted price for {mint}");
             let Some(new_price) = get_total_weighted_price(graph, node).await else {
                 // log::warn!("Failed to calculate price for {mint}");
-                return Ok(());
+                continue;
             };
+
+            if new_price >= upper_bound_price {
+                // log::warn!("Price of {mint} is too high: {new_price}");
+                continue;
+            }
 
             log::debug!("Calculated price of {mint}: {new_price}");
 
@@ -61,7 +67,7 @@ pub async fn bfs_recalculate(
                     let old_price = old_price.extract_price();
 
                     if !is_significant_change(old_price, &new_price) {
-                        return Ok(());
+                        continue;
                     }
                 }
 
