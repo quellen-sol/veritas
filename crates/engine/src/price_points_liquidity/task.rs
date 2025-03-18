@@ -48,12 +48,10 @@ pub fn spawn_price_points_liquidity_task(
     max_ppl_subtasks: u8,
     ch_cache_updator_req_tx: Sender<String>,
     bootstrap_in_progress: Arc<AtomicBool>,
+    mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
-    // Only to be used if we never *remove* nodes from the graph
-    // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
-    let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
     let edge_indicies = Arc::new(RwLock::new(EdgeIndiciesMap::new()));
 
     let task = tokio::spawn(

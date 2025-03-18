@@ -1,4 +1,5 @@
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 
 /// When calling `get_price`, this enum describes which token's price to return
 pub enum TokenTarget {
@@ -13,6 +14,7 @@ pub struct LiqLevels {
     pub thousand_sol_depth: Decimal,
 }
 
+#[derive(Serialize, Deserialize)]
 pub enum LiqAmount {
     Amount(Decimal),
     /// Used by `Fixed` relations, that will ALWAYS take prescidence when calculating price
@@ -20,7 +22,8 @@ pub enum LiqAmount {
 }
 
 /// Each variant should contain minimum information to calculate price, liquidity, and liq levels
-#[derive(Debug)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type")]
 pub enum LiqRelation {
     /// Constant Product LP
     CpLp {
