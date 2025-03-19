@@ -20,9 +20,7 @@ use tokio::{
 };
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
-use crate::calculator::handlers::{
-    oracle_price::handle_oracle_price_update, token_relation::handle_token_relation_update,
-};
+use crate::calculator::handlers::oracle_price::handle_oracle_price_update;
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
@@ -81,14 +79,14 @@ pub fn spawn_calculator_task(
                         .await;
                     }
                     CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
-                        handle_token_relation_update(
-                            graph,
-                            token,
-                            updated_edge,
-                            dooot_tx,
-                            &oracle_mint_set,
-                        )
-                        .await;
+                        // handle_token_relation_update(
+                        //     graph,
+                        //     token,
+                        //     updated_edge,
+                        //     dooot_tx,
+                        //     &oracle_mint_set,
+                        // )
+                        // .await;
                     }
                 }
 
