@@ -7,7 +7,7 @@ use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
 use crate::calculator::algo::bfs_recalculate;
 
-pub async fn handle_token_relation_update(
+pub async fn _handle_token_relation_update(
     graph: Arc<RwLock<MintPricingGraph>>,
     token: NodeIndex,
     updated_edge: EdgeIndex,
