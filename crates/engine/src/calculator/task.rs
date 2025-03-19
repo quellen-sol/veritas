@@ -78,7 +78,7 @@ pub fn spawn_calculator_task(
                         )
                         .await;
                     }
-                    CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
+                    CalculatorUpdate::NewTokenRatio(_token, _updated_edge) => {
                         // handle_token_relation_update(
                         //     graph,
                         //     token,
