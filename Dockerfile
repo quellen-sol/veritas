@@ -22,6 +22,6 @@ COPY ./crates ./crates
 RUN --mount=type=ssh cargo build --release --bin veritas
 
 FROM debian:bullseye-slim AS runtime
-RUN apt update && apt-get install -y ca-certificates
+RUN apt update && apt-get install -y ca-certificates curl
 COPY --from=builder /app/target/release/veritas .
 CMD ["./veritas"]
