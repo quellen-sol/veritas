@@ -17,6 +17,20 @@ impl LiqLevels {
         ten_sol_depth: Decimal::ZERO,
         thousand_sol_depth: Decimal::ZERO,
     };
+
+    /// Determines if the liq levels are acceptable for a given relation,
+    /// and should be used for pricing
+    ///
+    /// As of writing, current determination should be that
+    /// 10 SOL (~$1,270 atm) should not have an impact of 1% or greater
+    ///
+    /// This is completely arbitrary and subject to change
+    pub fn acceptable(&self) -> bool {
+        self.ten_sol_depth
+            .abs()
+            .checked_mul(Decimal::ONE_HUNDRED)
+            .is_some_and(|v| v < Decimal::ONE)
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -78,17 +92,19 @@ impl LiqRelation {
                 let tokens_amt_thousand_sol =
                     tokens_amt_one_sol.checked_mul(Decimal::from(1000))?;
 
-                let post_a_one_sol = amt_a.checked_add(tokens_amt_one_sol)?;
-                let post_a_ten_sol = amt_a.checked_add(tokens_amt_ten_sol)?;
+                // Calc thousands info first, so if it overflows,
+                // we can assume the rest is borked if values got as high as 2^96, and return early
                 let post_a_thousand_sol = amt_a.checked_add(tokens_amt_thousand_sol)?;
-
-                let post_b_one_sol = product.checked_div(post_a_one_sol)?;
-                let post_b_ten_sol = product.checked_div(post_a_ten_sol)?;
                 let post_b_thousand_sol = product.checked_div(post_a_thousand_sol)?;
-
-                let price_one_sol = post_a_one_sol.checked_div(post_b_one_sol)?;
-                let price_ten_sol = post_a_ten_sol.checked_div(post_b_ten_sol)?;
                 let price_thousand_sol = post_a_thousand_sol.checked_div(post_b_thousand_sol)?;
+
+                let post_a_ten_sol = amt_a.checked_add(tokens_amt_ten_sol)?;
+                let post_b_ten_sol = product.checked_div(post_a_ten_sol)?;
+                let price_ten_sol = post_a_ten_sol.checked_div(post_b_ten_sol)?;
+
+                let post_a_one_sol = amt_a.checked_add(tokens_amt_one_sol)?;
+                let post_b_one_sol = product.checked_div(post_a_one_sol)?;
+                let price_one_sol = post_a_one_sol.checked_div(post_b_one_sol)?;
 
                 let one_sol_pct_change = price_one_sol
                     .checked_div(current_price_a)?

@@ -5,6 +5,7 @@ use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
+    constants::WSOL_MINT,
     ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
     utils::checked_math::is_significant_change,
 };
@@ -17,6 +18,7 @@ pub async fn handle_oracle_price_update(
     new_price: Decimal,
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
+    sol_index: Arc<RwLock<Option<Decimal>>>,
 ) {
     log::trace!("Getting graph read lock for OracleUSDPrice update");
     let g_read = graph.read().await;
@@ -40,9 +42,18 @@ pub async fn handle_oracle_price_update(
             }
         }
 
+        if node_weight.mint == WSOL_MINT {
+            let mut sol_index_write = sol_index.write().await;
+            if sol_index_write.is_none() {
+                sol_index_write.replace(new_price);
+            }
+        }
+
         p_write.replace(USDPriceWithSource::Oracle(new_price));
         log::trace!("Replaced price for OracleUSDPrice update");
     }
+
+    let sol_index = sol_index.read().await;
 
     log::trace!("Starting BFS recalculation for OracleUSDPrice update");
     let recalc_result = bfs_recalculate(
@@ -51,6 +62,7 @@ pub async fn handle_oracle_price_update(
         &mut visited,
         dooot_tx.clone(),
         oracle_mint_set,
+        &sol_index,
     )
     .await;
 

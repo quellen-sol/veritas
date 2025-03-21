@@ -1,6 +1,7 @@
 use std::{collections::HashSet, sync::Arc};
 
 use petgraph::graph::{EdgeIndex, NodeIndex};
+use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::ppl_graph::graph::MintPricingGraph;
@@ -13,6 +14,7 @@ pub async fn _handle_token_relation_update(
     updated_edge: EdgeIndex,
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
+    sol_index: Arc<RwLock<Option<Decimal>>>,
 ) {
     log::trace!("Getting graph read lock for NewTokenRatio update");
     let g_read = graph.read().await;
@@ -26,6 +28,8 @@ pub async fn _handle_token_relation_update(
     // Do not consider the source token of this relation
     visited.insert(src);
 
+    let sol_index = sol_index.read().await;
+
     log::trace!("Starting BFS recalculation for NewTokenRatio update");
     let recalc_result = bfs_recalculate(
         &g_read,
@@ -33,6 +37,7 @@ pub async fn _handle_token_relation_update(
         &mut visited,
         dooot_tx.clone(),
         oracle_mint_set,
+        &sol_index,
     )
     .await;
 
