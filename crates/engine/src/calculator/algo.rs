@@ -24,7 +24,6 @@ pub async fn bfs_recalculate(
     oracle_mint_set: &HashSet<String>,
     sol_index: &Option<Decimal>,
 ) -> Result<()> {
-    let upper_bound_price = Decimal::from(150_000); // Band-aid fix for extremely high prices. Nothing should be priced above this
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
@@ -53,11 +52,6 @@ pub async fn bfs_recalculate(
                 // log::warn!("Failed to calculate price for {mint}");
                 continue;
             };
-
-            if new_price >= upper_bound_price {
-                // log::warn!("Price of {mint} is too high: {new_price}");
-                continue;
-            }
 
             log::debug!("Calculated price of {mint}: {new_price}");
 
