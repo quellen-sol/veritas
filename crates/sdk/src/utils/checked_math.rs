@@ -4,7 +4,7 @@ use crate::constants::POINT_ONE_PERCENT;
 
 #[inline]
 pub fn checked_pct_diff(old: &Decimal, new: &Decimal) -> Option<Decimal> {
-    Some(new.checked_sub(*old)?.checked_div(*old)?.abs())
+    Some(new.checked_div(*old)?.checked_sub(Decimal::ONE)?.abs())
 }
 
 #[allow(clippy::unwrap_used)]

@@ -44,9 +44,7 @@ pub async fn handle_oracle_price_update(
 
         if node_weight.mint == WSOL_MINT {
             let mut sol_index_write = sol_index.write().await;
-            if sol_index_write.is_none() {
-                sol_index_write.replace(new_price);
-            }
+            sol_index_write.replace(new_price);
         }
 
         p_write.replace(USDPriceWithSource::Oracle(new_price));

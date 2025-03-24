@@ -218,16 +218,20 @@ pub async fn get_single_wighted_price(
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
+
     use chrono::Utc;
     use petgraph::Graph;
     use rust_decimal::{prelude::FromPrimitive, Decimal};
     use tokio::sync::RwLock;
     use veritas_sdk::ppl_graph::{
-        graph::{MintEdge, MintNode, USDPriceWithSource},
+        graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
         structs::{LiqAmount, LiqRelation},
     };
 
     use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};
+
+    use super::bfs_recalculate;
 
     #[tokio::test]
     async fn weighted_liq() {
@@ -336,5 +340,108 @@ mod tests {
         let levels = relation.get_liq_levels(tokens_a_per_sol);
 
         assert!(levels.is_some(), "Liq levels calc should not overflow")
+    }
+
+    /// Test that oracles are not passed-through so that unneccesary tokens are calc'd
+    #[tokio::test]
+    async fn oracles_gate_calc() {
+        let mut graph = MintPricingGraph::new();
+        let oracle_token_mint = "ORACLE_TOKEN".to_string();
+        let oracle_price = Decimal::ONE_HUNDRED;
+
+        let oracle_node = graph.add_node(MintNode {
+            mint: oracle_token_mint.clone(),
+            usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(oracle_price))),
+        });
+
+        let test_token_a = graph.add_node(MintNode {
+            mint: "TOKEN_A".into(),
+            usd_price: RwLock::new(None),
+        });
+
+        let test_token_b = graph.add_node(MintNode {
+            mint: "TOKEN_B".into(),
+            usd_price: RwLock::new(None),
+        });
+
+        // Link Oracle -> Token A and vice versa
+        graph.add_edge(
+            oracle_node,
+            test_token_a,
+            MintEdge {
+                id: "market_a".into(),
+                dirty: false,
+                last_updated: RwLock::default(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
+                    amt_dest: Decimal::from(10_000),    // 10k TOKEN A (To be priced)
+                }),
+            },
+        );
+        graph.add_edge(
+            test_token_a,
+            oracle_node,
+            MintEdge {
+                id: "market_a".into(),
+                dirty: false,
+                last_updated: RwLock::default(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(10_000), // 10k TOKEN A (To be priced)
+                    amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                }),
+            },
+        );
+
+        // Link Oracle -> Token B and vice versa
+        graph.add_edge(
+            oracle_node,
+            test_token_b,
+            MintEdge {
+                id: "market_b".into(),
+                dirty: false,
+                last_updated: RwLock::default(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
+                    amt_dest: Decimal::from(10_000),    // 10k TOKEN B (To be priced)
+                }),
+            },
+        );
+        graph.add_edge(
+            test_token_b,
+            oracle_node,
+            MintEdge {
+                id: "market_b".into(),
+                dirty: false,
+                last_updated: RwLock::default(),
+                inner_relation: RwLock::new(LiqRelation::CpLp {
+                    amt_origin: Decimal::from(10_000), // 10k TOKEN AB (To be priced)
+                    amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                }),
+            },
+        );
+
+        // Recalc the graph starting from token A (this should NOT calc token B!)
+        let (tx, _) = tokio::sync::mpsc::channel(100);
+        let mut oracle_mint_set = HashSet::new();
+        oracle_mint_set.insert(oracle_token_mint);
+
+        bfs_recalculate(
+            &graph,
+            test_token_a,
+            &mut HashSet::new(),
+            tx,
+            &oracle_mint_set,
+            &Some(oracle_price),
+        )
+        .await
+        .unwrap();
+
+        let b_node = graph.node_weight(test_token_b).unwrap();
+        let price_exists = { b_node.usd_price.read().await.as_ref().is_some() };
+
+        assert!(
+            !price_exists,
+            "Test Token B's price should NOT have been calculated!"
+        );
     }
 }
