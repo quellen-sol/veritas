@@ -421,7 +421,7 @@ mod tests {
         );
 
         // Recalc the graph starting from token A (this should NOT calc token B!)
-        let (tx, _) = tokio::sync::mpsc::channel(100);
+        let (tx, _rx) = tokio::sync::mpsc::channel(100);
         let mut oracle_mint_set = HashSet::new();
         oracle_mint_set.insert(oracle_token_mint);
 
