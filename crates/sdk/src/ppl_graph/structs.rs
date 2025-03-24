@@ -1,17 +1,36 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-/// When calling `get_price`, this enum describes which token's price to return
-pub enum TokenTarget {
-    Origin,
-    Destination,
+use crate::constants::ONE_PERCENT;
+
+#[derive(Debug)]
+pub struct LiqLevels {
+    /// pct change
+    pub one_sol_depth: Decimal,
+    /// pct change
+    pub ten_sol_depth: Decimal,
+    /// pct change
+    pub thousand_sol_depth: Decimal,
 }
 
-#[derive(Debug, Default)]
-pub struct LiqLevels {
-    pub one_sol_depth: Decimal,
-    pub ten_sol_depth: Decimal,
-    pub thousand_sol_depth: Decimal,
+impl LiqLevels {
+    pub const ZERO: Self = Self {
+        one_sol_depth: Decimal::ZERO,
+        ten_sol_depth: Decimal::ZERO,
+        thousand_sol_depth: Decimal::ZERO,
+    };
+
+    /// Determines if the liq levels are acceptable for a given relation,
+    /// and should be used for pricing
+    ///
+    /// As of writing, current determination should be that
+    /// 10 SOL (~$1,270 atm) should not have an impact of 1% or greater
+    ///
+    /// This is completely arbitrary and subject to change
+    #[inline]
+    pub fn acceptable(&self) -> bool {
+        self.ten_sol_depth.abs() < ONE_PERCENT
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -58,18 +77,54 @@ impl LiqRelation {
         }
     }
 
-    // #[inline]
-    // pub fn get_liq_levels(&self) -> LiqLevels {
-    //     match self {
-    //         LiqRelationEnum::CpLp {
-    //             amt_origin: amt_a,
-    //             amt_dest: amt_b,
-    //             ..
-    //         } => {}
-    //     }
-    //
-    //     LiqLevels::default()
-    // }
+    #[inline]
+    pub fn get_liq_levels(&self, tokens_per_sol: Decimal) -> Option<LiqLevels> {
+        match self {
+            LiqRelation::CpLp {
+                amt_origin: amt_a,
+                amt_dest: amt_b,
+            } => {
+                let current_price_a = amt_a.checked_div(*amt_b)?;
+                let product = amt_a.checked_mul(*amt_b)?;
+
+                let tokens_amt_one_sol = tokens_per_sol;
+                let tokens_amt_ten_sol = tokens_amt_one_sol.checked_mul(Decimal::from(10))?;
+                let tokens_amt_thousand_sol =
+                    tokens_amt_one_sol.checked_mul(Decimal::from(1000))?;
+
+                // Calc thousands info first, so if it overflows,
+                // we can assume the rest is borked if values got as high as 2^96, and return early
+                let post_a_thousand_sol = amt_a.checked_add(tokens_amt_thousand_sol)?;
+                let post_b_thousand_sol = product.checked_div(post_a_thousand_sol)?;
+                let price_thousand_sol = post_a_thousand_sol.checked_div(post_b_thousand_sol)?;
+
+                let post_a_ten_sol = amt_a.checked_add(tokens_amt_ten_sol)?;
+                let post_b_ten_sol = product.checked_div(post_a_ten_sol)?;
+                let price_ten_sol = post_a_ten_sol.checked_div(post_b_ten_sol)?;
+
+                let post_a_one_sol = amt_a.checked_add(tokens_amt_one_sol)?;
+                let post_b_one_sol = product.checked_div(post_a_one_sol)?;
+                let price_one_sol = post_a_one_sol.checked_div(post_b_one_sol)?;
+
+                let one_sol_pct_change = price_one_sol
+                    .checked_div(current_price_a)?
+                    .checked_sub(Decimal::ONE)?;
+                let ten_sol_pct_change = price_ten_sol
+                    .checked_div(current_price_a)?
+                    .checked_sub(Decimal::ONE)?;
+                let thousand_sol_pct_change = price_thousand_sol
+                    .checked_div(current_price_a)?
+                    .checked_sub(Decimal::ONE)?;
+
+                Some(LiqLevels {
+                    one_sol_depth: one_sol_pct_change,
+                    ten_sol_depth: ten_sol_pct_change,
+                    thousand_sol_depth: thousand_sol_pct_change,
+                })
+            }
+            LiqRelation::Fixed { .. } => Some(LiqLevels::ZERO),
+        }
+    }
 
     /// Returns `None` if unable to calculate liquidity of this relation (through overflows, divs by 0, etc)
     #[inline]

@@ -22,8 +22,8 @@ pub async fn bfs_recalculate(
     visited_nodes: &mut HashSet<NodeIndex>,
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
+    sol_index: &Option<Decimal>,
 ) -> Result<()> {
-    let upper_bound_price = Decimal::from(150_000); // Band-aid fix for extremely high prices. Nothing should be priced above this
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
@@ -48,15 +48,10 @@ pub async fn bfs_recalculate(
         // Don't calc this token if it's an oracle
         if !is_oracle {
             log::trace!("Getting total weighted price for {mint}");
-            let Some(new_price) = get_total_weighted_price(graph, node).await else {
+            let Some(new_price) = get_total_weighted_price(graph, node, sol_index).await else {
                 // log::warn!("Failed to calculate price for {mint}");
                 continue;
             };
-
-            if new_price >= upper_bound_price {
-                // log::warn!("Price of {mint} is too high: {new_price}");
-                continue;
-            }
 
             log::debug!("Calculated price of {mint}: {new_price}");
 
@@ -110,6 +105,7 @@ pub async fn bfs_recalculate(
 pub async fn get_total_weighted_price(
     graph: &MintPricingGraph,
     this_node: NodeIndex,
+    sol_index: &Option<Decimal>,
 ) -> Option<Decimal> {
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
@@ -117,7 +113,8 @@ pub async fn get_total_weighted_price(
         .neighbors_directed(this_node, Direction::Incoming)
         .unique()
     {
-        let Some((weighted, liq)) = get_single_wighted_price(neighbor, this_node, graph).await
+        let Some((weighted, liq)) =
+            get_single_wighted_price(neighbor, this_node, graph, sol_index).await
         else {
             // Illiquid or price doesn't exist. Skip
             continue;
@@ -153,6 +150,7 @@ pub async fn get_single_wighted_price(
     a: NodeIndex,
     b: NodeIndex,
     graph: &MintPricingGraph,
+    sol_index: &Option<Decimal>,
 ) -> Option<(Decimal, LiqAmount)> {
     let price_a = get_price_by_node_idx(graph, a).await?;
 
@@ -180,6 +178,26 @@ pub async fn get_single_wighted_price(
             }
             LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
         };
+
+        if let Some(sol_price) = sol_index {
+            // Check liquidity levels if sol price now exists
+
+            let Some(tokens_a_per_sol) = sol_price.checked_div(price_a) else {
+                // price_a exists, but the math overflowed somewhere.
+                // Values are therefore way too high/low to be considered.
+                continue;
+            };
+
+            let Some(liq_levels) = relation.get_liq_levels(tokens_a_per_sol) else {
+                // Math overflow in calc'ing liq levels.
+                // We can assume this to be illiquid if values got that high
+                continue;
+            };
+
+            if !liq_levels.acceptable() {
+                continue;
+            }
+        }
 
         let Some(price_b_usd) = relation.get_price(price_a) else {
             continue;
@@ -276,15 +294,23 @@ mod tests {
             },
         );
 
-        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph)
+        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph, &None)
             .await
             .unwrap();
 
-        assert_eq!(weighted, Decimal::from_f64(3.5).unwrap());
+        assert_eq!(
+            weighted,
+            Decimal::from_f64(3.5).unwrap(),
+            "Single weighted price should be 3.5"
+        );
 
-        let total = get_total_weighted_price(&graph, step_x).await;
+        let total = get_total_weighted_price(&graph, step_x, &None).await;
         assert!(total.is_some());
-        assert_eq!(total.unwrap(), Decimal::from_f64(3.5).unwrap());
+        assert_eq!(
+            total.unwrap(),
+            Decimal::from_f64(3.5).unwrap(),
+            "Total weighted price should be 3.5"
+        );
 
         match liq {
             LiqAmount::Amount(amt) => {
@@ -294,5 +320,21 @@ mod tests {
                 panic!("Liq for this test should not be Inf!");
             }
         };
+    }
+
+    #[test]
+    fn liq_levels() {
+        let relation = LiqRelation::CpLp {
+            amt_origin: Decimal::from(10),
+            amt_dest: Decimal::from(10),
+        };
+
+        let sol_price = Decimal::ONE_HUNDRED;
+        let token_a_price = Decimal::TEN;
+        let tokens_a_per_sol = sol_price / token_a_price;
+
+        let levels = relation.get_liq_levels(tokens_a_per_sol);
+
+        assert!(levels.is_some(), "Liq levels calc should not overflow")
     }
 }
