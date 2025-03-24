@@ -2,16 +2,19 @@ use rust_decimal::Decimal;
 
 use crate::constants::POINT_ONE_PERCENT;
 
+#[inline]
 pub fn checked_pct_diff(old: &Decimal, new: &Decimal) -> Option<Decimal> {
     Some(new.checked_sub(*old)?.checked_div(*old)?.abs())
 }
 
 #[allow(clippy::unwrap_used)]
+#[inline]
 pub fn is_significant_change(old: &Decimal, new: &Decimal) -> bool {
     checked_pct_diff(old, new).is_some_and(|d| d > POINT_ONE_PERCENT)
 }
 
 /// Try to make this Decimal fit our CH table spec
+#[inline]
 pub fn clamp_to_scale(value: &Decimal) -> Decimal {
     value.normalize().trunc_with_scale(6)
 }

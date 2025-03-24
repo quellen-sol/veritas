@@ -27,6 +27,7 @@ impl LiqLevels {
     /// 10 SOL (~$1,270 atm) should not have an impact of 1% or greater
     ///
     /// This is completely arbitrary and subject to change
+    #[inline]
     pub fn acceptable(&self) -> bool {
         self.ten_sol_depth.abs() < ONE_PERCENT
     }
