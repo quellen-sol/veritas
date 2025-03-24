@@ -1,6 +1,8 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
+use crate::constants::ONE_PERCENT;
+
 #[derive(Debug)]
 pub struct LiqLevels {
     /// pct change
@@ -25,11 +27,9 @@ impl LiqLevels {
     /// 10 SOL (~$1,270 atm) should not have an impact of 1% or greater
     ///
     /// This is completely arbitrary and subject to change
+    #[allow(clippy::unwrap_used)]
     pub fn acceptable(&self) -> bool {
-        self.ten_sol_depth
-            .abs()
-            .checked_mul(Decimal::ONE_HUNDRED)
-            .is_some_and(|v| v < Decimal::ONE)
+        self.ten_sol_depth.abs() < ONE_PERCENT
     }
 }
 

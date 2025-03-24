@@ -1,3 +1,5 @@
+use rust_decimal::Decimal;
+
 pub const USDC_MINT: &str = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
 pub const USDT_MINT: &str = "Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB";
 pub const WSOL_MINT: &str = "So11111111111111111111111111111111111111112";
@@ -12,3 +14,7 @@ pub const ORACLE_FEED_MAP_PAIRS: [(&str, &str); 3] = [
     (SOL_FEED_ACCOUNT_ID, WSOL_MINT),
     (USDT_FEED_ACCOUNT_ID, USDT_MINT),
 ];
+
+pub const ONE_PERCENT: Decimal = Decimal::from_parts(1, 0, 0, false, 2);
+/// 0.001
+pub const POINT_ONE_PERCENT: Decimal = Decimal::from_parts(1, 0, 0, false, 3);
