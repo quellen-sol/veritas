@@ -13,7 +13,7 @@ pub fn is_significant_change(old: &Decimal, new: &Decimal) -> bool {
 
 /// Try to make this Decimal fit our CH table spec
 pub fn clamp_to_scale(value: &Decimal) -> Decimal {
-    value.normalize().trunc_with_scale(6)
+    value.normalize().trunc_with_scale(9)
 }
 
 #[cfg(test)]
