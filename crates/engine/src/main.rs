@@ -149,6 +149,7 @@ async fn main() -> Result<()> {
         .iter()
         .map(|(_, v)| v.to_string())
         .collect::<HashSet<String>>();
+    let sol_price_index = Arc::new(RwLock::new(None));
 
     // Connect to amqp
     let AMQPArgs {
@@ -206,6 +207,7 @@ async fn main() -> Result<()> {
         args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
         oracle_mint_set,
+        sol_price_index,
     );
 
     // "CU" or "Cache Updator" Task

@@ -37,6 +37,7 @@ pub fn spawn_calculator_task(
     max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
+    sol_index: Arc<RwLock<Option<Decimal>>>,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
@@ -64,6 +65,7 @@ pub fn spawn_calculator_task(
             let dooot_tx = dooot_tx.clone();
             let counter = counter.clone();
             let oracle_mint_set = oracle_mint_set.clone();
+            let sol_index = sol_index.clone();
 
             log::trace!("Spawning task for token update");
             tokio::spawn(async move {
@@ -75,6 +77,7 @@ pub fn spawn_calculator_task(
                             new_price,
                             dooot_tx,
                             &oracle_mint_set,
+                            sol_index,
                         )
                         .await;
                     }
@@ -85,6 +88,7 @@ pub fn spawn_calculator_task(
                         //     updated_edge,
                         //     dooot_tx,
                         //     &oracle_mint_set,
+                        //     sol_index,
                         // )
                         // .await;
                     }
