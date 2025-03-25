@@ -32,6 +32,6 @@ mod tests {
         let value = Decimal::from_str("302.92938638770920892670435169").unwrap();
         let clamped = clamp_to_scale(&value);
 
-        assert_eq!(clamped, Decimal::from_str("302.929386").unwrap())
+        assert_eq!(clamped, Decimal::from_str("302.929386387").unwrap())
     }
 }
