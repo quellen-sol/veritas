@@ -16,7 +16,7 @@ pub fn is_significant_change(old: &Decimal, new: &Decimal) -> bool {
 /// Try to make this Decimal fit our CH table spec
 #[inline]
 pub fn clamp_to_scale(value: &Decimal) -> Decimal {
-    value.normalize().trunc_with_scale(6)
+    value.normalize().trunc_with_scale(9)
 }
 
 #[cfg(test)]
@@ -32,6 +32,6 @@ mod tests {
         let value = Decimal::from_str("302.92938638770920892670435169").unwrap();
         let clamped = clamp_to_scale(&value);
 
-        assert_eq!(clamped, Decimal::from_str("302.929386").unwrap())
+        assert_eq!(clamped, Decimal::from_str("302.929386387").unwrap())
     }
 }
