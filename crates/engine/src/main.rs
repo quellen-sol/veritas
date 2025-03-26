@@ -203,7 +203,7 @@ async fn main() -> Result<()> {
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
         mint_price_graph.clone(),
-        publish_dooot_tx,
+        publish_dooot_tx.clone(),
         args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
         oracle_mint_set,
@@ -232,6 +232,7 @@ async fn main() -> Result<()> {
         ch_cache_updator_req_tx,
         bootstrap_in_progress.clone(),
         mint_indicies.clone(),
+        publish_dooot_tx.clone(),
     )?;
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
