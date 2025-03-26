@@ -3,7 +3,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use step_ingestooor_sdk::dooot::OraclePriceEventDooot;
+use step_ingestooor_sdk::dooot::{Dooot, OraclePriceEventDooot, TokenPriceGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
 
 use crate::{
@@ -18,6 +18,7 @@ pub async fn handle_oracle_price_event(
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     calculator_sender: Sender<CalculatorUpdate>,
     bootstrap_in_progress: Arc<AtomicBool>,
+    price_sender: Sender<Dooot>,
 ) {
     let feed_id = &oracle_price.feed_account_pubkey;
     let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned() else {
@@ -25,6 +26,15 @@ pub async fn handle_oracle_price_event(
     };
 
     let price = oracle_price.price;
+
+    price_sender
+        .send(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+            mint: feed_mint.clone(),
+            price_usd: price,
+            time: oracle_price.time,
+        }))
+        .await
+        .unwrap();
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
