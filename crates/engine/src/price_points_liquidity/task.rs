@@ -49,6 +49,7 @@ pub fn spawn_price_points_liquidity_task(
     ch_cache_updator_req_tx: Sender<String>,
     bootstrap_in_progress: Arc<AtomicBool>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    price_sender: Sender<Dooot>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -77,7 +78,7 @@ pub fn spawn_price_points_liquidity_task(
                 let edge_indicies = edge_indicies.clone();
                 let sender_arc = ch_cache_updator_req_tx.clone();
                 let bootstrap_in_progress = bootstrap_in_progress.clone();
-
+                let price_sender = price_sender.clone();
                 tokio::spawn(async move {
                     match dooot {
                         Dooot::MintUnderlyingsGlobal(mu_dooot) => {
@@ -101,6 +102,7 @@ pub fn spawn_price_points_liquidity_task(
                                 mint_indicies,
                                 calculator_sender,
                                 bootstrap_in_progress,
+                                price_sender,
                             )
                             .await;
                         }
