@@ -7,12 +7,13 @@ use std::{
 };
 
 use amqp::AMQPManager;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use axum::task::spawn_axum_server;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
 use price_points_liquidity::task::{spawn_price_points_liquidity_task, MintIndiciesMap};
+use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::{
@@ -61,6 +62,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "false")]
     pub skip_bootstrap: bool,
+
+    #[clap(long, env, default_value = "0.25")]
+    pub max_price_impact: f64,
 }
 
 #[derive(Parser)]
@@ -199,6 +203,9 @@ async fn main() -> Result<()> {
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
+    let max_price_impact =
+        Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
+
     // "CS" or "Calculator" Task
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
@@ -208,6 +215,7 @@ async fn main() -> Result<()> {
         bootstrap_in_progress.clone(),
         oracle_mint_set,
         sol_price_index,
+        max_price_impact,
     );
 
     // "CU" or "Cache Updator" Task

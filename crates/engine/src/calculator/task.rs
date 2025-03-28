@@ -38,6 +38,7 @@ pub fn spawn_calculator_task(
     bootstrap_in_progress: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
+    max_price_impact: Decimal,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
@@ -45,6 +46,7 @@ pub fn spawn_calculator_task(
     tokio::spawn(async move {
         let counter = Arc::new(AtomicU8::new(0));
         let oracle_mint_set = Arc::new(oracle_mint_set);
+        let max_price_impact = &max_price_impact;
 
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
@@ -66,6 +68,7 @@ pub fn spawn_calculator_task(
             let counter = counter.clone();
             let oracle_mint_set = oracle_mint_set.clone();
             let sol_index = sol_index.clone();
+            let max_price_impact = *max_price_impact;
 
             log::trace!("Spawning task for token update");
             tokio::spawn(async move {
@@ -78,6 +81,7 @@ pub fn spawn_calculator_task(
                             dooot_tx,
                             &oracle_mint_set,
                             sol_index,
+                            &max_price_impact,
                         )
                         .await;
                     }
@@ -89,6 +93,7 @@ pub fn spawn_calculator_task(
                         //     dooot_tx,
                         //     &oracle_mint_set,
                         //     sol_index,
+                        //     &max_price_impact,
                         // )
                         // .await;
                     }

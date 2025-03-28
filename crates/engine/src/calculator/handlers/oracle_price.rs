@@ -19,6 +19,7 @@ pub async fn handle_oracle_price_update(
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
+    max_price_impact: &Decimal,
 ) {
     log::trace!("Getting graph read lock for OracleUSDPrice update");
     let g_read = graph.read().await;
@@ -61,6 +62,7 @@ pub async fn handle_oracle_price_update(
         dooot_tx.clone(),
         oracle_mint_set,
         &sol_index,
+        max_price_impact,
     )
     .await;
 
