@@ -23,6 +23,7 @@ pub async fn bfs_recalculate(
     dooot_tx: Sender<Dooot>,
     oracle_mint_set: &HashSet<String>,
     sol_index: &Option<Decimal>,
+    max_price_impact: &Decimal,
 ) -> Result<()> {
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
@@ -48,7 +49,9 @@ pub async fn bfs_recalculate(
         // Don't calc this token if it's an oracle
         if !is_oracle {
             log::trace!("Getting total weighted price for {mint}");
-            let Some(new_price) = get_total_weighted_price(graph, node, sol_index).await else {
+            let Some(new_price) =
+                get_total_weighted_price(graph, node, sol_index, max_price_impact).await
+            else {
                 // log::warn!("Failed to calculate price for {mint}");
                 continue;
             };
@@ -106,6 +109,7 @@ pub async fn get_total_weighted_price(
     graph: &MintPricingGraph,
     this_node: NodeIndex,
     sol_index: &Option<Decimal>,
+    max_price_impact: &Decimal,
 ) -> Option<Decimal> {
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
@@ -114,7 +118,7 @@ pub async fn get_total_weighted_price(
         .unique()
     {
         let Some((weighted, liq)) =
-            get_single_wighted_price(neighbor, this_node, graph, sol_index).await
+            get_single_wighted_price(neighbor, this_node, graph, sol_index, max_price_impact).await
         else {
             // Illiquid or price doesn't exist. Skip
             continue;
@@ -151,6 +155,7 @@ pub async fn get_single_wighted_price(
     b: NodeIndex,
     graph: &MintPricingGraph,
     sol_index: &Option<Decimal>,
+    max_price_impact: &Decimal,
 ) -> Option<(Decimal, LiqAmount)> {
     let price_a = get_price_by_node_idx(graph, a).await?;
 
@@ -194,7 +199,7 @@ pub async fn get_single_wighted_price(
                 continue;
             };
 
-            if !liq_levels.acceptable() {
+            if !liq_levels.acceptable(max_price_impact) {
                 continue;
             }
         }
@@ -298,9 +303,12 @@ mod tests {
             },
         );
 
-        let (weighted, liq) = get_single_wighted_price(usdc_x, step_x, &graph, &None)
-            .await
-            .unwrap();
+        let max_price_impact = Decimal::from_f64(0.25).unwrap();
+
+        let (weighted, liq) =
+            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact)
+                .await
+                .unwrap();
 
         assert_eq!(
             weighted,
@@ -308,7 +316,7 @@ mod tests {
             "Single weighted price should be 3.5"
         );
 
-        let total = get_total_weighted_price(&graph, step_x, &None).await;
+        let total = get_total_weighted_price(&graph, step_x, &None, &max_price_impact).await;
         assert!(total.is_some());
         assert_eq!(
             total.unwrap(),
@@ -425,6 +433,8 @@ mod tests {
         let mut oracle_mint_set = HashSet::new();
         oracle_mint_set.insert(oracle_token_mint);
 
+        let max_price_impact = Decimal::from_f64(0.25).unwrap();
+
         bfs_recalculate(
             &graph,
             test_token_a,
@@ -432,6 +442,7 @@ mod tests {
             tx,
             &oracle_mint_set,
             &Some(oracle_price),
+            &max_price_impact,
         )
         .await
         .unwrap();

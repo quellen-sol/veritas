@@ -1,8 +1,6 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::constants::ONE_PERCENT;
-
 #[derive(Debug)]
 pub struct LiqLevels {
     /// pct change
@@ -28,8 +26,8 @@ impl LiqLevels {
     ///
     /// This is completely arbitrary and subject to change
     #[inline]
-    pub fn acceptable(&self) -> bool {
-        self.ten_sol_depth.abs() < ONE_PERCENT
+    pub fn acceptable(&self, max_price_impact: &Decimal) -> bool {
+        self.ten_sol_depth.abs() < *max_price_impact
     }
 }
 

@@ -16,6 +16,5 @@ pub const ORACLE_FEED_MAP_PAIRS: [(&str, &str); 3] = [
     (USDT_FEED_ACCOUNT_ID, USDT_MINT),
 ];
 
-pub const ONE_PERCENT: Decimal = Decimal::from_parts(1, 0, 0, false, 2);
 /// 0.001
 pub const POINT_ONE_PERCENT: Decimal = Decimal::from_parts(1, 0, 0, false, 3);
