@@ -5,6 +5,7 @@ use std::{
 
 use step_ingestooor_sdk::dooot::{Dooot, OraclePriceEventDooot, TokenPriceGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
+use veritas_sdk::constants::{EMPTY_PUBKEY, WSOL_MINT};
 
 use crate::{
     calculator::task::CalculatorUpdate,
@@ -35,6 +36,18 @@ pub async fn handle_oracle_price_event(
         }))
         .await
         .unwrap();
+
+    if feed_mint == WSOL_MINT {
+        // Send an extra price Dooot for "Native SOL" mint
+        price_sender
+            .send(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                mint: EMPTY_PUBKEY.to_string(),
+                price_usd: price,
+                time: oracle_price.time,
+            }))
+            .await
+            .unwrap();
+    }
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
