@@ -1,6 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use veritas_sdk::ppl_graph::structs::{LiqAmount, LiqRelation};
+
+use crate::ppl_graph::structs::{LiqAmount, LiqLevels, LiqRelation};
 
 #[derive(Deserialize, Serialize)]
 pub struct NodeInfo {
@@ -19,6 +20,7 @@ pub struct NodeRelationInfo {
 #[derive(Deserialize, Serialize)]
 pub struct RelationWithLiq {
     pub relation: LiqRelation,
-    pub liquidity: Option<LiqAmount>,
-    pub price: Option<Decimal>,
+    pub liquidity_amount: Option<LiqAmount>,
+    pub liquidity_levels: Option<LiqLevels>,
+    pub derived_price: Option<Decimal>,
 }
