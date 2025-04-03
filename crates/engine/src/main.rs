@@ -105,6 +105,7 @@ async fn main() -> Result<()> {
     let args = Args::parse();
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
+    let sol_price_index = Arc::new(RwLock::new(None));
 
     // Only to be used if we never *remove* nodes from the graph
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
@@ -116,6 +117,7 @@ async fn main() -> Result<()> {
         bootstrap_in_progress.clone(),
         mint_price_graph.clone(),
         mint_indicies.clone(),
+        sol_price_index.clone(),
     );
 
     // Connect to clickhouse
@@ -153,7 +155,6 @@ async fn main() -> Result<()> {
         .iter()
         .map(|(_, v)| v.to_string())
         .collect::<HashSet<String>>();
-    let sol_price_index = Arc::new(RwLock::new(None));
 
     // Connect to amqp
     let AMQPArgs {

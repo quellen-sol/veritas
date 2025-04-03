@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct LiqLevels {
     /// pct change
     pub one_sol_depth: Decimal,
@@ -75,6 +75,7 @@ impl LiqRelation {
         }
     }
 
+    /// `tokens_per_sol` is tokens_a_per_sol (aka source of the incoming relation)
     #[inline]
     pub fn get_liq_levels(&self, tokens_per_sol: Decimal) -> Option<LiqLevels> {
         match self {

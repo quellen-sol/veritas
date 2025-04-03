@@ -16,18 +16,20 @@ use veritas_sdk::ppl_graph::{graph::WrappedMintPricingGraph, utils::get_price_by
 
 use crate::price_points_liquidity::task::MintIndiciesMap;
 
-use super::types::{NodeInfo, NodeRelationInfo, RelationWithLiq};
+use veritas_sdk::api::types::{NodeInfo, NodeRelationInfo, RelationWithLiq};
 
 struct VeritasServerState {
     bootstrap_in_progress: Arc<AtomicBool>,
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    sol_price_index: Arc<RwLock<Option<Decimal>>>,
 }
 
 pub fn spawn_axum_server(
     bootstrap_in_progress: Arc<AtomicBool>,
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    sol_price_index: Arc<RwLock<Option<Decimal>>>,
 ) -> JoinHandle<()> {
     tokio::spawn(
         #[allow(clippy::unwrap_used)]
@@ -36,6 +38,7 @@ pub fn spawn_axum_server(
                 bootstrap_in_progress,
                 graph,
                 mint_indicies,
+                sol_price_index,
             });
 
             let app = Router::new()
@@ -73,6 +76,7 @@ async fn debug_node_info(
     };
 
     let g_read = state.graph.read().await;
+    let sol_price = *state.sol_price_index.read().await;
     let this_price = get_price_by_node_idx(&g_read, mint_ix).await;
 
     let mut node_info = NodeInfo {
@@ -102,8 +106,9 @@ async fn debug_node_info(
 
             relation_info.outgoing_relations.push(RelationWithLiq {
                 relation,
-                liquidity: None,
-                price: None,
+                liquidity_amount: None,
+                liquidity_levels: None,
+                derived_price: None,
             });
         }
 
@@ -112,13 +117,20 @@ async fn debug_node_info(
             let e_weight = edge.weight();
             let relation = e_weight.inner_relation.read().await.clone();
             let price_neighbor = get_price_by_node_idx(&g_read, neighbor).await;
-            let liq = price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
+            let liquidity_amount =
+                price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
             let derived_price = price_neighbor.and_then(|p| relation.get_price(p));
+            let liquidity_levels = price_neighbor.and_then(|p| {
+                let sol_price = sol_price?;
+                let tokens_per_sol = sol_price / p;
+                relation.get_liq_levels(tokens_per_sol)
+            });
 
             relation_info.incoming_relations.push(RelationWithLiq {
                 relation,
-                liquidity: liq,
-                price: derived_price,
+                liquidity_amount,
+                liquidity_levels,
+                derived_price,
             });
         }
 
