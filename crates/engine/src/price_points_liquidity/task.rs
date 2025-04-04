@@ -22,14 +22,14 @@ use tokio::{
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
-    utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
+    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache},
 };
 
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::handlers::{
-        lp_info::handle_lp_info, mint_info::handle_mint_info,
-        mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event,
+        dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
+        mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event, token_balance::handle_token_balance,
     },
 };
 
@@ -48,6 +48,7 @@ pub fn spawn_price_points_liquidity_task(
     bootstrap_in_progress: Arc<AtomicBool>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     price_sender: Sender<Dooot>,
+    token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -77,6 +78,8 @@ pub fn spawn_price_points_liquidity_task(
                 let sender_arc = ch_cache_updator_req_tx.clone();
                 let bootstrap_in_progress = bootstrap_in_progress.clone();
                 let price_sender = price_sender.clone();
+                let token_balance_cache = token_balance_cache.clone();
+
                 tokio::spawn(async move {
                     match dooot {
                         Dooot::MintUnderlyingsGlobal(mu_dooot) => {
@@ -109,6 +112,24 @@ pub fn spawn_price_points_liquidity_task(
                         }
                         Dooot::LPInfo(info) => {
                             handle_lp_info(info, lp_cache).await;
+                        }
+                        Dooot::DlmmGlobal(dooot) => {
+                            handle_dlmm(
+                                dooot,
+                                graph,
+                                lp_cache,
+                                decimal_cache,
+                                mint_indicies,
+                                edge_indicies,
+                                sender_arc,
+                                token_balance_cache,
+                                calculator_sender,
+                                bootstrap_in_progress,
+                            )
+                            .await;
+                        }
+                        Dooot::TokenBalanceUser(balance) => {
+                            handle_token_balance(balance, token_balance_cache).await;
                         }
                         _ => {}
                     }

@@ -3,18 +3,22 @@ use std::collections::HashMap;
 use anyhow::Result;
 use clickhouse::Row;
 use serde::Deserialize;
-use step_ingestooor_sdk::dooot::CurveType;
+use step_ingestooor_sdk::dooot::{CurveType, liquidity::LPInfoUnderlyingMintVault};
 
 /// K = pool_id, V = LiquidityPool
 pub type LpCache = HashMap<String, LiquidityPool>;
 
+#[derive(Clone)]
 pub struct LiquidityPool {
     pub curve_type: CurveType,
+    pub underlyings: Vec<LPInfoUnderlyingMintVault>,
 }
 
 #[derive(Deserialize, Row)]
 pub struct LiquidityPoolRow {
+    pub pool: String,
     pub lp_mint: Option<String>,
+    pub underlyings: Vec<LPInfoUnderlyingMintVault>,
     pub curve_type: u16,
 }
 
@@ -24,7 +28,9 @@ pub async fn build_lp_cache(clickhouse_client: clickhouse::Client) -> Result<LpC
 
     let query = "
         SELECT
+            base58Encode(pool) as pool,
             base58Encode(lp_mint) AS lp_mint,
+            underlyings,
             curve_type
         FROM lookup_lp_info lli
     ";
@@ -34,15 +40,14 @@ pub async fn build_lp_cache(clickhouse_client: clickhouse::Client) -> Result<LpC
     log::info!("Building LP cache...");
 
     while let Some(row) = cursor.next().await? {
-        let Some(lp_mint) = row.lp_mint else {
-            continue;
-        };
+        let addr = row.lp_mint.unwrap_or(row.pool);
 
         lp_cache.insert(
-            lp_mint,
+            addr,
             LiquidityPool {
                 // TODO: Need to impl From<u16> for CurveType in ingestooor
                 curve_type: unsafe { std::mem::transmute::<u16, CurveType>(row.curve_type) },
+                underlyings: row.underlyings,
             },
         );
     }

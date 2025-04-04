@@ -19,7 +19,7 @@ use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::{bootstrap::bootstrap_graph, graph::MintPricingGraph},
-    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache},
+    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache, token_balance_cache::TokenBalanceCache},
 };
 
 mod amqp;
@@ -145,6 +145,8 @@ async fn main() -> Result<()> {
     let lp_cache = build_lp_cache(clickhouse_client.clone()).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
+    let token_balance_cache = Arc::new(RwLock::new(TokenBalanceCache::new()));
+
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
         ORACLE_FEED_MAP_PAIRS
             .iter()
@@ -242,6 +244,7 @@ async fn main() -> Result<()> {
         bootstrap_in_progress.clone(),
         mint_indicies.clone(),
         publish_dooot_tx.clone(),
+        token_balance_cache.clone(),
     )?;
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
