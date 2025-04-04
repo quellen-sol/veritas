@@ -5,7 +5,7 @@ use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
-use super::structs::LiqRelation;
+use crate::liq_relation::liq_relation::LiqRelation;
 
 pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;

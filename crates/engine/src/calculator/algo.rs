@@ -229,9 +229,12 @@ mod tests {
     use petgraph::Graph;
     use rust_decimal::{prelude::FromPrimitive, Decimal};
     use tokio::sync::RwLock;
-    use veritas_sdk::ppl_graph::{
-        graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
-        structs::{LiqAmount, LiqRelation},
+    use veritas_sdk::{
+        liq_relation::liq_relation::LiqRelation,
+        ppl_graph::{
+            graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
+            structs::LiqAmount,
+        },
     };
 
     use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};

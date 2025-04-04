@@ -7,7 +7,8 @@ use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
-    ppl_graph::{graph::MintPricingGraph, structs::LiqRelation},
+    liq_relation::liq_relation::LiqRelation,
+    ppl_graph::graph::MintPricingGraph,
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
