@@ -87,7 +87,22 @@ impl AMQPManager {
                             let data = &delivery.data;
                             let dooots = data
                                 .split(|b| *b == b'\n')
-                                .map(serde_json::from_slice)
+                                .filter_map(|s| {
+                                    let res = serde_json::from_slice::<Dooot>(s);
+                                    match res {
+                                        Ok(dooot) => Some(Ok(dooot)),
+                                        Err(e) => match e.classify() {
+                                            serde_json::error::Category::Data => {
+                                                // Ignore invalid deserialization, e.g., unknown variant
+                                                None
+                                            }
+                                            _ => {
+                                                // Only err on unexpected errors
+                                                Some(Err(e))
+                                            }
+                                        },
+                                    }
+                                })
                                 .collect::<Result<Vec<Dooot>, _>>();
                             match dooots {
                                 Ok(dooots) => {
