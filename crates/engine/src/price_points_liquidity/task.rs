@@ -20,7 +20,7 @@ use tokio::{
     task::JoinHandle,
 };
 use veritas_sdk::{
-    liq_relation::liq_relation::LiqRelation,
+    liq_relation::LiqRelation,
     ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };

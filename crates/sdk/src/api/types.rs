@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::liq_relation::liq_relation::LiqRelation;
+use crate::liq_relation::LiqRelation;
 use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
 #[derive(Deserialize, Serialize)]

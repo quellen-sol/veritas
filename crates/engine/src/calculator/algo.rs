@@ -230,7 +230,7 @@ mod tests {
     use rust_decimal::{prelude::FromPrimitive, Decimal};
     use tokio::sync::RwLock;
     use veritas_sdk::{
-        liq_relation::liq_relation::LiqRelation,
+        liq_relation::LiqRelation,
         ppl_graph::{
             graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
             structs::LiqAmount,
