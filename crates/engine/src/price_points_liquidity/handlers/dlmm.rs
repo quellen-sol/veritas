@@ -37,6 +37,8 @@ pub async fn handle_dlmm(
     calculator_sender: Sender<CalculatorUpdate>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) {
+    log::info!("Handling DLMM");
+
     let DlmmGlobalDooot {
         time,
         parts,
