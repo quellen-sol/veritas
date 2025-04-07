@@ -35,7 +35,7 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
         SELECT
             base58Encode(token_account_pubkey) AS vault,
             balance
-        FROM token_balance;
+        FROM token_balance
     ";
 
     let mut cursor = client.query(query).fetch::<TokenBalanceRow>()?;
