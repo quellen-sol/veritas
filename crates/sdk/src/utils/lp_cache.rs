@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use anyhow::Result;
 use clickhouse::Row;
 use serde::Deserialize;
-use step_ingestooor_sdk::dooot::{CurveType, liquidity::LPInfoUnderlyingMintVault};
+use step_ingestooor_sdk::dooot::{liquidity::LPInfoUnderlyingMintVault, CurveType};
 
 /// K = pool_id, V = LiquidityPool
 pub type LpCache = HashMap<String, LiquidityPool>;

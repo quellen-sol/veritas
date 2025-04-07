@@ -3,9 +3,8 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use petgraph::graph::EdgeIndex;
 use rust_decimal::Decimal;
-use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, Dooot, LPInfoUnderlyingMintVault};
+use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, LPInfoUnderlyingMintVault};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::LiqRelation,
@@ -25,6 +24,7 @@ use crate::{
 
 use super::utils::send_update_to_calculator;
 
+#[allow(clippy::unwrap_used)]
 pub async fn handle_dlmm(
     dooot: DlmmGlobalDooot,
     graph: WrappedMintPricingGraph,
@@ -41,6 +41,7 @@ pub async fn handle_dlmm(
         time,
         parts,
         pool_pubkey,
+        parts_account_pubkey,
         ..
     } = &dooot;
 
@@ -53,7 +54,7 @@ pub async fn handle_dlmm(
         lp
     };
 
-    let Some(underlyings_x) = pool_info.underlyings.get(0) else {
+    let Some(underlyings_x) = pool_info.underlyings.first() else {
         log::error!("MALFORMED DLMM DOOOT: {dooot:?}");
         return;
     };
@@ -143,7 +144,7 @@ pub async fn handle_dlmm(
             amt_dest: y_balance,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
-            active_bin: None,
+            active_bin_account: None,
             bins_by_account: HashMap::new(),
             x_decimals,
             y_decimals,
@@ -155,7 +156,7 @@ pub async fn handle_dlmm(
             amt_dest: y_balance,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
-            active_bin: None,
+            active_bin_account: None,
             bins_by_account: HashMap::new(),
             x_decimals,
             y_decimals,
@@ -175,7 +176,7 @@ pub async fn handle_dlmm(
             &mut ei_write,
             &mut g_write,
             new_relation,
-            &pool_pubkey,
+            pool_pubkey,
             *time,
         )
         .await;
@@ -194,7 +195,7 @@ pub async fn handle_dlmm(
             &mut ei_write,
             &mut g_write,
             new_reverse_relation,
-            &pool_pubkey,
+            pool_pubkey,
             *time,
         )
         .await;
@@ -229,6 +230,156 @@ pub async fn handle_dlmm(
         let g_read = graph.read().await;
         let ei_read = edge_indicies.read().await;
 
-        // Index by bin direction?
+        let relation = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
+        let relation_rev = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
+
+        if relation.is_none() && relation_rev.is_none() {
+            let (x_decimals, y_decimals) = {
+                let dc_read = decimal_cache.read().await;
+
+                let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x)
+                else {
+                    return;
+                };
+                let Some(y_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y)
+                else {
+                    return;
+                };
+
+                (x_decimals, y_decimals)
+            };
+
+            let new_relation = LiqRelation::Dlmm {
+                amt_origin: x_balance,
+                amt_dest: y_balance,
+                vault_x: vault_x.to_string(),
+                vault_y: vault_y.to_string(),
+                active_bin_account: None,
+                bins_by_account: HashMap::new(),
+                x_decimals,
+                y_decimals,
+                is_reverse: false,
+            };
+
+            let new_reverse_relation = LiqRelation::Dlmm {
+                amt_origin: x_balance,
+                amt_dest: y_balance,
+                vault_x: vault_x.to_string(),
+                vault_y: vault_y.to_string(),
+                active_bin_account: None,
+                bins_by_account: HashMap::new(),
+                x_decimals,
+                y_decimals,
+                is_reverse: true,
+            };
+
+            drop(g_read);
+            drop(ei_read);
+
+            let mut g_write = graph.write().await;
+            let mut ei_write = edge_indicies.write().await;
+
+            let new_ix = match add_or_update_relation_edge(
+                x_ix,
+                y_ix,
+                &mut ei_write,
+                &mut g_write,
+                new_relation,
+                pool_pubkey,
+                *time,
+            )
+            .await
+            {
+                Ok(i) => i,
+                Err(e) => {
+                    log::error!("Error adding edge {e}");
+                    return;
+                }
+            };
+
+            let new_reverse_ix = match add_or_update_relation_edge(
+                y_ix,
+                x_ix,
+                &mut ei_write,
+                &mut g_write,
+                new_reverse_relation,
+                pool_pubkey,
+                *time,
+            )
+            .await
+            {
+                Ok(i) => i,
+                Err(e) => {
+                    log::error!("Error adding reverse edge {e}");
+                    return;
+                }
+            };
+
+            send_update_to_calculator(
+                CalculatorUpdate::NewTokenRatio(y_ix, new_ix),
+                &calculator_sender,
+                &bootstrap_in_progress,
+            )
+            .await;
+            send_update_to_calculator(
+                CalculatorUpdate::NewTokenRatio(x_ix, new_reverse_ix),
+                &calculator_sender,
+                &bootstrap_in_progress,
+            )
+            .await;
+        } else if relation.is_some() && relation_rev.is_some() {
+            let edge = relation.unwrap();
+            let edge_rev = relation_rev.unwrap();
+
+            let weight = g_read.edge_weight(edge).unwrap();
+            let weight_rev = g_read.edge_weight(edge_rev).unwrap();
+
+            let mut w_write = weight.inner_relation.write().await;
+            let mut w_rev_write = weight_rev.inner_relation.write().await;
+            let LiqRelation::Dlmm {
+                ref mut amt_origin,
+                ref mut amt_dest,
+                active_bin_account: ref mut active_bin,
+                ref mut bins_by_account,
+                ..
+            } = *w_write
+            else {
+                log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
+                return;
+            };
+
+            let LiqRelation::Dlmm {
+                amt_origin: ref mut amt_origin_rev,
+                amt_dest: ref mut amt_dest_rev,
+                active_bin_account: ref mut active_bin_rev,
+                bins_by_account: ref mut bins_by_account_rev,
+                ..
+            } = *w_rev_write
+            else {
+                log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
+                return;
+            };
+
+            *amt_origin = x_balance;
+            *amt_dest = y_balance;
+            *amt_origin_rev = x_balance;
+            *amt_dest_rev = y_balance;
+
+            // Is the active bin in this binarray?
+            let active_bin_opt = parts
+                .iter()
+                .enumerate()
+                .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
+
+            if let Some((ix, _)) = active_bin_opt {
+                active_bin.replace((parts_account_pubkey.to_string(), ix));
+                active_bin_rev.replace((parts_account_pubkey.to_string(), ix));
+            }
+
+            bins_by_account.insert(parts_account_pubkey.to_string(), parts.clone());
+            bins_by_account_rev.insert(parts_account_pubkey.to_string(), parts.clone());
+        } else {
+            log::error!("UNREACHABLE - BOTH DLMM RELATIONS SHOULD BE SET! LOGIC BUG!!!");
+        }
     }
 }

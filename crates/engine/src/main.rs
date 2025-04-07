@@ -19,7 +19,10 @@ use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::{bootstrap::bootstrap_graph, graph::MintPricingGraph},
-    utils::{decimal_cache::build_decimal_cache, lp_cache::build_lp_cache, token_balance_cache::TokenBalanceCache},
+    utils::{
+        decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
+        token_balance_cache::TokenBalanceCache,
+    },
 };
 
 mod amqp;

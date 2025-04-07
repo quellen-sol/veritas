@@ -25,5 +25,11 @@ pub async fn handle_lp_info(info: LPInfoDooot, lp_cache: Arc<RwLock<LpCache>>) {
     // then insert the new LP
     drop(l_read);
     let mut l_write = lp_cache.write().await;
-    l_write.insert(lp_mint, LiquidityPool { curve_type, underlyings });
+    l_write.insert(
+        lp_mint,
+        LiquidityPool {
+            curve_type,
+            underlyings,
+        },
+    );
 }

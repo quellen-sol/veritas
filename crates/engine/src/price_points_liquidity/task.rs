@@ -22,14 +22,17 @@ use tokio::{
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
-    utils::{decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache},
+    utils::{
+        decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
+    },
 };
 
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::handlers::{
         dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
-        mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event, token_balance::handle_token_balance,
+        mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event,
+        token_balance::handle_token_balance,
     },
 };
 
