@@ -86,15 +86,11 @@ pub async fn handle_dlmm(
                 return;
             };
 
-            log::info!("Success getting two balances from vaults");
-
             (x_vault_balance, y_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
             drop(tbc_read);
             let mut tbc_write = token_balance_cache.write().await;
-
-            log::info!("Dispatching to cache for {mint_x} or {mint_y}");
 
             if x_bal_cache_op.is_none() {
                 tbc_write.insert(vault_x.clone(), None);
