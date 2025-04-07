@@ -21,7 +21,7 @@ use veritas_sdk::{
     ppl_graph::{bootstrap::bootstrap_graph, graph::MintPricingGraph},
     utils::{
         decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
-        token_balance_cache::TokenBalanceCache,
+        token_balance_cache::build_token_balance_cache,
     },
 };
 
@@ -142,13 +142,14 @@ async fn main() -> Result<()> {
 
     log::info!("Created Clickhouse client");
 
-    let decimal_cache = build_decimal_cache(clickhouse_client.clone()).await?;
+    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
-    let lp_cache = build_lp_cache(clickhouse_client.clone()).await?;
+    let lp_cache = build_lp_cache(&clickhouse_client).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
-    let token_balance_cache = Arc::new(RwLock::new(TokenBalanceCache::new()));
+    let token_balance_cache = build_token_balance_cache(&clickhouse_client).await?;
+    let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
         ORACLE_FEED_MAP_PAIRS
