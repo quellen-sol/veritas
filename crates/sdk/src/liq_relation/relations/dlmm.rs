@@ -40,7 +40,7 @@ pub fn get_dlmm_liq_levels(
     _amt_b: &Decimal,
     _tokens_per_sol: &Decimal,
 ) -> Option<LiqLevels> {
-    None
+    Some(LiqLevels::ZERO)
 }
 
 pub fn get_dlmm_liquidity(

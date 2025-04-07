@@ -380,6 +380,7 @@ pub async fn handle_dlmm(
             bins_by_account_rev.insert(parts_account_pubkey.to_string(), parts.clone());
         } else {
             log::error!("UNREACHABLE - BOTH DLMM RELATIONS SHOULD BE SET! LOGIC BUG!!!");
+            return;
         }
     }
 }
