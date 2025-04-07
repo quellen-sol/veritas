@@ -339,7 +339,7 @@ pub async fn handle_dlmm(
             let LiqRelation::Dlmm {
                 ref mut amt_origin,
                 ref mut amt_dest,
-                active_bin_account: ref mut active_bin,
+                ref mut active_bin_account,
                 ref mut bins_by_account,
                 ..
             } = *w_write
@@ -372,7 +372,7 @@ pub async fn handle_dlmm(
                 .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
 
             if let Some((ix, _)) = active_bin_opt {
-                active_bin.replace((parts_account_pubkey.to_string(), ix));
+                active_bin_account.replace((parts_account_pubkey.to_string(), ix));
                 active_bin_rev.replace((parts_account_pubkey.to_string(), ix));
             }
 
