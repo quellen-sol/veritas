@@ -10,7 +10,7 @@ pub type TokenBalanceCache = HashMap<String, Option<Decimal>>;
 #[derive(Deserialize, Row)]
 pub struct TokenBalanceRow {
     pub vault: String,
-    pub balance: Decimal,
+    pub balance: u64,
 }
 
 pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCache> {
@@ -27,10 +27,10 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
             ),
             token_balance as (
                 SELECT
-                token_account_pubkey,
-                balance
-                from current_token_balance_by_user_mint
-                where token_account_pubkey in (select vault from dlmm_vaults)
+                    token_account_pubkey,
+                    balance
+                FROM current_token_balance_by_user_mint
+                WHERE token_account_pubkey IN (SELECT vault FROM dlmm_vaults)
             )
         SELECT
             base58Encode(token_account_pubkey) AS vault,
@@ -43,7 +43,7 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
     let mut count = 0;
 
     while let Some(row) = cursor.next().await? {
-        cache.insert(row.vault, Some(row.balance));
+        cache.insert(row.vault, Some(row.balance.into()));
         count += 1;
     }
 
