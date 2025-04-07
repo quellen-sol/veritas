@@ -37,8 +37,6 @@ pub async fn handle_dlmm(
     calculator_sender: Sender<CalculatorUpdate>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) {
-    log::info!("Handling DLMM");
-
     let DlmmGlobalDooot {
         time,
         parts,
@@ -77,12 +75,13 @@ pub async fn handle_dlmm(
 
     let (x_balance, y_balance) = {
         let tbc_read = token_balance_cache.read().await;
-        let x_bal_cache_op = tbc_read.get(mint_x).cloned();
-        let y_bal_cache_op = tbc_read.get(mint_y).cloned();
+        let x_bal_cache_op = tbc_read.get(vault_x).cloned();
+        let y_bal_cache_op = tbc_read.get(vault_y).cloned();
 
         if let (Some(x_bal_inner_val), Some(y_bal_inner_val)) = (x_bal_cache_op, y_bal_cache_op) {
             let (Some(x_vault_balance), Some(y_vault_balance)) = (x_bal_inner_val, y_bal_inner_val)
             else {
+                log::error!("UNREACHABLE - Both balances should have been set in cache");
                 return;
             };
 
