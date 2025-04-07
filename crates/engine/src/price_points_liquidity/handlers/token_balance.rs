@@ -22,8 +22,6 @@ pub async fn handle_token_balance(
         }
     }
 
-    log::info!("Updating token balance cache for {token_account_pubkey}");
-
     let mut tbc_write = token_balance_cache.write().await;
     tbc_write.insert(token_account_pubkey, Some(balance));
 }
