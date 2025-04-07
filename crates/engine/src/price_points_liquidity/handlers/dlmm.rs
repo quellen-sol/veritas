@@ -94,6 +94,8 @@ pub async fn handle_dlmm(
             drop(tbc_read);
             let mut tbc_write = token_balance_cache.write().await;
 
+            log::info!("Dispatching to cache for {mint_x} or {mint_y}");
+
             if x_bal_cache_op.is_none() {
                 tbc_write.insert(vault_x.clone(), None);
             }
