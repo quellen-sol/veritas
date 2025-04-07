@@ -23,19 +23,19 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
                 DISTINCT u.vault AS vault
                 FROM lookup_lp_info lli
                 ARRAY JOIN underlyings AS u
-                WHERE curve_type = 7
+                WHERE lli.curve_type = 7
             ),
             token_balance as (
                 SELECT
                     token_account_pubkey,
                     balance
-                FROM current_token_balance_by_user_mint
-                WHERE token_account_pubkey IN (SELECT vault FROM dlmm_vaults)
+                from current_token_balance_by_user_mint
+                where token_account_pubkey in (select vault from dlmm_vaults)
             )
         SELECT
             base58Encode(token_account_pubkey) AS vault,
-            balance
-        FROM token_balance
+            toUInt64(balance) AS balance
+        FROM token_balance;
     ";
 
     let mut cursor = client.query(query).fetch::<TokenBalanceRow>()?;
