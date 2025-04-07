@@ -83,7 +83,6 @@ pub async fn handle_dlmm(
         if let (Some(x_bal_inner_val), Some(y_bal_inner_val)) = (x_bal_cache_op, y_bal_cache_op) {
             let (Some(x_vault_balance), Some(y_vault_balance)) = (x_bal_inner_val, y_bal_inner_val)
             else {
-                log::info!("Missing balance in cache for {mint_x} or {mint_y}");
                 return;
             };
 
@@ -211,6 +210,8 @@ pub async fn handle_dlmm(
                 return;
             }
         };
+
+        log::info!("Sending update to calculator for {mint_x} and {mint_y}");
 
         send_update_to_calculator(
             CalculatorUpdate::NewTokenRatio(y_ix, new_edge),
