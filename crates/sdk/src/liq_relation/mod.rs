@@ -34,13 +34,13 @@ pub enum LiqRelation {
         /// Expressed in UNITS
         amt_dest: Decimal,
         #[serde(skip)]
-        x_decimals: u8,
-        #[serde(skip)]
-        y_decimals: u8,
-        #[serde(skip)]
         vault_x: String,
         #[serde(skip)]
         vault_y: String,
+        #[serde(skip)]
+        decimals_x: u8,
+        #[serde(skip)]
+        decimals_y: u8,
         /// (account_pk, bin_index_in_vec)
         active_bin_account: Option<(String, usize)>,
         #[serde(skip)]
@@ -67,15 +67,15 @@ impl LiqRelation {
                 get_fixed_price(amt_per_parent, &usd_price_origin)
             }
             LiqRelation::Dlmm {
-                x_decimals,
-                y_decimals,
+                decimals_x,
+                decimals_y,
                 bins_by_account,
                 active_bin_account,
                 is_reverse,
                 ..
             } => get_dlmm_price(
-                *x_decimals,
-                *y_decimals,
+                *decimals_x,
+                *decimals_y,
                 &usd_price_origin,
                 bins_by_account,
                 active_bin_account,

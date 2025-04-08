@@ -17,8 +17,8 @@ pub fn get_dlmm_price(
     let bin_arr = bins_by_account.get(bin_arr_pk)?;
     let bin = &bin_arr[*ix];
 
-    let x_factor = Decimal::TEN.powu(decimals_x as u64);
-    let y_factor = Decimal::TEN.powu(decimals_y as u64);
+    let x_factor = Decimal::TEN.checked_powu(decimals_x as u64)?;
+    let y_factor = Decimal::TEN.checked_powu(decimals_y as u64)?;
 
     let x_units = bin.token_amounts[0].checked_div(x_factor)?;
     let y_units = bin.token_amounts[1].checked_div(y_factor)?;

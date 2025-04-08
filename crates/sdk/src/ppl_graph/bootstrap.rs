@@ -8,7 +8,9 @@ use chrono::NaiveDateTime;
 use clickhouse::Row;
 use rust_decimal::Decimal;
 use serde::Deserialize;
-use step_ingestooor_sdk::dooot::{Dooot, DoootTrait, MintUnderlyingsGlobalDooot};
+use step_ingestooor_sdk::dooot::{
+    DLMMPart, DlmmGlobalDooot, Dooot, DoootTrait, MintUnderlyingsGlobalDooot,
+};
 use tokio::{sync::mpsc::Sender, time::Instant};
 
 #[derive(Deserialize, Row)]
@@ -44,6 +46,46 @@ impl From<MintUnderlyingBootstrapRow> for Dooot {
     }
 }
 
+#[derive(Deserialize, Row)]
+pub struct DlmmGlobalBootstrapRow {
+    #[serde(
+        deserialize_with = "step_ingestooor_sdk::serde::ch_naive_date_time::deserialize_ch_naive_date_time"
+    )]
+    time: NaiveDateTime,
+    pool_pubkey: String,
+    parts_account_pubkey: String,
+    part_index: i32,
+    parts: Vec<(u128, Vec<u64>, Vec<u64>)>,
+}
+
+impl From<DlmmGlobalBootstrapRow> for Dooot {
+    fn from(value: DlmmGlobalBootstrapRow) -> Self {
+        let parsed_parts = value
+            .parts
+            .iter()
+            .map(|p| {
+                let shares = p.0.to_string();
+                let token_amounts = p.1.iter().map(|x| Decimal::from(*x)).collect();
+                let fee_amounts = p.2.iter().map(|x| Decimal::from(*x)).collect();
+
+                DLMMPart {
+                    shares,
+                    token_amounts,
+                    fee_amounts,
+                }
+            })
+            .collect();
+
+        Dooot::DlmmGlobal(DlmmGlobalDooot {
+            time: value.time,
+            pool_pubkey: value.pool_pubkey,
+            parts_account_pubkey: value.parts_account_pubkey,
+            part_index: value.part_index,
+            parts: parsed_parts,
+        })
+    }
+}
+
 const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
     SELECT
         time,
@@ -53,6 +95,16 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
         mints_qty_per_one_parent,
         total_underlying_amounts
     FROM current_mint_underlyings_global_by_mint
+";
+
+const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
+    SELECT
+        time,
+        base58Encode(pool_pubkey) AS pool_pubkey,
+        base58Encode(parts_account_pubkey) AS parts_account_pubkey,
+        part_index,
+        parts
+    FROM current_dlmm_global_by_pool_parts
 ";
 
 pub async fn bootstrap_graph(
@@ -72,7 +124,15 @@ pub async fn bootstrap_graph(
     )
     .await?;
 
-    // TODO: Add other Dooots (Clmm, Dlmm)
+    load_and_send_dooots::<DlmmGlobalBootstrapRow, DlmmGlobalDooot>(
+        DLMM_GLOBAL_DOOOTS_QUERT,
+        "DlmmGlobal",
+        clickhouse_client.clone(),
+        dooot_tx.clone(),
+    )
+    .await?;
+
+    // TODO: Add other Dooots (Clmm)
 
     log::info!("Bootstrap complete");
 

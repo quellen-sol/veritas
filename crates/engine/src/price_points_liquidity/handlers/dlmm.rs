@@ -3,7 +3,7 @@ use std::{
     sync::{atomic::AtomicBool, Arc},
 };
 
-use rust_decimal::Decimal;
+use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, LPInfoUnderlyingMintVault};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
@@ -73,6 +73,28 @@ pub async fn handle_dlmm(
         vault: vault_y,
     } = underlyings_y;
 
+    let (decimals_x, decimals_y) = {
+        let dc_read = decimal_cache.read().await;
+
+        let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
+            return;
+        };
+        let Some(y_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y) else {
+            return;
+        };
+
+        (x_decimals, y_decimals)
+    };
+
+    let Some(x_factor) = Decimal::TEN.checked_powu(decimals_x as u64) else {
+        log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+        return;
+    };
+    let Some(y_factor) = Decimal::TEN.checked_powu(decimals_y as u64) else {
+        log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+        return;
+    };
+
     let (x_balance, y_balance) = {
         let tbc_read = token_balance_cache.read().await;
         let x_bal_cache_op = tbc_read.get(vault_x).cloned();
@@ -115,19 +137,6 @@ pub async fn handle_dlmm(
     let add_mint_y = mint_y_ix.is_none();
 
     if add_mint_x || add_mint_y {
-        let (x_decimals, y_decimals) = {
-            let dc_read = decimal_cache.read().await;
-
-            let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
-                return;
-            };
-            let Some(y_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y) else {
-                return;
-            };
-
-            (x_decimals, y_decimals)
-        };
-
         let mut g_write = graph.write().await;
         let mut mi_write = mint_indicies.write().await;
 
@@ -139,28 +148,38 @@ pub async fn handle_dlmm(
             mint_y_ix = get_or_add_mint_ix(mint_y, &mut g_write, &mut mi_write).into();
         }
 
+        let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
+            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+            return;
+        };
+
+        let Some(y_balance_units) = y_balance.checked_div(y_factor) else {
+            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+            return;
+        };
+
         let new_relation = LiqRelation::Dlmm {
-            amt_origin: x_balance,
-            amt_dest: y_balance,
+            amt_origin: x_balance_units,
+            amt_dest: y_balance_units,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
             active_bin_account: None,
             bins_by_account: HashMap::new(),
-            x_decimals,
-            y_decimals,
             is_reverse: false,
+            decimals_x,
+            decimals_y,
         };
 
         let new_reverse_relation = LiqRelation::Dlmm {
-            amt_origin: x_balance,
-            amt_dest: y_balance,
+            amt_origin: x_balance_units,
+            amt_dest: y_balance_units,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
             active_bin_account: None,
             bins_by_account: HashMap::new(),
-            x_decimals,
-            y_decimals,
             is_reverse: true,
+            decimals_x,
+            decimals_y,
         };
 
         let (Some(x_ix), Some(y_ix)) = (mint_x_ix, mint_y_ix) else {
@@ -235,44 +254,39 @@ pub async fn handle_dlmm(
         let relation = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
         let relation_rev = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
 
+        let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
+            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+            return;
+        };
+
+        let Some(y_balance_units) = y_balance.checked_div(y_factor) else {
+            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+            return;
+        };
+
         if relation.is_none() && relation_rev.is_none() {
-            let (x_decimals, y_decimals) = {
-                let dc_read = decimal_cache.read().await;
-
-                let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x)
-                else {
-                    return;
-                };
-                let Some(y_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y)
-                else {
-                    return;
-                };
-
-                (x_decimals, y_decimals)
-            };
-
             let new_relation = LiqRelation::Dlmm {
-                amt_origin: x_balance,
-                amt_dest: y_balance,
+                amt_origin: x_balance_units,
+                amt_dest: y_balance_units,
                 vault_x: vault_x.to_string(),
                 vault_y: vault_y.to_string(),
                 active_bin_account: None,
                 bins_by_account: HashMap::new(),
-                x_decimals,
-                y_decimals,
                 is_reverse: false,
+                decimals_x,
+                decimals_y,
             };
 
             let new_reverse_relation = LiqRelation::Dlmm {
-                amt_origin: x_balance,
-                amt_dest: y_balance,
+                amt_origin: x_balance_units,
+                amt_dest: y_balance_units,
                 vault_x: vault_x.to_string(),
                 vault_y: vault_y.to_string(),
                 active_bin_account: None,
                 bins_by_account: HashMap::new(),
-                x_decimals,
-                y_decimals,
                 is_reverse: true,
+                decimals_x,
+                decimals_y,
             };
 
             drop(g_read);
@@ -362,10 +376,20 @@ pub async fn handle_dlmm(
                 return;
             };
 
-            *amt_origin = x_balance;
-            *amt_dest = y_balance;
-            *amt_origin_rev = x_balance;
-            *amt_dest_rev = y_balance;
+            let Some(amt_origin_units) = x_balance.checked_div(x_factor) else {
+                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+                return;
+            };
+
+            let Some(amt_dest_units) = y_balance.checked_div(y_factor) else {
+                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+                return;
+            };
+
+            *amt_origin = amt_origin_units;
+            *amt_dest = amt_dest_units;
+            *amt_origin_rev = amt_origin_units;
+            *amt_dest_rev = amt_dest_units;
 
             // Is the active bin in this binarray?
             let active_bin_opt = parts
