@@ -1,14 +1,11 @@
-use std::collections::HashMap;
-
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use step_ingestooor_sdk::dooot::DLMMPart;
 
 use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
 use relations::{
     cplp::{get_cplp_liq_levels, get_cplp_liquidity, get_cplp_price},
-    dlmm::{get_dlmm_liq_levels, get_dlmm_liquidity, get_dlmm_price},
+    dlmm::{get_dlmm_liq_levels, get_dlmm_liquidity, get_dlmm_price, DlmmBinMap},
     fixed::{get_fixed_liq_levels, get_fixed_liquidity, get_fixed_price},
 };
 
@@ -41,10 +38,10 @@ pub enum LiqRelation {
         decimals_x: u8,
         #[serde(skip)]
         decimals_y: u8,
-        /// (account_pk, bin_index_in_vec)
-        active_bin_account: Option<(String, usize)>,
+        /// (bin_arr_ix, bin_index_in_vec)
+        active_bin_account: Option<(i32, usize)>,
         #[serde(skip)]
-        bins_by_account: HashMap<String, Vec<DLMMPart>>,
+        bins_by_account: DlmmBinMap,
         is_reverse: bool,
     },
     // /// CLMMs
@@ -94,10 +91,20 @@ impl LiqRelation {
             } => get_cplp_liq_levels(amt_a, amt_b, &tokens_per_sol),
             LiqRelation::Fixed { .. } => get_fixed_liq_levels(),
             LiqRelation::Dlmm {
-                amt_origin: amt_a,
-                amt_dest: amt_b,
+                bins_by_account,
+                active_bin_account,
+                is_reverse,
+                decimals_x,
+                decimals_y,
                 ..
-            } => get_dlmm_liq_levels(amt_a, amt_b, &tokens_per_sol),
+            } => get_dlmm_liq_levels(
+                bins_by_account,
+                active_bin_account,
+                &tokens_per_sol,
+                *is_reverse,
+                *decimals_x,
+                *decimals_y,
+            ),
         }
     }
 

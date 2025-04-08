@@ -55,7 +55,7 @@ pub struct DlmmGlobalBootstrapRow {
     pool_pubkey: String,
     parts_account_pubkey: String,
     part_index: i32,
-    parts: Vec<(u128, Vec<u64>, Vec<u64>)>,
+    parts: Vec<(u128, Vec<u64>, Vec<u64>, u128)>,
 }
 
 impl From<DlmmGlobalBootstrapRow> for Dooot {
@@ -67,11 +67,13 @@ impl From<DlmmGlobalBootstrapRow> for Dooot {
                 let shares = p.0.to_string();
                 let token_amounts = p.1.iter().map(|x| Decimal::from(*x)).collect();
                 let fee_amounts = p.2.iter().map(|x| Decimal::from(*x)).collect();
+                let price = p.3.to_string();
 
                 DLMMPart {
                     shares,
                     token_amounts,
                     fee_amounts,
+                    price,
                 }
             })
             .collect();

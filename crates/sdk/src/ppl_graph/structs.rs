@@ -3,19 +3,19 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LiqLevels {
-    /// pct change
-    pub one_sol_depth: Decimal,
-    /// pct change
-    pub ten_sol_depth: Decimal,
-    /// pct change
-    pub thousand_sol_depth: Decimal,
+    /// pct change, `None` is infinite change, and therefor unacceptable
+    pub one_sol_depth: Option<Decimal>,
+    /// pct change, `None` is infinite change, and therefor unacceptable
+    pub ten_sol_depth: Option<Decimal>,
+    /// pct change, `None` is infinite change, and therefor unacceptable
+    pub thousand_sol_depth: Option<Decimal>,
 }
 
 impl LiqLevels {
     pub const ZERO: Self = Self {
-        one_sol_depth: Decimal::ZERO,
-        ten_sol_depth: Decimal::ZERO,
-        thousand_sol_depth: Decimal::ZERO,
+        one_sol_depth: Some(Decimal::ZERO),
+        ten_sol_depth: Some(Decimal::ZERO),
+        thousand_sol_depth: Some(Decimal::ZERO),
     };
 
     /// Determines if the liq levels are acceptable for a given relation,
@@ -27,7 +27,8 @@ impl LiqLevels {
     /// This is completely arbitrary and subject to change
     #[inline]
     pub fn acceptable(&self, max_price_impact: &Decimal) -> bool {
-        self.ten_sol_depth.abs() < *max_price_impact
+        self.ten_sol_depth
+            .is_some_and(|depth| depth < *max_price_impact)
     }
 }
 

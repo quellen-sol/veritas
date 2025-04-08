@@ -6,10 +6,10 @@ pub fn get_fixed_price(amt_per_parent: &Decimal, usd_price_origin: &Decimal) -> 
     amt_per_parent.checked_mul(*usd_price_origin)
 }
 
-pub fn get_fixed_liq_levels() -> Option<LiqLevels> {
+pub const fn get_fixed_liq_levels() -> Option<LiqLevels> {
     Some(LiqLevels::ZERO)
 }
 
-pub fn get_fixed_liquidity() -> Option<LiqAmount> {
+pub const fn get_fixed_liquidity() -> Option<LiqAmount> {
     Some(LiqAmount::Inf)
 }

@@ -41,7 +41,7 @@ pub async fn handle_dlmm(
         time,
         parts,
         pool_pubkey,
-        parts_account_pubkey,
+        part_index,
         ..
     } = &dooot;
 
@@ -171,8 +171,8 @@ pub async fn handle_dlmm(
         };
 
         let new_reverse_relation = LiqRelation::Dlmm {
-            amt_origin: x_balance_units,
-            amt_dest: y_balance_units,
+            amt_origin: y_balance_units,
+            amt_dest: x_balance_units,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
             active_bin_account: None,
@@ -278,8 +278,8 @@ pub async fn handle_dlmm(
             };
 
             let new_reverse_relation = LiqRelation::Dlmm {
-                amt_origin: x_balance_units,
-                amt_dest: y_balance_units,
+                amt_origin: y_balance_units,
+                amt_dest: x_balance_units,
                 vault_x: vault_x.to_string(),
                 vault_y: vault_y.to_string(),
                 active_bin_account: None,
@@ -388,8 +388,8 @@ pub async fn handle_dlmm(
 
             *amt_origin = amt_origin_units;
             *amt_dest = amt_dest_units;
-            *amt_origin_rev = amt_origin_units;
-            *amt_dest_rev = amt_dest_units;
+            *amt_origin_rev = amt_dest_units;
+            *amt_dest_rev = amt_origin_units;
 
             // Is the active bin in this binarray?
             let active_bin_opt = parts
@@ -398,12 +398,12 @@ pub async fn handle_dlmm(
                 .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
 
             if let Some((ix, _)) = active_bin_opt {
-                active_bin_account.replace((parts_account_pubkey.to_string(), ix));
-                active_bin_rev.replace((parts_account_pubkey.to_string(), ix));
+                active_bin_account.replace((*part_index, ix));
+                active_bin_rev.replace((*part_index, ix));
             }
 
-            bins_by_account.insert(parts_account_pubkey.to_string(), parts.clone());
-            bins_by_account_rev.insert(parts_account_pubkey.to_string(), parts.clone());
+            bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
+            bins_by_account_rev.insert(*part_index, parts.iter().map(|p| p.into()).collect());
         } else {
             log::error!("UNREACHABLE - BOTH DLMM RELATIONS SHOULD BE SET! LOGIC BUG!!!");
             return;
