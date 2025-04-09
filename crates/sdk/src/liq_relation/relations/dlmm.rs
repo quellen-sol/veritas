@@ -114,6 +114,7 @@ pub fn get_dlmm_liq_levels(
     let mut thousand_sol_price_set = false;
 
     while thousand_sol_tokens > Decimal::ZERO {
+        log::trace!("bin: {curr_bin:?}");
         let amount_in = if one_sol_tokens > Decimal::ZERO {
             one_sol_tokens
         } else if ten_sol_tokens > Decimal::ZERO {
