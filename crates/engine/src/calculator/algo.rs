@@ -125,7 +125,7 @@ pub async fn get_total_weighted_price(
 
             neighbor_mint
         };
-        log::trace!("Getting single weighted price for {neighbor_mint}");
+        log::trace!("Getting single weighted price from neighbor {neighbor_mint}");
         let Some((weighted, liq)) = get_single_wighted_price(
             neighbor,
             this_node,

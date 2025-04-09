@@ -58,20 +58,20 @@ pub fn get_dlmm_price(
     if is_reverse {
         // Y PER X (X is origin node)
         let y_per_x_atoms = (price.checked_mul(SCALE_FACTOR)?) >> 64;
-        let decimal_factor = Decimal::TEN.checked_powu(decimals_y as u64)?;
+        let decimal_factor = Decimal::TEN.checked_powi(decimals_x as i64 - decimals_y as i64)?;
         let y_per_x_units = Decimal::from(y_per_x_atoms)
-            .checked_div(decimal_factor)?
-            .checked_div(SCALE_FACTOR_DECIMAL)?;
+            .checked_div(SCALE_FACTOR_DECIMAL)?
+            .checked_mul(decimal_factor)?;
         let usd_per_y_units = usd_per_origin_units.checked_div(y_per_x_units)?;
 
         Some(usd_per_y_units)
     } else {
         // X PER Y (Y is origin node)
         let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(price)?;
-        let decimal_factor = Decimal::TEN.checked_powu(decimals_x as u64)?;
+        let decimal_factor = Decimal::TEN.checked_powi(decimals_y as i64 - decimals_x as i64)?;
         let x_per_y_units = Decimal::from(x_per_y_atoms)
-            .checked_div(decimal_factor)?
-            .checked_div(SCALE_FACTOR_DECIMAL)?;
+            .checked_div(SCALE_FACTOR_DECIMAL)?
+            .checked_mul(decimal_factor)?;
         let usd_per_x_units = usd_per_origin_units.checked_div(x_per_y_units)?;
 
         Some(usd_per_x_units)
@@ -123,6 +123,12 @@ pub fn get_dlmm_liq_levels(
         };
 
         let used = bin_swap(amount_in, &mut curr_bin, is_reverse)?;
+        let holdings = curr_bin.token_amounts[bin_side_ix];
+
+        if used == Decimal::ZERO && holdings != Decimal::ZERO {
+            log::trace!("Used is 0, but holdings are not (Bin: {curr_bin:?}). Breaking");
+            break;
+        }
 
         one_sol_tokens = one_sol_tokens.saturating_sub(used).max(Decimal::ZERO);
         ten_sol_tokens = ten_sol_tokens.saturating_sub(used).max(Decimal::ZERO);
@@ -143,7 +149,7 @@ pub fn get_dlmm_liq_levels(
             thousand_sol_price_set = true;
         }
 
-        let holdings = curr_bin.token_amounts[bin_side_ix];
+        
         if holdings <= Decimal::ZERO {
             if (bin_vec_ix == 0 && is_reverse) || bin_vec_ix >= 69 {
                 binarray_ix += step;
