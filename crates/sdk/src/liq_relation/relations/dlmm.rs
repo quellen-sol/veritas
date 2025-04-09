@@ -54,29 +54,19 @@ pub fn get_dlmm_price(
     let (bin_arr_ix, vec_ix) = active_bin.as_ref()?;
     let bin_arr = bins_by_account.get(bin_arr_ix)?;
     let bin = &bin_arr[*vec_ix];
-    let price = bin.price;
 
-    if is_reverse {
-        // Y PER X (X is origin node)
-        let y_per_x_atoms = (price.checked_mul(SCALE_FACTOR)?) >> 64;
-        let decimal_factor = Decimal::TEN.checked_powi(decimals_x as i64 - decimals_y as i64)?;
-        let y_per_x_units = Decimal::from(y_per_x_atoms)
-            .checked_div(SCALE_FACTOR_DECIMAL)?
-            .checked_mul(decimal_factor)?;
-        let usd_per_y_units = usd_per_origin_units.checked_div(y_per_x_units)?;
+    let bin_price = bin.get_price(is_reverse)?;
 
-        Some(usd_per_y_units)
+    let exponent = if is_reverse {
+        decimals_y as i64 - decimals_x as i64
     } else {
-        // X PER Y (Y is origin node)
-        let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(price)?;
-        let decimal_factor = Decimal::TEN.checked_powi(decimals_y as i64 - decimals_x as i64)?;
-        let x_per_y_units = Decimal::from(x_per_y_atoms)
-            .checked_div(SCALE_FACTOR_DECIMAL)?
-            .checked_mul(decimal_factor)?;
-        let usd_per_x_units = usd_per_origin_units.checked_div(x_per_y_units)?;
+        decimals_x as i64 - decimals_y as i64
+    };
+    let decimal_factor = Decimal::TEN.checked_powi(exponent)?;
+    let bin_price_units = bin_price.checked_mul(decimal_factor)?;
+    let usd_price_dest = usd_per_origin_units.checked_div(bin_price_units)?;
 
-        Some(usd_per_x_units)
-    }
+    Some(usd_price_dest)
 }
 
 pub fn get_dlmm_liq_levels(
@@ -271,10 +261,15 @@ pub fn get_dlmm_liquidity(
 
 #[cfg(test)]
 mod tests {
-    use super::{get_dlmm_liq_levels, DlmmBinMap, DlmmBinParsed};
+    use rust_decimal::{prelude::FromPrimitive, Decimal};
 
+    use crate::liq_relation::relations::dlmm::get_dlmm_price;
+
+    use super::{DlmmBinMap, DlmmBinParsed};
+
+    /// More of a scratch pad, rather than a test
     #[test]
-    fn liq_levels_calc() {
+    fn dlmm_calculations() {
         let bin1 = DlmmBinParsed {
             price: 12395918212259458082,
             token_amounts: [205149870204u64.into(), 1728451075u64.into()],
@@ -286,20 +281,26 @@ mod tests {
         };
 
         let mut map = DlmmBinMap::new();
-        map.insert(-1, vec![bin1, bin2]);
+        map.insert(-1, vec![bin1.clone(), bin2]);
         let active_bin = Some((-1, 0));
-        let origin_tokens_per_sol = 1950.into();
+        // let origin_tokens_per_sol: Decimal = 1950.into();
         let reversed = false;
         let decimals_x = 6;
         let decimals_y = 6;
 
-        get_dlmm_liq_levels(
-            &map,
-            &active_bin,
-            &origin_tokens_per_sol,
-            reversed,
+        let bin1_price = bin1.get_price(reversed).unwrap();
+
+        let xstep_usd_price = Decimal::from_f64(0.10268097).unwrap();
+        let step_price = get_dlmm_price(
             decimals_x,
             decimals_y,
+            &xstep_usd_price,
+            &map,
+            &active_bin,
+            reversed,
         );
+
+        println!("{bin1_price:?}");
+        println!("{step_price:?}");
     }
 }
