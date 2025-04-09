@@ -14,6 +14,20 @@ pub struct DlmmBinParsed {
     pub token_amounts: [Decimal; 2],
 }
 
+impl DlmmBinParsed {
+    pub fn get_price(&self, is_reverse: bool) -> Option<Decimal> {
+        if is_reverse {
+            let y_per_x_atoms = self.price.checked_mul(SCALE_FACTOR)? >> 64;
+            let final_price = Decimal::from(y_per_x_atoms).checked_div(SCALE_FACTOR_DECIMAL)?;
+            Some(final_price)
+        } else {
+            let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(self.price)?;
+            let final_price = Decimal::from(x_per_y_atoms).checked_div(SCALE_FACTOR_DECIMAL)?;
+            Some(final_price)
+        }
+    }
+}
+
 impl From<&DLMMPart> for DlmmBinParsed {
     fn from(part: &DLMMPart) -> Self {
         Self {
@@ -40,17 +54,7 @@ pub fn get_dlmm_price(
     let bin = &bin_arr[*vec_ix];
     let price = bin.price;
 
-    if !is_reverse {
-        // X PER Y (Y is origin node)
-        let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(price)?;
-        let decimal_factor = Decimal::TEN.checked_powu(decimals_x as u64)?;
-        let x_per_y_units = Decimal::from(x_per_y_atoms)
-            .checked_div(decimal_factor)?
-            .checked_div(SCALE_FACTOR_DECIMAL)?;
-        let usd_per_x_units = usd_per_origin_units.checked_div(x_per_y_units)?;
-
-        Some(usd_per_x_units)
-    } else {
+    if is_reverse {
         // Y PER X (X is origin node)
         let y_per_x_atoms = (price.checked_mul(SCALE_FACTOR)?) >> 64;
         let decimal_factor = Decimal::TEN.checked_powu(decimals_y as u64)?;
@@ -60,6 +64,16 @@ pub fn get_dlmm_price(
         let usd_per_y_units = usd_per_origin_units.checked_div(y_per_x_units)?;
 
         Some(usd_per_y_units)
+    } else {
+        // X PER Y (Y is origin node)
+        let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(price)?;
+        let decimal_factor = Decimal::TEN.checked_powu(decimals_x as u64)?;
+        let x_per_y_units = Decimal::from(x_per_y_atoms)
+            .checked_div(decimal_factor)?
+            .checked_div(SCALE_FACTOR_DECIMAL)?;
+        let usd_per_x_units = usd_per_origin_units.checked_div(x_per_y_units)?;
+
+        Some(usd_per_x_units)
     }
 }
 
@@ -88,6 +102,15 @@ pub fn get_dlmm_liq_levels(
     let mut binarray_ix = *active_bin_arr_ix;
     let mut curr_binarray = bins_by_account.get(&binarray_ix)?;
     let mut curr_bin = curr_binarray.get(bin_vec_ix)?.clone();
+    let pool_price = curr_bin.get_price(is_reverse)?;
+
+    let mut one_sol_price_after: Option<Decimal> = None;
+    let mut one_sol_price_set = false;
+    let mut ten_sol_price_after: Option<Decimal> = None;
+    let mut ten_sol_price_set = false;
+    let mut thousand_sol_price_after: Option<Decimal> = None;
+    let mut thousand_sol_price_set = false;
+
     while thousand_sol_tokens > Decimal::ZERO {
         let amount_in = if one_sol_tokens > Decimal::ZERO {
             one_sol_tokens
@@ -105,6 +128,21 @@ pub fn get_dlmm_liq_levels(
         ten_sol_tokens = ten_sol_tokens.saturating_sub(used);
         thousand_sol_tokens = thousand_sol_tokens.saturating_sub(used);
 
+        if !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
+            one_sol_price_after = curr_bin.get_price(is_reverse);
+            one_sol_price_set = true
+        }
+
+        if !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
+            ten_sol_price_after = curr_bin.get_price(is_reverse);
+            ten_sol_price_set = true
+        }
+
+        if !thousand_sol_price_set && thousand_sol_tokens <= Decimal::ZERO {
+            thousand_sol_price_after = curr_bin.get_price(is_reverse);
+            thousand_sol_price_set = true
+        }
+
         let holdings = curr_bin.token_amounts[bin_side_ix];
         if holdings <= Decimal::ZERO {
             if bin_vec_ix == 0 || bin_vec_ix == 69 {
@@ -112,7 +150,7 @@ pub fn get_dlmm_liq_levels(
                 bin_vec_ix = 0;
 
                 let Some(next_binarray) = bins_by_account.get(&binarray_ix) else {
-                    // Out of range
+                    // Out of range or not enough info
                     break;
                 };
 
@@ -124,20 +162,29 @@ pub fn get_dlmm_liq_levels(
             }
 
             let Some(next_bin) = curr_binarray.get(bin_vec_ix) else {
-                log::error!("UNREACHABLE - Should stay within [0, 69] bin range");
+                log::error!(
+                    "UNREACHABLE - Should stay within [0, 69] bin range, tried index {bin_vec_ix}"
+                );
                 break;
             };
             curr_bin = next_bin.clone();
         }
     }
 
-    // let one_sol_depth = if one_sol_tokens <= Decimal::ZERO {
+    let one_sol_price_change =
+        one_sol_price_after.and_then(|p| p.checked_div(pool_price)?.checked_sub(Decimal::ONE));
+    let ten_sol_price_change =
+        ten_sol_price_after.and_then(|p| p.checked_div(pool_price)?.checked_sub(Decimal::ONE));
+    let thousand_sol_price_change =
+        thousand_sol_price_after.and_then(|p| p.checked_div(pool_price)?.checked_sub(Decimal::ONE));
 
-    // } else {
-    //     None
-    // };
+    let liq_levels = LiqLevels {
+        one_sol_depth: one_sol_price_change,
+        ten_sol_depth: ten_sol_price_change,
+        thousand_sol_depth: thousand_sol_price_change,
+    };
 
-    Some(LiqLevels::ZERO)
+    Some(liq_levels)
 }
 
 /// Returns amount_in_consumed
@@ -178,13 +225,13 @@ fn bin_swap(amt_in: Decimal, bin: &mut DlmmBinParsed, rev_dir: bool) -> Option<D
 }
 
 pub fn get_dlmm_liquidity(
-    amt_a: &Decimal,
-    amt_b: &Decimal,
+    amt_source: &Decimal,
+    amt_dest: &Decimal,
     price_source_usd: Decimal,
     price_dest_usd: Decimal,
 ) -> Option<LiqAmount> {
-    let liq_origin = amt_a.checked_mul(price_source_usd)?;
-    let liq_dest = amt_b.checked_mul(price_dest_usd)?;
+    let liq_origin = amt_source.checked_mul(price_source_usd)?;
+    let liq_dest = amt_dest.checked_mul(price_dest_usd)?;
     // Just allow to max out. One less failure point
     let total_liq = liq_origin.saturating_add(liq_dest);
 
