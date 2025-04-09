@@ -5,7 +5,10 @@ use std::{
 
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, LPInfoUnderlyingMintVault};
-use tokio::{sync::{mpsc::Sender, RwLock}, time::Instant};
+use tokio::{
+    sync::{mpsc::Sender, RwLock},
+    time::Instant,
+};
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::WrappedMintPricingGraph,
@@ -151,16 +154,18 @@ pub async fn handle_dlmm(
         log::trace!("Getting graph write lock");
         let mut g_write = graph.write().await;
         log::trace!("Got graph write lock");
-        log::trace!("Getting mint indicies write lock");
-        let mut mi_write = mint_indicies.write().await;
-        log::trace!("Got mint indicies write lock");
+        {
+            log::trace!("Getting mint indicies write lock");
+            let mut mi_write = mint_indicies.write().await;
+            log::trace!("Got mint indicies write lock");
 
-        if add_mint_x {
-            mint_x_ix = get_or_add_mint_ix(mint_x, &mut g_write, &mut mi_write).into();
-        }
+            if add_mint_x {
+                mint_x_ix = get_or_add_mint_ix(mint_x, &mut g_write, &mut mi_write).into();
+            }
 
-        if add_mint_y {
-            mint_y_ix = get_or_add_mint_ix(mint_y, &mut g_write, &mut mi_write).into();
+            if add_mint_y {
+                mint_y_ix = get_or_add_mint_ix(mint_y, &mut g_write, &mut mi_write).into();
+            }
         }
 
         let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
@@ -246,7 +251,6 @@ pub async fn handle_dlmm(
 
         drop(g_write);
         drop(ei_write);
-        drop(mi_write);
 
         log::trace!("Sending update to calculator");
         send_update_to_calculator(
@@ -289,13 +293,16 @@ pub async fn handle_dlmm(
         };
 
         if relation.is_none() && relation_rev.is_none() {
+            let mut bins_by_account = HashMap::new();
+            bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
+
             let new_relation = LiqRelation::Dlmm {
                 amt_origin: x_balance_units,
                 amt_dest: y_balance_units,
                 vault_x: vault_x.to_string(),
                 vault_y: vault_y.to_string(),
                 active_bin_account: None,
-                bins_by_account: HashMap::new(),
+                bins_by_account: bins_by_account.clone(),
                 is_reverse: false,
                 decimals_x,
                 decimals_y,
@@ -307,7 +314,7 @@ pub async fn handle_dlmm(
                 vault_x: vault_x.to_string(),
                 vault_y: vault_y.to_string(),
                 active_bin_account: None,
-                bins_by_account: HashMap::new(),
+                bins_by_account,
                 is_reverse: true,
                 decimals_x,
                 decimals_y,
