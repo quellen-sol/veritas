@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use rust_decimal::{prelude::ToPrimitive, Decimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
 use step_ingestooor_sdk::dooot::DLMMPart;
+use tokio::time::Instant;
 
 use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
@@ -85,6 +86,7 @@ pub fn get_dlmm_liq_levels(
     decimals_x: u8,
     decimals_y: u8,
 ) -> Option<LiqLevels> {
+    let now = Instant::now();
     let (active_bin_arr_ix, active_bin_vec_ix) = active_binarray.as_ref()?;
     let bin_side_ix = is_reverse as usize;
     let step: i32 = if is_reverse { -1 } else { 1 };
@@ -145,7 +147,7 @@ pub fn get_dlmm_liq_levels(
         if holdings <= Decimal::ZERO {
             if (bin_vec_ix == 0 && is_reverse) || bin_vec_ix >= 69 {
                 binarray_ix += step;
-                bin_vec_ix = 0;
+                bin_vec_ix = if is_reverse { 69 } else { 0 };
 
                 let Some(next_binarray) = bins_by_account.get(&binarray_ix) else {
                     // Out of range or not enough info
@@ -181,6 +183,8 @@ pub fn get_dlmm_liq_levels(
         ten_sol_depth: ten_sol_price_change,
         thousand_sol_depth: thousand_sol_price_change,
     };
+
+    log::debug!("get_dlmm_liq_levels took {:?}", now.elapsed());
 
     Some(liq_levels)
 }

@@ -5,7 +5,7 @@ use std::{
 
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, LPInfoUnderlyingMintVault};
-use tokio::sync::{mpsc::Sender, RwLock};
+use tokio::{sync::{mpsc::Sender, RwLock}, time::Instant};
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::WrappedMintPricingGraph,
@@ -37,6 +37,7 @@ pub async fn handle_dlmm(
     calculator_sender: Sender<CalculatorUpdate>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) {
+    let now = Instant::now();
     let DlmmGlobalDooot {
         time,
         parts,
@@ -229,6 +230,7 @@ pub async fn handle_dlmm(
 
         drop(g_write);
         drop(ei_write);
+        drop(mi_write);
 
         send_update_to_calculator(
             CalculatorUpdate::NewTokenRatio(y_ix, new_edge),
@@ -348,6 +350,16 @@ pub async fn handle_dlmm(
             )
             .await;
         } else if relation.is_some() && relation_rev.is_some() {
+            let Some(amt_origin_units) = x_balance.checked_div(x_factor) else {
+                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+                return;
+            };
+
+            let Some(amt_dest_units) = y_balance.checked_div(y_factor) else {
+                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+                return;
+            };
+
             let edge = relation.unwrap();
             let edge_rev = relation_rev.unwrap();
 
@@ -355,7 +367,6 @@ pub async fn handle_dlmm(
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
 
             let mut w_write = weight.inner_relation.write().await;
-            let mut w_rev_write = weight_rev.inner_relation.write().await;
             let LiqRelation::Dlmm {
                 ref mut amt_origin,
                 ref mut amt_dest,
@@ -368,6 +379,10 @@ pub async fn handle_dlmm(
                 return;
             };
 
+            *amt_origin = amt_origin_units;
+            *amt_dest = amt_dest_units;
+
+            let mut w_rev_write = weight_rev.inner_relation.write().await;
             let LiqRelation::Dlmm {
                 amt_origin: ref mut amt_origin_rev,
                 amt_dest: ref mut amt_dest_rev,
@@ -379,19 +394,6 @@ pub async fn handle_dlmm(
                 log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
                 return;
             };
-
-            let Some(amt_origin_units) = x_balance.checked_div(x_factor) else {
-                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-                return;
-            };
-
-            let Some(amt_dest_units) = y_balance.checked_div(y_factor) else {
-                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-                return;
-            };
-
-            *amt_origin = amt_origin_units;
-            *amt_dest = amt_dest_units;
             *amt_origin_rev = amt_dest_units;
             *amt_dest_rev = amt_origin_units;
 
@@ -408,6 +410,8 @@ pub async fn handle_dlmm(
 
             bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
             bins_by_account_rev.insert(*part_index, parts.iter().map(|p| p.into()).collect());
+
+            log::debug!("handle_dlmm took {:?}", now.elapsed());
         } else {
             log::error!("UNREACHABLE - BOTH DLMM RELATIONS SHOULD BE SET! LOGIC BUG!!!");
             return;
