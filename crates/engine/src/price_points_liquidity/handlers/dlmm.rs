@@ -47,7 +47,9 @@ pub async fn handle_dlmm(
     } = &dooot;
 
     let pool_info = {
+        log::trace!("Getting lp cache read lock");
         let lc_read = lp_cache.read().await;
+        log::trace!("Got lp cache read lock");
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
             log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
@@ -75,7 +77,9 @@ pub async fn handle_dlmm(
     } = underlyings_y;
 
     let (decimals_x, decimals_y) = {
+        log::trace!("Getting decimal cache read lock");
         let dc_read = decimal_cache.read().await;
+        log::trace!("Got decimal cache read lock");
 
         let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
             return;
@@ -97,7 +101,9 @@ pub async fn handle_dlmm(
     };
 
     let (x_balance, y_balance) = {
+        log::trace!("Getting token balance cache read lock");
         let tbc_read = token_balance_cache.read().await;
+        log::trace!("Got token balance cache read lock");
         let x_bal_cache_op = tbc_read.get(vault_x).cloned();
         let y_bal_cache_op = tbc_read.get(vault_y).cloned();
 
@@ -112,7 +118,9 @@ pub async fn handle_dlmm(
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
             drop(tbc_read);
+            log::trace!("Getting token balance cache write lock");
             let mut tbc_write = token_balance_cache.write().await;
+            log::trace!("Got token balance cache write lock");
 
             if x_bal_cache_op.is_none() {
                 tbc_write.insert(vault_x.clone(), None);
@@ -126,7 +134,9 @@ pub async fn handle_dlmm(
     };
 
     let (mut mint_x_ix, mut mint_y_ix) = {
+        log::trace!("Getting mint indicies read lock");
         let mi_read = mint_indicies.read().await;
+        log::trace!("Got mint indicies read lock");
         let mint_x_ix = mi_read.get(mint_x).cloned();
         let mint_y_ix = mi_read.get(mint_y).cloned();
 
@@ -138,8 +148,12 @@ pub async fn handle_dlmm(
     let add_mint_y = mint_y_ix.is_none();
 
     if add_mint_x || add_mint_y {
+        log::trace!("Getting graph write lock");
         let mut g_write = graph.write().await;
+        log::trace!("Got graph write lock");
+        log::trace!("Getting mint indicies write lock");
         let mut mi_write = mint_indicies.write().await;
+        log::trace!("Got mint indicies write lock");
 
         if add_mint_x {
             mint_x_ix = get_or_add_mint_ix(mint_x, &mut g_write, &mut mi_write).into();
@@ -188,7 +202,9 @@ pub async fn handle_dlmm(
             return;
         };
 
+        log::trace!("Getting edge indicies write lock");
         let mut ei_write = edge_indicies.write().await;
+        log::trace!("Got edge indicies write lock");
 
         let new_edge = add_or_update_relation_edge(
             x_ix,
@@ -232,6 +248,7 @@ pub async fn handle_dlmm(
         drop(ei_write);
         drop(mi_write);
 
+        log::trace!("Sending update to calculator");
         send_update_to_calculator(
             CalculatorUpdate::NewTokenRatio(y_ix, new_edge),
             &calculator_sender,
@@ -251,8 +268,12 @@ pub async fn handle_dlmm(
             return;
         };
 
+        log::trace!("Getting graph read lock");
         let g_read = graph.read().await;
+        log::trace!("Got graph read lock");
+        log::trace!("Getting edge indicies read lock");
         let ei_read = edge_indicies.read().await;
+        log::trace!("Got edge indicies read lock");
 
         let relation = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
         let relation_rev = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
@@ -295,8 +316,12 @@ pub async fn handle_dlmm(
             drop(g_read);
             drop(ei_read);
 
+            log::trace!("Getting graph write lock");
             let mut g_write = graph.write().await;
+            log::trace!("Got graph write lock");
+            log::trace!("Getting edge indicies write lock");
             let mut ei_write = edge_indicies.write().await;
+            log::trace!("Got edge indicies write lock");
 
             let new_ix = match add_or_update_relation_edge(
                 x_ix,
@@ -337,6 +362,7 @@ pub async fn handle_dlmm(
             drop(g_write);
             drop(ei_write);
 
+            log::trace!("Sending update to calculator");
             send_update_to_calculator(
                 CalculatorUpdate::NewTokenRatio(y_ix, new_ix),
                 &calculator_sender,
@@ -366,7 +392,9 @@ pub async fn handle_dlmm(
             let weight = g_read.edge_weight(edge).unwrap();
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
 
+            log::trace!("Getting weight write lock");
             let mut w_write = weight.inner_relation.write().await;
+            log::trace!("Got weight write lock");
             let LiqRelation::Dlmm {
                 ref mut amt_origin,
                 ref mut amt_dest,
@@ -382,7 +410,9 @@ pub async fn handle_dlmm(
             *amt_origin = amt_origin_units;
             *amt_dest = amt_dest_units;
 
+            log::trace!("Getting weight rev write lock");
             let mut w_rev_write = weight_rev.inner_relation.write().await;
+            log::trace!("Got weight rev write lock");
             let LiqRelation::Dlmm {
                 amt_origin: ref mut amt_origin_rev,
                 amt_dest: ref mut amt_dest_rev,
