@@ -227,7 +227,8 @@ pub async fn handle_dlmm(
             }
         };
 
-        log::info!("Sending update to calculator for {mint_x} and {mint_y}");
+        drop(g_write);
+        drop(ei_write);
 
         send_update_to_calculator(
             CalculatorUpdate::NewTokenRatio(y_ix, new_edge),
@@ -330,6 +331,9 @@ pub async fn handle_dlmm(
                     return;
                 }
             };
+
+            drop(g_write);
+            drop(ei_write);
 
             send_update_to_calculator(
                 CalculatorUpdate::NewTokenRatio(y_ix, new_ix),
