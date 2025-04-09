@@ -8,7 +8,7 @@ use step_ingestooor_sdk::dooot::{liquidity::LPInfoUnderlyingMintVault, CurveType
 /// K = pool_id, V = LiquidityPool
 pub type LpCache = HashMap<String, LiquidityPool>;
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct LiquidityPool {
     pub curve_type: CurveType,
     pub underlyings: Vec<LPInfoUnderlyingMintVault>,
