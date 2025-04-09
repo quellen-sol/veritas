@@ -114,7 +114,7 @@ pub fn get_dlmm_liq_levels(
     let mut thousand_sol_price_set = false;
 
     while thousand_sol_tokens > Decimal::ZERO {
-        log::trace!("bin: {curr_bin:?}");
+        log::trace!("bin: {curr_bin:?} swapping for y: {is_reverse}");
         let amount_in = if one_sol_tokens > Decimal::ZERO {
             one_sol_tokens
         } else if ten_sol_tokens > Decimal::ZERO {
@@ -215,6 +215,11 @@ fn bin_swap(amt_in: Decimal, bin: &mut DlmmBinParsed, rev_dir: bool) -> Option<D
         }
         let actual_in = max_in.min(amt_128);
         let amount_out = (actual_in * bin_price) >> 64;
+        if amount_out == 0 {
+            // y_amt is likely 1 or more by only a few atoms, so just give up the rest, sort of like a round up
+            holdings[1] = Decimal::ZERO;
+            return Some(Decimal::ZERO);
+        }
         let max_out = y_amt;
         let actual_out: Decimal = amount_out.min(max_out).into();
         let actual_in_decimal = actual_in.into();
@@ -227,13 +232,18 @@ fn bin_swap(amt_in: Decimal, bin: &mut DlmmBinParsed, rev_dir: bool) -> Option<D
         // Swap in Y, get X (swap_for_y = false)
         let max_in = (x_amt * bin_price) >> 64;
         if max_in == 0 {
-            holdings[0] = Decimal::ZERO;
             // x_amt is likely 1 or more by only a few atoms, so just give up the rest, sort of like a round up
+            holdings[0] = Decimal::ZERO;
             return Some(Decimal::ZERO);
         }
 
         let actual_in = max_in.min(amt_128);
         let amount_out = (actual_in << 64) / bin_price;
+        if amount_out == 0 {
+            // x_amt is likely 1 or more by only a few atoms, so just give up the rest, sort of like a round up
+            holdings[0] = Decimal::ZERO;
+            return Some(Decimal::ZERO);
+        }
         let max_out = x_amt;
         let actual_out: Decimal = amount_out.min(max_out).into();
         let actual_in_decimal = actual_in.into();
