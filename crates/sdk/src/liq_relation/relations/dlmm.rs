@@ -95,8 +95,8 @@ pub fn get_dlmm_liq_levels(
     };
 
     let mut one_sol_tokens = (*origin_tokens_per_sol * decimal_factor).floor();
-    let mut ten_sol_tokens = origin_tokens_per_sol.checked_mul(Decimal::TEN)?;
-    let mut thousand_sol_tokens = origin_tokens_per_sol.checked_mul(Decimal::ONE_THOUSAND)?;
+    let mut ten_sol_tokens = one_sol_tokens.checked_mul(Decimal::TEN)?;
+    let mut thousand_sol_tokens = one_sol_tokens.checked_mul(Decimal::ONE_THOUSAND)?;
 
     let mut bin_vec_ix = *active_bin_vec_ix;
     let mut binarray_ix = *active_bin_arr_ix;
@@ -120,32 +120,30 @@ pub fn get_dlmm_liq_levels(
             thousand_sol_tokens
         };
 
-        let Some(used) = bin_swap(amount_in, &mut curr_bin, is_reverse) else {
-            return None;
-        };
+        let used = bin_swap(amount_in, &mut curr_bin, is_reverse)?;
 
-        one_sol_tokens = one_sol_tokens.saturating_sub(used);
-        ten_sol_tokens = ten_sol_tokens.saturating_sub(used);
-        thousand_sol_tokens = thousand_sol_tokens.saturating_sub(used);
+        one_sol_tokens = one_sol_tokens.saturating_sub(used).max(Decimal::ZERO);
+        ten_sol_tokens = ten_sol_tokens.saturating_sub(used).max(Decimal::ZERO);
+        thousand_sol_tokens = thousand_sol_tokens.saturating_sub(used).max(Decimal::ZERO);
 
         if !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
             one_sol_price_after = curr_bin.get_price(is_reverse);
-            one_sol_price_set = true
+            one_sol_price_set = true;
         }
 
         if !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
             ten_sol_price_after = curr_bin.get_price(is_reverse);
-            ten_sol_price_set = true
+            ten_sol_price_set = true;
         }
 
         if !thousand_sol_price_set && thousand_sol_tokens <= Decimal::ZERO {
             thousand_sol_price_after = curr_bin.get_price(is_reverse);
-            thousand_sol_price_set = true
+            thousand_sol_price_set = true;
         }
 
         let holdings = curr_bin.token_amounts[bin_side_ix];
         if holdings <= Decimal::ZERO {
-            if bin_vec_ix == 0 || bin_vec_ix == 69 {
+            if (bin_vec_ix == 0 && is_reverse) || bin_vec_ix >= 69 {
                 binarray_ix += step;
                 bin_vec_ix = 0;
 
@@ -194,31 +192,43 @@ fn bin_swap(amt_in: Decimal, bin: &mut DlmmBinParsed, rev_dir: bool) -> Option<D
     let amt_128: u128 = amt_in.floor().to_u128()?;
     let x_amt = bin.token_amounts[0].to_u128()?;
     let y_amt = bin.token_amounts[1].to_u128()?;
+    let holdings = &mut bin.token_amounts;
 
     if rev_dir {
         // Swap in X, get Y (swap_for_y = true)
-        let max_in = (x_amt << 64) / bin_price;
+        let max_in = (y_amt << 64) / bin_price;
+        if max_in == 0 {
+            // y_amt is likely 1 or more by only a few atoms, so just give up the rest, sort of like a round up
+            holdings[1] = Decimal::ZERO;
+            return Some(Decimal::ZERO);
+        }
         let actual_in = max_in.min(amt_128);
         let amount_out = (actual_in * bin_price) >> 64;
         let max_out = y_amt;
         let actual_out: Decimal = amount_out.min(max_out).into();
         let actual_in_decimal = actual_in.into();
 
-        bin.token_amounts[1] -= actual_out;
-        bin.token_amounts[0] += actual_in_decimal;
+        holdings[1] -= actual_out;
+        holdings[0] += actual_in_decimal;
 
         Some(actual_in_decimal)
     } else {
         // Swap in Y, get X (swap_for_y = false)
-        let max_in = (y_amt * bin_price) >> 64;
+        let max_in = (x_amt * bin_price) >> 64;
+        if max_in == 0 {
+            holdings[0] = Decimal::ZERO;
+            // x_amt is likely 1 or more by only a few atoms, so just give up the rest, sort of like a round up
+            return Some(Decimal::ZERO);
+        }
+
         let actual_in = max_in.min(amt_128);
         let amount_out = (actual_in << 64) / bin_price;
         let max_out = x_amt;
         let actual_out: Decimal = amount_out.min(max_out).into();
         let actual_in_decimal = actual_in.into();
 
-        bin.token_amounts[0] -= actual_out;
-        bin.token_amounts[1] += actual_in_decimal;
+        holdings[0] -= actual_out;
+        holdings[1] += actual_in_decimal;
 
         Some(actual_in_decimal)
     }
@@ -239,4 +249,36 @@ pub fn get_dlmm_liquidity(
 }
 
 #[cfg(test)]
-mod tests {}
+mod tests {
+    use super::{get_dlmm_liq_levels, DlmmBinMap, DlmmBinParsed};
+
+    #[test]
+    fn liq_levels_calc() {
+        let bin1 = DlmmBinParsed {
+            price: 12395918212259458082,
+            token_amounts: [205149870204u64.into(), 1728451075u64.into()],
+        };
+
+        let bin2 = DlmmBinParsed {
+            price: 12550867189912701309,
+            token_amounts: [206118815125u64.into(), 0.into()],
+        };
+
+        let mut map = DlmmBinMap::new();
+        map.insert(-1, vec![bin1, bin2]);
+        let active_bin = Some((-1, 0));
+        let origin_tokens_per_sol = 1950.into();
+        let reversed = false;
+        let decimals_x = 6;
+        let decimals_y = 6;
+
+        get_dlmm_liq_levels(
+            &map,
+            &active_bin,
+            &origin_tokens_per_sol,
+            reversed,
+            decimals_x,
+            decimals_y,
+        );
+    }
+}
