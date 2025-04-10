@@ -122,7 +122,7 @@ async fn debug_node_info(
             let derived_price = price_neighbor.and_then(|p| relation.get_price(p));
             let liquidity_levels = price_neighbor.and_then(|p| {
                 let sol_price = sol_price?;
-                let tokens_per_sol = sol_price / p;
+                let tokens_per_sol = sol_price.checked_div(p)?;
                 relation.get_liq_levels(tokens_per_sol)
             });
 
