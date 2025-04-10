@@ -192,6 +192,7 @@ pub async fn handle_dlmm(
             is_reverse: true,
             decimals_x,
             decimals_y,
+            pool_id: pool_pubkey.to_string(),
         };
 
         let new_relation = LiqRelation::Dlmm {
@@ -202,6 +203,7 @@ pub async fn handle_dlmm(
             is_reverse: false,
             decimals_x,
             decimals_y,
+            pool_id: pool_pubkey.to_string(),
         };
 
         let (Some(x_ix), Some(y_ix)) = (mint_x_ix, mint_y_ix) else {
@@ -306,6 +308,7 @@ pub async fn handle_dlmm(
                 is_reverse: false,
                 decimals_x,
                 decimals_y,
+                pool_id: pool_pubkey.to_string(),
             };
 
             let new_relation = LiqRelation::Dlmm {
@@ -316,6 +319,7 @@ pub async fn handle_dlmm(
                 is_reverse: true,
                 decimals_x,
                 decimals_y,
+                pool_id: pool_pubkey.to_string(),
             };
 
             drop(g_read);

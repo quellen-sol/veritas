@@ -37,6 +37,7 @@ pub enum LiqRelation {
         #[serde(skip)]
         bins_by_account: DlmmBinMap,
         is_reverse: bool,
+        pool_id: String,
     },
     // /// CLMMs
     // Clmm,
