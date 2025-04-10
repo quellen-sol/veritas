@@ -18,12 +18,12 @@ pub struct DlmmBinParsed {
 impl DlmmBinParsed {
     pub fn get_price(&self, is_reverse: bool) -> Option<Decimal> {
         if is_reverse {
-            let y_per_x_atoms = self.price.checked_mul(SCALE_FACTOR)? >> 64;
-            let final_price = Decimal::from(y_per_x_atoms).checked_div(SCALE_FACTOR_DECIMAL)?;
-            Some(final_price)
-        } else {
             let x_per_y_atoms = (SCALE_FACTOR << 64).checked_div(self.price)?;
             let final_price = Decimal::from(x_per_y_atoms).checked_div(SCALE_FACTOR_DECIMAL)?;
+            Some(final_price)
+        } else {
+            let y_per_x_atoms = self.price.checked_mul(SCALE_FACTOR)? >> 64;
+            let final_price = Decimal::from(y_per_x_atoms).checked_div(SCALE_FACTOR_DECIMAL)?;
             Some(final_price)
         }
     }
@@ -64,7 +64,7 @@ pub fn get_dlmm_price(
     };
     let decimal_factor = Decimal::TEN.checked_powi(exponent)?;
     let bin_price_units = bin_price.checked_mul(decimal_factor)?;
-    let usd_price_dest = usd_per_origin_units.checked_div(bin_price_units)?;
+    let usd_price_dest = usd_per_origin_units.checked_mul(bin_price_units)?;
 
     Some(usd_price_dest)
 }
@@ -284,23 +284,23 @@ mod tests {
         map.insert(-1, vec![bin1.clone(), bin2]);
         let active_bin = Some((-1, 0));
         // let origin_tokens_per_sol: Decimal = 1950.into();
-        let reversed = false;
+        let reversed = true;
         let decimals_x = 6;
         let decimals_y = 6;
 
         let bin1_price = bin1.get_price(reversed).unwrap();
 
-        let xstep_usd_price = Decimal::from_f64(0.10268097).unwrap();
-        let step_price = get_dlmm_price(
+        let step_usd_price = Decimal::from_f64(0.069).unwrap();
+        let xstep_price = get_dlmm_price(
             decimals_x,
             decimals_y,
-            &xstep_usd_price,
+            &step_usd_price,
             &map,
             &active_bin,
             reversed,
         );
 
         println!("{bin1_price:?}");
-        println!("{step_price:?}");
+        println!("{xstep_price:?}");
     }
 }
