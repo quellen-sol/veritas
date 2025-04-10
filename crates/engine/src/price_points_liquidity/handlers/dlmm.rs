@@ -300,7 +300,7 @@ pub async fn handle_dlmm(
             let mut bins_by_account = HashMap::new();
             bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
 
-            let new_relation_r = LiqRelation::Dlmm {
+            let new_relation_rev = LiqRelation::Dlmm {
                 amt_origin: x_balance_units,
                 amt_dest: y_balance_units,
                 active_bin_account: None,
@@ -337,7 +337,7 @@ pub async fn handle_dlmm(
                 y_ix,
                 &mut ei_write,
                 &mut g_write,
-                new_relation_r,
+                new_relation_rev,
                 pool_pubkey,
                 *time,
             )
