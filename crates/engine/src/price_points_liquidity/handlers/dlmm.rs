@@ -27,6 +27,9 @@ use crate::{
 
 use super::utils::send_update_to_calculator;
 
+/// DLMMs are always in the form of X/Y where X is "base" and Y is "quote"
+///
+/// The edge from Y -> X is NOT the `reverse` relation, since Y is expected to price X in most cases.
 #[allow(clippy::unwrap_used)]
 pub async fn handle_dlmm(
     dooot: DlmmGlobalDooot,
@@ -62,11 +65,11 @@ pub async fn handle_dlmm(
     };
 
     let Some(underlyings_x) = pool_info.underlyings.first() else {
-        log::error!("MALFORMED DLMM DOOOT: {pool_info:?}");
+        log::error!("MALFORMED DLMM: {pool_info:?}");
         return;
     };
     let Some(underlyings_y) = pool_info.underlyings.get(1) else {
-        log::error!("MALFORMED DLMM DOOOT: {pool_info:?}");
+        log::error!("MALFORMED DLMM: {pool_info:?}");
         return;
     };
 
@@ -84,14 +87,14 @@ pub async fn handle_dlmm(
         let dc_read = decimal_cache.read().await;
         log::trace!("Got decimal cache read lock");
 
-        let Some(x_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
+        let Some(decimals_x) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
             return;
         };
-        let Some(y_decimals) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y) else {
+        let Some(decimals_y) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_y) else {
             return;
         };
 
-        (x_decimals, y_decimals)
+        (decimals_x, decimals_y)
     };
 
     let Some(x_factor) = Decimal::TEN.checked_powu(decimals_x as u64) else {
@@ -178,13 +181,14 @@ pub async fn handle_dlmm(
             return;
         };
 
+        let mut bins_by_account = HashMap::new();
+        bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
+
         let new_relation_rev = LiqRelation::Dlmm {
             amt_origin: x_balance_units,
             amt_dest: y_balance_units,
-            vault_x: vault_x.to_string(),
-            vault_y: vault_y.to_string(),
             active_bin_account: None,
-            bins_by_account: HashMap::new(),
+            bins_by_account: bins_by_account.clone(),
             is_reverse: true,
             decimals_x,
             decimals_y,
@@ -193,10 +197,8 @@ pub async fn handle_dlmm(
         let new_relation = LiqRelation::Dlmm {
             amt_origin: y_balance_units,
             amt_dest: x_balance_units,
-            vault_x: vault_x.to_string(),
-            vault_y: vault_y.to_string(),
             active_bin_account: None,
-            bins_by_account: HashMap::new(),
+            bins_by_account,
             is_reverse: false,
             decimals_x,
             decimals_y,
@@ -299,8 +301,6 @@ pub async fn handle_dlmm(
             let new_relation_r = LiqRelation::Dlmm {
                 amt_origin: x_balance_units,
                 amt_dest: y_balance_units,
-                vault_x: vault_x.to_string(),
-                vault_y: vault_y.to_string(),
                 active_bin_account: None,
                 bins_by_account: bins_by_account.clone(),
                 is_reverse: false,
@@ -311,8 +311,6 @@ pub async fn handle_dlmm(
             let new_relation = LiqRelation::Dlmm {
                 amt_origin: y_balance_units,
                 amt_dest: x_balance_units,
-                vault_x: vault_x.to_string(),
-                vault_y: vault_y.to_string(),
                 active_bin_account: None,
                 bins_by_account,
                 is_reverse: true,
@@ -383,12 +381,12 @@ pub async fn handle_dlmm(
             )
             .await;
         } else if relation_rev.is_some() && relation.is_some() {
-            let Some(amt_origin_units) = x_balance.checked_div(x_factor) else {
+            let Some(amt_x_units) = x_balance.checked_div(x_factor) else {
                 log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
                 return;
             };
 
-            let Some(amt_dest_units) = y_balance.checked_div(y_factor) else {
+            let Some(amt_y_units) = y_balance.checked_div(y_factor) else {
                 log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
                 return;
             };
@@ -414,8 +412,8 @@ pub async fn handle_dlmm(
                 return;
             };
 
-            *amt_origin = amt_origin_units;
-            *amt_dest = amt_dest_units;
+            *amt_dest = amt_x_units;
+            *amt_origin = amt_y_units;
 
             log::trace!("Getting weight rev write lock");
             let mut w_rev_write = weight_rev.inner_relation.write().await;
@@ -431,8 +429,8 @@ pub async fn handle_dlmm(
                 log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
                 return;
             };
-            *amt_origin_rev = amt_dest_units;
-            *amt_dest_rev = amt_origin_units;
+            *amt_dest_rev = amt_y_units;
+            *amt_origin_rev = amt_x_units;
 
             // Is the active bin in this binarray?
             let active_bin_opt = parts

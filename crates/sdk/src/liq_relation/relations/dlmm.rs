@@ -261,7 +261,7 @@ pub fn get_dlmm_liquidity(
 
 #[cfg(test)]
 mod tests {
-    use rust_decimal::{prelude::FromPrimitive, Decimal};
+    use rust_decimal::Decimal;
 
     use crate::liq_relation::relations::dlmm::get_dlmm_price;
 
@@ -271,36 +271,36 @@ mod tests {
     #[test]
     fn dlmm_calculations() {
         let bin1 = DlmmBinParsed {
-            price: 12395918212259458082,
-            token_amounts: [205149870204u64.into(), 1728451075u64.into()],
+            price: 2077304150623053846,
+            token_amounts: [244853211743u64.into(), 921247.into()],
         };
 
         let bin2 = DlmmBinParsed {
-            price: 12550867189912701309,
-            token_amounts: [206118815125u64.into(), 0.into()],
+            price: 2081458758924299953,
+            token_amounts: [246027708068u64.into(), 0u64.into()],
         };
 
         let mut map = DlmmBinMap::new();
         map.insert(-1, vec![bin1.clone(), bin2]);
         let active_bin = Some((-1, 0));
         // let origin_tokens_per_sol: Decimal = 1950.into();
-        let reversed = true;
-        let decimals_x = 6;
+        let reversed = false;
+        let decimals_x = 9;
         let decimals_y = 6;
 
         let bin1_price = bin1.get_price(reversed).unwrap();
 
-        let step_usd_price = Decimal::from_f64(0.069).unwrap();
-        let xstep_price = get_dlmm_price(
+        let usdc_usd_price = Decimal::from(1);
+        let sol_price = get_dlmm_price(
             decimals_x,
             decimals_y,
-            &step_usd_price,
+            &usdc_usd_price,
             &map,
             &active_bin,
             reversed,
         );
 
-        println!("{bin1_price:?}");
-        println!("{xstep_price:?}");
+        println!("bin price: {bin1_price:?}");
+        println!("token x price: {sol_price:?}");
     }
 }

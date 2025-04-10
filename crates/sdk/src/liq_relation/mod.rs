@@ -30,13 +30,7 @@ pub enum LiqRelation {
         amt_origin: Decimal,
         /// Expressed in UNITS
         amt_dest: Decimal,
-        #[serde(skip)]
-        vault_x: String,
-        #[serde(skip)]
-        vault_y: String,
-        #[serde(skip)]
         decimals_x: u8,
-        #[serde(skip)]
         decimals_y: u8,
         /// (bin_arr_ix, bin_index_in_vec)
         active_bin_account: Option<(i32, usize)>,
