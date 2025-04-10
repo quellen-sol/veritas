@@ -178,26 +178,26 @@ pub async fn handle_dlmm(
             return;
         };
 
-        let new_relation = LiqRelation::Dlmm {
+        let new_relation_rev = LiqRelation::Dlmm {
             amt_origin: x_balance_units,
             amt_dest: y_balance_units,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
             active_bin_account: None,
             bins_by_account: HashMap::new(),
-            is_reverse: false,
+            is_reverse: true,
             decimals_x,
             decimals_y,
         };
 
-        let new_reverse_relation = LiqRelation::Dlmm {
+        let new_relation = LiqRelation::Dlmm {
             amt_origin: y_balance_units,
             amt_dest: x_balance_units,
             vault_x: vault_x.to_string(),
             vault_y: vault_y.to_string(),
             active_bin_account: None,
             bins_by_account: HashMap::new(),
-            is_reverse: true,
+            is_reverse: false,
             decimals_x,
             decimals_y,
         };
@@ -211,9 +211,28 @@ pub async fn handle_dlmm(
         let mut ei_write = edge_indicies.write().await;
         log::trace!("Got edge indicies write lock");
 
-        let new_edge = add_or_update_relation_edge(
+        let new_edge_rev = add_or_update_relation_edge(
             x_ix,
             y_ix,
+            &mut ei_write,
+            &mut g_write,
+            new_relation_rev,
+            pool_pubkey,
+            *time,
+        )
+        .await;
+
+        let new_edge_rev = match new_edge_rev {
+            Ok(ix) => ix,
+            Err(e) => {
+                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
+                return;
+            }
+        };
+
+        let new_edge = add_or_update_relation_edge(
+            y_ix,
+            x_ix,
             &mut ei_write,
             &mut g_write,
             new_relation,
@@ -230,37 +249,18 @@ pub async fn handle_dlmm(
             }
         };
 
-        let new_reverse_edge = add_or_update_relation_edge(
-            y_ix,
-            x_ix,
-            &mut ei_write,
-            &mut g_write,
-            new_reverse_relation,
-            pool_pubkey,
-            *time,
-        )
-        .await;
-
-        let new_reverse_edge = match new_reverse_edge {
-            Ok(ix) => ix,
-            Err(e) => {
-                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
-                return;
-            }
-        };
-
         drop(g_write);
         drop(ei_write);
 
         log::trace!("Sending update to calculator");
         send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(y_ix, new_edge),
+            CalculatorUpdate::NewTokenRatio(y_ix, new_edge_rev),
             &calculator_sender,
             &bootstrap_in_progress,
         )
         .await;
         send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(x_ix, new_reverse_edge),
+            CalculatorUpdate::NewTokenRatio(x_ix, new_edge),
             &calculator_sender,
             &bootstrap_in_progress,
         )
@@ -279,8 +279,8 @@ pub async fn handle_dlmm(
         let ei_read = edge_indicies.read().await;
         log::trace!("Got edge indicies read lock");
 
-        let relation = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
-        let relation_rev = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
+        let relation_rev = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
+        let relation = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
 
         let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
             log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
@@ -292,11 +292,11 @@ pub async fn handle_dlmm(
             return;
         };
 
-        if relation.is_none() && relation_rev.is_none() {
+        if relation_rev.is_none() && relation.is_none() {
             let mut bins_by_account = HashMap::new();
             bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
 
-            let new_relation = LiqRelation::Dlmm {
+            let new_relation_r = LiqRelation::Dlmm {
                 amt_origin: x_balance_units,
                 amt_dest: y_balance_units,
                 vault_x: vault_x.to_string(),
@@ -308,7 +308,7 @@ pub async fn handle_dlmm(
                 decimals_y,
             };
 
-            let new_reverse_relation = LiqRelation::Dlmm {
+            let new_relation = LiqRelation::Dlmm {
                 amt_origin: y_balance_units,
                 amt_dest: x_balance_units,
                 vault_x: vault_x.to_string(),
@@ -330,12 +330,12 @@ pub async fn handle_dlmm(
             let mut ei_write = edge_indicies.write().await;
             log::trace!("Got edge indicies write lock");
 
-            let new_ix = match add_or_update_relation_edge(
+            let new_ix_rev = match add_or_update_relation_edge(
                 x_ix,
                 y_ix,
                 &mut ei_write,
                 &mut g_write,
-                new_relation,
+                new_relation_r,
                 pool_pubkey,
                 *time,
             )
@@ -348,12 +348,12 @@ pub async fn handle_dlmm(
                 }
             };
 
-            let new_reverse_ix = match add_or_update_relation_edge(
+            let new_ix = match add_or_update_relation_edge(
                 y_ix,
                 x_ix,
                 &mut ei_write,
                 &mut g_write,
-                new_reverse_relation,
+                new_relation,
                 pool_pubkey,
                 *time,
             )
@@ -371,18 +371,18 @@ pub async fn handle_dlmm(
 
             log::trace!("Sending update to calculator");
             send_update_to_calculator(
-                CalculatorUpdate::NewTokenRatio(y_ix, new_ix),
+                CalculatorUpdate::NewTokenRatio(y_ix, new_ix_rev),
                 &calculator_sender,
                 &bootstrap_in_progress,
             )
             .await;
             send_update_to_calculator(
-                CalculatorUpdate::NewTokenRatio(x_ix, new_reverse_ix),
+                CalculatorUpdate::NewTokenRatio(x_ix, new_ix),
                 &calculator_sender,
                 &bootstrap_in_progress,
             )
             .await;
-        } else if relation.is_some() && relation_rev.is_some() {
+        } else if relation_rev.is_some() && relation.is_some() {
             let Some(amt_origin_units) = x_balance.checked_div(x_factor) else {
                 log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
                 return;
@@ -393,8 +393,8 @@ pub async fn handle_dlmm(
                 return;
             };
 
-            let edge = relation.unwrap();
-            let edge_rev = relation_rev.unwrap();
+            let edge = relation_rev.unwrap();
+            let edge_rev = relation.unwrap();
 
             let weight = g_read.edge_weight(edge).unwrap();
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
