@@ -305,7 +305,7 @@ pub async fn handle_dlmm(
                 amt_dest: y_balance_units,
                 active_bin_account: None,
                 bins_by_account: bins_by_account.clone(),
-                is_reverse: false,
+                is_reverse: true,
                 decimals_x,
                 decimals_y,
                 pool_id: pool_pubkey.to_string(),
@@ -316,7 +316,7 @@ pub async fn handle_dlmm(
                 amt_dest: x_balance_units,
                 active_bin_account: None,
                 bins_by_account,
-                is_reverse: true,
+                is_reverse: false,
                 decimals_x,
                 decimals_y,
                 pool_id: pool_pubkey.to_string(),
@@ -412,7 +412,10 @@ pub async fn handle_dlmm(
                 ..
             } = *w_write
             else {
-                log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
                 return;
             };
 
@@ -430,7 +433,10 @@ pub async fn handle_dlmm(
                 ..
             } = *w_rev_write
             else {
-                log::error!("UNREACHABLE - WEIGHT IS NOT A DLMM");
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
                 return;
             };
             *amt_dest_rev = amt_y_units;
