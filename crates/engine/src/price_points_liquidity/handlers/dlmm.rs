@@ -402,7 +402,7 @@ pub async fn handle_dlmm(
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
 
             log::trace!("Getting weight write lock");
-            let mut w_write = weight_rev.inner_relation.write().await;
+            let mut w_write = weight.inner_relation.write().await;
             log::trace!("Got weight write lock");
             let LiqRelation::Dlmm {
                 ref mut amt_origin,
@@ -423,7 +423,7 @@ pub async fn handle_dlmm(
             *amt_dest = amt_x_units;
 
             log::trace!("Getting weight rev write lock");
-            let mut w_rev_write = weight.inner_relation.write().await;
+            let mut w_rev_write = weight_rev.inner_relation.write().await;
             log::trace!("Got weight rev write lock");
             let LiqRelation::Dlmm {
                 amt_origin: ref mut amt_origin_rev,
@@ -439,6 +439,7 @@ pub async fn handle_dlmm(
                 );
                 return;
             };
+
             *amt_origin_rev = amt_x_units;
             *amt_dest_rev = amt_y_units;
 
