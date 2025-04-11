@@ -137,7 +137,7 @@ pub async fn query_decimals(
             "
                 SELECT
                     base58Encode(mint) as mint_pk,
-                    anyLastMerge(decimals) as decimals
+                    argMaxMerge(decimals) as decimals
                 FROM lookup_mint_info
                 WHERE mint IN (
                     SELECT arrayJoin(arrayMap(x -> base58Decode(x), ?))
