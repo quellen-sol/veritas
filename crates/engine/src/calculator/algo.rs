@@ -52,7 +52,7 @@ pub async fn bfs_recalculate(
             let Some(new_price) =
                 get_total_weighted_price(graph, node, sol_index, max_price_impact).await
             else {
-                // log::warn!("Failed to calculate price for {mint}");
+                log::trace!("Failed to calculate price for {mint}");
                 continue;
             };
 
@@ -117,8 +117,24 @@ pub async fn get_total_weighted_price(
         .neighbors_directed(this_node, Direction::Incoming)
         .unique()
     {
-        let Some((weighted, liq)) =
-            get_single_wighted_price(neighbor, this_node, graph, sol_index, max_price_impact).await
+        let neighbor_mint = {
+            let Some(neighbor_mint) = graph.node_weight(neighbor).map(|n| &n.mint) else {
+                log::error!("UNREACHABLE - Neighbor node should always exist");
+                continue;
+            };
+
+            neighbor_mint
+        };
+        log::trace!("Getting single weighted price from neighbor {neighbor_mint}");
+        let Some((weighted, liq)) = get_single_wighted_price(
+            neighbor,
+            this_node,
+            graph,
+            sol_index,
+            max_price_impact,
+            neighbor_mint,
+        )
+        .await
         else {
             // Illiquid or price doesn't exist. Skip
             continue;
@@ -156,6 +172,7 @@ pub async fn get_single_wighted_price(
     graph: &MintPricingGraph,
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
+    neighbor_mint: &str,
 ) -> Option<(Decimal, LiqAmount)> {
     let price_a = get_price_by_node_idx(graph, a).await?;
 
@@ -193,11 +210,13 @@ pub async fn get_single_wighted_price(
                 continue;
             };
 
+            log::trace!("Getting liq levels for {neighbor_mint}");
             let Some(liq_levels) = relation.get_liq_levels(tokens_a_per_sol) else {
                 // Math overflow in calc'ing liq levels.
                 // We can assume this to be illiquid if values got that high
                 continue;
             };
+            log::trace!("Got liq levels for {neighbor_mint}");
 
             if !liq_levels.acceptable(max_price_impact) {
                 continue;
@@ -229,9 +248,12 @@ mod tests {
     use petgraph::Graph;
     use rust_decimal::{prelude::FromPrimitive, Decimal};
     use tokio::sync::RwLock;
-    use veritas_sdk::ppl_graph::{
-        graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
-        structs::{LiqAmount, LiqRelation},
+    use veritas_sdk::{
+        liq_relation::LiqRelation,
+        ppl_graph::{
+            graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
+            structs::LiqAmount,
+        },
     };
 
     use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};
@@ -306,7 +328,7 @@ mod tests {
         let max_price_impact = Decimal::from_f64(0.25).unwrap();
 
         let (weighted, liq) =
-            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact)
+            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact, "USDC")
                 .await
                 .unwrap();
 
