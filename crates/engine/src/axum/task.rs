@@ -103,13 +103,29 @@ async fn debug_node_info(
         for edge in g_read.edges_connecting(mint_ix, neighbor) {
             let e_weight = edge.weight();
             let relation = e_weight.inner_relation.read().await.clone();
+            let calc_res = this_price.map(|p| {
+                let this_tokens_per_sol = sol_price.and_then(|s| s.checked_div(p));
+                let liq = relation.get_liquidity(p, Decimal::ZERO);
+                let levels = this_tokens_per_sol.and_then(|tps| relation.get_liq_levels(tps));
+                let derived = relation.get_price(p);
 
-            relation_info.outgoing_relations.push(RelationWithLiq {
+                (liq, levels, derived)
+            });
+
+            let mut relation_with_liq = RelationWithLiq {
                 relation,
                 liquidity_amount: None,
                 liquidity_levels: None,
                 derived_price: None,
-            });
+            };
+
+            if let Some((liquidity_amount, liquidity_levels, derived_price)) = calc_res {
+                relation_with_liq.liquidity_amount = liquidity_amount;
+                relation_with_liq.liquidity_levels = liquidity_levels;
+                relation_with_liq.derived_price = derived_price;
+            };
+
+            relation_info.outgoing_relations.push(relation_with_liq);
         }
 
         // All incoming edges
