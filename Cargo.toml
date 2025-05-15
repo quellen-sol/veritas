@@ -11,11 +11,11 @@ lto = true
 panic = "abort"
 
 [workspace.dependencies]
-step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "7732caab4f6eb552c413fc1d2f0b2cb8b607aba4" }
-solana-transaction-status = "=2.0.13"
-solana-program = "=2.0.13"
-solana-sdk = "=2.0.13"
-solana-client = "=2.0.13"
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "b9dbf7fe7e40d1ecff7f03110864e4451f4bc934" }
+solana-transaction-status = "=2.2.0"
+solana-program = "=2.2.1"
+solana-sdk = "=2.2.1"
+solana-client = "=2.2.0"
 lapin = "2.0.3"
 tokio = { version = "1.43.0", features = ["full"] }
 anyhow = "1.0.95"
@@ -35,7 +35,7 @@ axum = "0.8.1"
 itertools = "0.14.0"
 
 [patch.crates-io]
-solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
-solana-program = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
-solana-sdk = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
-solana-client = { git = 'https://github.com/step-finance/agave', rev = "6eab71f06cd4cf6a8beef47ca8dd056ae3b1f011" }
+solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "eaba9badbb32a312f2c4c476ae255775a651e631" }
+solana-client = { git = 'https://github.com/step-finance/agave', rev = "eaba9badbb32a312f2c4c476ae255775a651e631" }
+solana-program = { git = 'https://github.com/step-finance/solana-sdk', rev = "558a5075feced42dd4ed430ab908935d9a6ce922" }
+solana-sdk = { git = 'https://github.com/step-finance/solana-sdk', rev = "558a5075feced42dd4ed430ab908935d9a6ce922" }
