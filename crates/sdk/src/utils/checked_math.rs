@@ -52,4 +52,12 @@ mod tests {
 
         assert_eq!(clamped, Decimal::from_str("302.929386387").unwrap())
     }
+
+    #[test]
+    fn clamping_digits() {
+        let value = Decimal::from_str("302929386387709.20892670435169").unwrap();
+        let clamped = clamp_to_scale(&value);
+
+        assert_eq!(clamped, Decimal::from_str("302929386387709.208").unwrap())
+    }
 }
