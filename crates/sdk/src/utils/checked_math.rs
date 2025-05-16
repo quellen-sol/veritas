@@ -13,10 +13,28 @@ pub fn is_significant_change(old: &Decimal, new: &Decimal) -> bool {
     checked_pct_diff(old, new).is_some_and(|d| d > POINT_ONE_PERCENT)
 }
 
-/// Try to make this Decimal fit our CH table spec
+/// Try to make this Decimal fit our CH table spec (Decimal(18,9))
 #[inline]
 pub fn clamp_to_scale(value: &Decimal) -> Decimal {
-    value.normalize().trunc_with_scale(9)
+    let normalized = value.normalize();
+    let mantissa = normalized.mantissa().abs();
+    let mut scale = normalized.scale();
+
+    // Cannot take log10 of 0
+    if mantissa == 0 {
+        return normalized;
+    }
+
+    let digits = (mantissa as f64).log10().floor() as u32 + 1;
+
+    // If total digits exceed 18, reduce scale to fit
+    if digits > 18 {
+        scale = scale.saturating_sub(digits - 18);
+    }
+
+    scale = scale.min(9u32);
+
+    normalized.trunc_with_scale(scale)
 }
 
 #[cfg(test)]
