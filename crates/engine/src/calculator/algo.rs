@@ -154,7 +154,7 @@ pub async fn get_total_weighted_price(
     }
 
     let final_decimal = cm_weighted_price.checked_div(total_liq)?;
-    let final_price = clamp_to_scale(&final_decimal);
+    let final_price = clamp_to_scale(&final_decimal)?;
 
     Some(final_price)
 }

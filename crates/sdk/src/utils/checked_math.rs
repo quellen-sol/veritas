@@ -14,27 +14,35 @@ pub fn is_significant_change(old: &Decimal, new: &Decimal) -> bool {
 }
 
 /// Try to make this Decimal fit our CH table spec (Decimal(18,9))
+///
+/// Returns None if we cannot reduce the scale enough to fit
 #[inline]
-pub fn clamp_to_scale(value: &Decimal) -> Decimal {
+pub fn clamp_to_scale(value: &Decimal) -> Option<Decimal> {
     let normalized = value.normalize();
     let mantissa = normalized.mantissa().abs();
     let mut scale = normalized.scale();
 
     // Cannot take log10 of 0
     if mantissa == 0 {
-        return normalized;
+        return Some(normalized);
     }
 
     let digits = (mantissa as f64).log10().floor() as u32 + 1;
 
     // If total digits exceed 18, reduce scale to fit
     if digits > 18 {
-        scale = scale.saturating_sub(digits - 18);
+        let diff = digits - 18;
+        if scale < diff {
+            // Cannot reduce scale enough to fit
+            return None;
+        }
+
+        scale -= diff;
     }
 
     scale = scale.min(9u32);
 
-    normalized.trunc_with_scale(scale)
+    Some(normalized.trunc_with_scale(scale))
 }
 
 #[cfg(test)]
@@ -50,7 +58,7 @@ mod tests {
         let value = Decimal::from_str("302.92938638770920892670435169").unwrap();
         let clamped = clamp_to_scale(&value);
 
-        assert_eq!(clamped, Decimal::from_str("302.929386387").unwrap())
+        assert_eq!(clamped, Some(Decimal::from_str("302.929386387").unwrap()))
     }
 
     #[test]
@@ -58,6 +66,17 @@ mod tests {
         let value = Decimal::from_str("302929386387709.20892670435169").unwrap();
         let clamped = clamp_to_scale(&value);
 
-        assert_eq!(clamped, Decimal::from_str("302929386387709.208").unwrap())
+        assert_eq!(
+            clamped,
+            Some(Decimal::from_str("302929386387709.208").unwrap())
+        )
+    }
+
+    #[test]
+    fn clamping_digits_2() {
+        let value = Decimal::from_str("30292938638770920892670435169").unwrap();
+        let clamped = clamp_to_scale(&value);
+
+        assert_eq!(clamped, None)
     }
 }
