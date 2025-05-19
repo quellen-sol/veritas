@@ -142,7 +142,7 @@ pub async fn get_total_weighted_price(
 
         let liq = match liq {
             LiqAmount::Amount(amt) => amt,
-            LiqAmount::Inf => return Some(weighted),
+            LiqAmount::Inf => return clamp_to_scale(&weighted),
         };
 
         cm_weighted_price = cm_weighted_price.checked_add(weighted.checked_mul(liq)?)?;
