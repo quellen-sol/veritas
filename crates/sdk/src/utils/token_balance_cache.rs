@@ -18,19 +18,20 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
 
     let query = "
         WITH
-            dlmm_vaults AS (
+            clmm_and_dlmm_vaults AS (
                 SELECT
                 DISTINCT u.vault AS vault
                 FROM lookup_lp_info lli
                 ARRAY JOIN underlyings AS u
                 WHERE lli.curve_type = 7
+                OR lli.curve_type = 4
             ),
             token_balance as (
                 SELECT
                     token_account_pubkey,
                     balance
                 from current_token_balance_by_user_mint
-                where token_account_pubkey in (select vault from dlmm_vaults)
+                where token_account_pubkey in (select vault from clmm_and_dlmm_vaults)
             )
         SELECT
             base58Encode(token_account_pubkey) AS vault,

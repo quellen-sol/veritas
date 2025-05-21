@@ -65,11 +65,11 @@ pub async fn handle_dlmm(
     };
 
     let Some(underlyings_x) = pool_info.underlyings.first() else {
-        log::error!("MALFORMED DLMM: {dooot:?}");
+        log::error!("MALFORMED DLMM: {pool_info:?}");
         return;
     };
     let Some(underlyings_y) = pool_info.underlyings.get(1) else {
-        log::error!("MALFORMED DLMM: {dooot:?}");
+        log::error!("MALFORMED DLMM: {pool_info:?}");
         return;
     };
 

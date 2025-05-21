@@ -107,12 +107,12 @@ pub async fn handle_clmm(
     };
 
     let Some(underlyings_a) = pool_info.underlyings.first() else {
-        log::error!("MALFORMED CLMM: {dooot:?}");
+        log::error!("MALFORMED CLMM: {pool_info:?}");
         return;
     };
 
     let Some(underlyings_b) = pool_info.underlyings.get(1) else {
-        log::error!("MALFORMED CLMM: {dooot:?}");
+        log::error!("MALFORMED CLMM: {pool_info:?}");
         return;
     };
 
