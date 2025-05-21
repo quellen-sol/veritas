@@ -58,7 +58,7 @@ pub fn get_clmm_price(
     let sqrt_price_scaled_decimal = Decimal::from(sqrt_price_scaled);
 
     let price_scaled_decimal = sqrt_price_scaled_decimal.checked_powu(2)?;
-    // Units atoms B per atoms token A
+    // Atoms B per atoms token A
     let mut price_decimal = price_scaled_decimal.checked_div(SCALE_FACTOR_DECIMAL_SQUARED)?;
 
     let decimal_factor = if !is_reverse {
@@ -90,7 +90,7 @@ pub fn get_clmm_liquidity(
 }
 
 pub fn get_clmm_liq_levels() -> Option<LiqLevels> {
-    Some(LiqLevels::ZERO)
+    Some(LiqLevels::INFINITE)
 }
 
 #[cfg(test)]

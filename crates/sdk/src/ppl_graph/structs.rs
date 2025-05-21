@@ -18,6 +18,12 @@ impl LiqLevels {
         thousand_sol_depth: Some(Decimal::ZERO),
     };
 
+    pub const INFINITE: Self = Self {
+        one_sol_depth: None,
+        ten_sol_depth: None,
+        thousand_sol_depth: None,
+    };
+
     /// Determines if the liq levels are acceptable for a given relation,
     /// and should be used for pricing
     ///
