@@ -159,7 +159,6 @@ pub async fn handle_clmm(
         if let (Some(a_bal_inner_val), Some(b_bal_inner_val)) = (a_bal_cache_op, b_bal_cache_op) {
             let (Some(a_vault_balance), Some(b_vault_balance)) = (a_bal_inner_val, b_bal_inner_val)
             else {
-                log::error!("UNREACHABLE - Both balances should have been set in cache");
                 return;
             };
 
