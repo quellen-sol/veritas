@@ -3,11 +3,11 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct LiqLevels {
-    /// pct change, `None` is infinite change, and therefor unacceptable
+    /// pct change, `None` is infinite change, and therefore unacceptable
     pub one_sol_depth: Option<Decimal>,
-    /// pct change, `None` is infinite change, and therefor unacceptable
+    /// pct change, `None` is infinite change, and therefore unacceptable
     pub ten_sol_depth: Option<Decimal>,
-    /// pct change, `None` is infinite change, and therefor unacceptable
+    /// pct change, `None` is infinite change, and therefore unacceptable
     pub thousand_sol_depth: Option<Decimal>,
 }
 
@@ -22,7 +22,7 @@ impl LiqLevels {
     /// and should be used for pricing
     ///
     /// As of writing, current determination should be that
-    /// 10 SOL (~$1,270 atm) should not have an impact of 1% or greater
+    /// 10 SOL (~$1,670 atm) should not have an impact of 25% or greater
     ///
     /// This is completely arbitrary and subject to change
     #[inline]
@@ -35,6 +35,6 @@ impl LiqLevels {
 #[derive(Serialize, Deserialize)]
 pub enum LiqAmount {
     Amount(Decimal),
-    /// Used by `Fixed` relations, that will ALWAYS take prescidence when calculating price
+    /// Used by `Fixed` relations, that will ALWAYS take precedence when calculating price
     Inf,
 }

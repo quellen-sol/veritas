@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
 use relations::{
-    clmm::{get_clmm_liquidity, get_clmm_price, ClmmTickMap},
+    clmm::{get_clmm_liq_levels, get_clmm_liquidity, get_clmm_price, ClmmTickMap},
     cplp::{get_cplp_liq_levels, get_cplp_liquidity, get_cplp_price},
     dlmm::{get_dlmm_liq_levels, get_dlmm_liquidity, get_dlmm_price, DlmmBinMap},
     fixed::{get_fixed_liq_levels, get_fixed_liquidity, get_fixed_price},
@@ -48,7 +48,7 @@ pub enum LiqRelation {
         decimals_b: u8,
         #[serde(skip)]
         ticks_by_account: ClmmTickMap,
-        current_price_x64: u128,
+        current_price_x64: Option<u128>,
         is_reverse: bool,
         pool_id: String,
     },
@@ -91,7 +91,7 @@ impl LiqRelation {
                 is_reverse,
                 ..
             } => get_clmm_price(
-                *current_price_x64,
+                current_price_x64,
                 &usd_price_origin,
                 *decimals_a,
                 *decimals_b,
@@ -124,7 +124,7 @@ impl LiqRelation {
                 *decimals_x,
                 *decimals_y,
             ),
-            LiqRelation::Clmm { .. } => Some(LiqLevels::ZERO),
+            LiqRelation::Clmm { .. } => get_clmm_liq_levels(),
         }
     }
 

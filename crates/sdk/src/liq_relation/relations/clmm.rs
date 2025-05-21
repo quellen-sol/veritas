@@ -2,13 +2,32 @@ use std::collections::HashMap;
 
 use rust_decimal::{Decimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
+use step_ingestooor_sdk::dooot::ClmmTick;
 
-use crate::ppl_graph::structs::LiqAmount;
+use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
-pub type ClmmTickMap = HashMap<i32, ClmmTickParsed>;
+pub type ClmmTickMap = HashMap<i32, Vec<ClmmTickParsed>>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ClmmTickParsed {}
+pub struct ClmmTickParsed {
+    pub liquidity_gross: u128,
+    pub liquidity_net: i128,
+    pub fee_growth_outside_a: u128,
+    pub fee_growth_outside_b: u128,
+}
+
+impl TryFrom<ClmmTick> for ClmmTickParsed {
+    type Error = anyhow::Error;
+
+    fn try_from(tick: ClmmTick) -> Result<Self, Self::Error> {
+        Ok(Self {
+            liquidity_gross: tick.liquidity_gross.parse()?,
+            liquidity_net: tick.liquidity_net.parse()?,
+            fee_growth_outside_a: tick.fee_growth_outside_a.parse()?,
+            fee_growth_outside_b: tick.fee_growth_outside_b.parse()?,
+        })
+    }
+}
 
 // For precision. Tone down this value if we suspect this is overflowing price calcs
 const SCALE_FACTOR: u128 = 1_000_000;
@@ -24,12 +43,16 @@ const SCALE_FACTOR_DECIMAL_SQUARED: Decimal = Decimal::from_parts(
 );
 
 pub fn get_clmm_price(
-    sqrt_price_x64: u128,
+    sqrt_price_x64: &Option<u128>,
     usd_per_origin_units: &Decimal,
     decimals_a: u8,
     decimals_b: u8,
     is_reverse: bool,
 ) -> Option<Decimal> {
+    let Some(sqrt_price_x64) = sqrt_price_x64 else {
+        return None;
+    };
+
     let sqrt_price_x64_scaled = sqrt_price_x64.checked_mul(SCALE_FACTOR)?;
     let sqrt_price_scaled = sqrt_price_x64_scaled >> 64;
     let sqrt_price_scaled_decimal = Decimal::from(sqrt_price_scaled);
@@ -66,6 +89,10 @@ pub fn get_clmm_liquidity(
     Some(LiqAmount::Amount(total_liq))
 }
 
+pub fn get_clmm_liq_levels() -> Option<LiqLevels> {
+    Some(LiqLevels::ZERO)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -80,7 +107,7 @@ mod tests {
         let is_reverse = false;
 
         let price = get_clmm_price(
-            current_price_x64,
+            &Some(current_price_x64),
             &usd_per_origin_units,
             decimals_a,
             decimals_b,

@@ -5,6 +5,7 @@ package.version = "1.0.0"
 
 [workspace.lints]
 clippy.unwrap_used = "deny"
+clippy.get_first = "allow"
 
 [profile.release]
 lto = true
