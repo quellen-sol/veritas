@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 
 use relations::{
+    clmm::{get_clmm_liq_levels, get_clmm_liquidity, get_clmm_price, ClmmTickMap},
     cplp::{get_cplp_liq_levels, get_cplp_liquidity, get_cplp_price},
     dlmm::{get_dlmm_liq_levels, get_dlmm_liquidity, get_dlmm_price, DlmmBinMap},
     fixed::{get_fixed_liq_levels, get_fixed_liquidity, get_fixed_price},
@@ -39,8 +40,18 @@ pub enum LiqRelation {
         is_reverse: bool,
         pool_id: String,
     },
-    // /// CLMMs
-    // Clmm,
+    /// CLMMs
+    Clmm {
+        amt_origin: Decimal,
+        amt_dest: Decimal,
+        decimals_a: u8,
+        decimals_b: u8,
+        #[serde(skip)]
+        ticks_by_account: ClmmTickMap,
+        current_price_x64: Option<u128>,
+        is_reverse: bool,
+        pool_id: String,
+    },
     // /// CLOBs
     // Clob,
 }
@@ -73,6 +84,19 @@ impl LiqRelation {
                 active_bin_account,
                 *is_reverse,
             ),
+            LiqRelation::Clmm {
+                decimals_a,
+                decimals_b,
+                current_price_x64,
+                is_reverse,
+                ..
+            } => get_clmm_price(
+                current_price_x64,
+                &usd_price_origin,
+                *decimals_a,
+                *decimals_b,
+                *is_reverse,
+            ),
         }
     }
 
@@ -100,6 +124,7 @@ impl LiqRelation {
                 *decimals_x,
                 *decimals_y,
             ),
+            LiqRelation::Clmm { .. } => get_clmm_liq_levels(),
         }
     }
 
@@ -122,6 +147,11 @@ impl LiqRelation {
                 amt_dest: amt_b,
                 ..
             } => get_dlmm_liquidity(amt_a, amt_b, price_source_usd, price_dest_usd),
+            LiqRelation::Clmm {
+                amt_origin,
+                amt_dest,
+                ..
+            } => get_clmm_liquidity(amt_origin, amt_dest, price_source_usd, price_dest_usd),
         }
     }
 }
