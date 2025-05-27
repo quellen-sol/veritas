@@ -49,6 +49,8 @@ pub enum LiqRelation {
         #[serde(skip)]
         ticks_by_account: ClmmTickMap,
         current_price_x64: Option<u128>,
+        current_tick_index: Option<i32>,
+        tick_spacing: Option<i32>,
         is_reverse: bool,
         pool_id: String,
     },
@@ -124,7 +126,23 @@ impl LiqRelation {
                 *decimals_x,
                 *decimals_y,
             ),
-            LiqRelation::Clmm { .. } => get_clmm_liq_levels(),
+            LiqRelation::Clmm {
+                ticks_by_account,
+                is_reverse,
+                current_tick_index,
+                tick_spacing,
+                decimals_a,
+                decimals_b,
+                ..
+            } => get_clmm_liq_levels(
+                ticks_by_account,
+                *current_tick_index,
+                *tick_spacing,
+                &tokens_per_sol,
+                *is_reverse,
+                *decimals_a,
+                *decimals_b,
+            ),
         }
     }
 
