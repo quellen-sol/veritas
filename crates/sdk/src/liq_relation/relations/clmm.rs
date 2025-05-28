@@ -16,10 +16,10 @@ pub struct ClmmTickParsed {
     pub fee_growth_outside_b: u128,
 }
 
-impl TryFrom<ClmmTick> for ClmmTickParsed {
+impl TryFrom<&ClmmTick> for ClmmTickParsed {
     type Error = anyhow::Error;
 
-    fn try_from(tick: ClmmTick) -> Result<Self, Self::Error> {
+    fn try_from(tick: &ClmmTick) -> Result<Self, Self::Error> {
         Ok(Self {
             liquidity_gross: tick.liquidity_gross.parse()?,
             liquidity_net: tick.liquidity_net.parse()?,
@@ -103,9 +103,15 @@ pub fn get_clmm_liq_levels(
     let mut current_tick_index = current_tick_index?;
     let tick_spacing = tick_spacing?;
     let tick_step = if is_reverse { -1 } else { 1 };
-    let tick_array_start_idx = get_tick_array_start_idx(current_tick_index, tick_spacing)?;
-    let mut offset_in_array = current_tick_index - tick_array_start_idx;
+    // Do this to avoid worrying about different tick arrays lengths per protocol
+    let ticks_per_array = {
+        let (_, example_array) = ticks_by_index.iter().next()?;
+        example_array.len() as i32
+    };
+    let space_factor = ticks_per_array.checked_mul(tick_spacing)?;
+    let tick_array_start_idx = get_tick_array_start_idx(current_tick_index, space_factor)?;
     let mut current_tick_array = ticks_by_index.get(&tick_array_start_idx)?;
+    let mut offset_in_array = current_tick_index - tick_array_start_idx;
     let mut tick = current_tick_array.get(offset_in_array as usize)?;
     let current_price = Decimal::from_f32(sqrt_price_from_idx(current_tick_index)?.powi(2))?;
     // let decimal_factor = if is_reverse {
@@ -125,21 +131,15 @@ pub fn get_clmm_liq_levels(
     let mut ten_sol_price_set = false;
     let mut thousand_sol_price_set = false;
 
-    let mut one_sol_impact_set = false;
-    let mut ten_sol_impact_set = false;
-    let mut thousand_sol_impact_set = false;
-
-    let mut one_sol_price_change = Some(Decimal::ZERO);
-    let mut ten_sol_price_change = Some(Decimal::ZERO);
-    let mut thousand_sol_price_change = Some(Decimal::ZERO);
-
     while thousand_sol_tokens > Decimal::ZERO {
         let amount_in = if one_sol_tokens > Decimal::ZERO {
             one_sol_tokens
         } else if ten_sol_tokens > Decimal::ZERO {
             ten_sol_tokens
-        } else {
+        } else if thousand_sol_tokens > Decimal::ZERO {
             thousand_sol_tokens
+        } else {
+            break;
         };
 
         let (used, used_all_tick) = tick_swap(
@@ -150,17 +150,29 @@ pub fn get_clmm_liq_levels(
             is_reverse,
         )?;
 
+        if used == Decimal::ZERO {
+            break;
+        }
+
         if used_all_tick {
             let next_arr_idx = offset_in_array + tick_step;
 
             if !is_reverse && next_arr_idx >= 88 {
                 offset_in_array = 0;
-                current_tick_index =
-                    next_tick_array_start_idx(current_tick_index, tick_spacing, is_reverse)?;
+                let Some(next_tick_index) =
+                    next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
+                else {
+                    break;
+                };
+                current_tick_index = next_tick_index;
             } else if is_reverse && next_arr_idx <= 0 {
                 offset_in_array = 87;
-                current_tick_index =
-                    next_tick_array_start_idx(current_tick_index, tick_spacing, is_reverse)?;
+                let Some(next_tick_index) =
+                    next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
+                else {
+                    break;
+                };
+                current_tick_index = next_tick_index;
             } else {
                 offset_in_array = next_arr_idx;
             }
@@ -169,27 +181,29 @@ pub fn get_clmm_liq_levels(
                 break;
             };
 
-            current_tick_array = new_tick_array;
-
             let Some(new_tick) = current_tick_array.get(offset_in_array as usize) else {
                 break;
             };
 
+            current_tick_array = new_tick_array;
             tick = new_tick;
         } else {
-            // Could not use up the entire tick, so set impact to 0
+            // Could not use up the entire tick, so set impact to current price
             if amount_in == one_sol_tokens {
-                one_sol_price_change = Some(Decimal::ZERO);
+                let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
+                one_sol_price_after = Decimal::from_f32(price)?;
                 one_sol_price_set = true;
-                one_sol_impact_set = true;
+                one_sol_tokens = Decimal::ZERO;
             } else if amount_in == ten_sol_tokens {
-                ten_sol_price_change = Some(Decimal::ZERO);
+                let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
+                ten_sol_price_after = Decimal::from_f32(price)?;
                 ten_sol_price_set = true;
-                ten_sol_impact_set = true;
+                ten_sol_tokens = Decimal::ZERO;
             } else if amount_in == thousand_sol_tokens {
-                thousand_sol_price_change = Some(Decimal::ZERO);
+                let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
+                thousand_sol_price_after = Decimal::from_f32(price)?;
                 thousand_sol_price_set = true;
-                thousand_sol_impact_set = true;
+                thousand_sol_tokens = Decimal::ZERO;
             }
 
             continue;
@@ -199,43 +213,34 @@ pub fn get_clmm_liq_levels(
         ten_sol_tokens = ten_sol_tokens.checked_sub(used)?.max(Decimal::ZERO);
         thousand_sol_tokens = thousand_sol_tokens.checked_sub(used)?.max(Decimal::ZERO);
 
-        if !one_sol_impact_set && !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
+        if !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             one_sol_price_after = Decimal::from_f32(price)?;
             one_sol_price_set = true;
         }
 
-        if !ten_sol_impact_set && !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
+        if !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             ten_sol_price_after = Decimal::from_f32(price)?;
             ten_sol_price_set = true;
         }
 
-        if !thousand_sol_impact_set
-            && !thousand_sol_price_set
-            && thousand_sol_tokens <= Decimal::ZERO
-        {
+        if !thousand_sol_price_set && thousand_sol_tokens <= Decimal::ZERO {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             thousand_sol_price_after = Decimal::from_f32(price)?;
             thousand_sol_price_set = true;
         }
     }
 
-    if !one_sol_impact_set {
-        one_sol_price_change = one_sol_price_after
-            .checked_div(current_price)
-            .and_then(|p| p.checked_sub(Decimal::ONE));
-    }
-    if !ten_sol_impact_set {
-        ten_sol_price_change = ten_sol_price_after
-            .checked_div(current_price)
-            .and_then(|p| p.checked_sub(Decimal::ONE));
-    }
-    if !thousand_sol_impact_set {
-        thousand_sol_price_change = thousand_sol_price_after
-            .checked_div(current_price)
-            .and_then(|p| p.checked_sub(Decimal::ONE));
-    }
+    let one_sol_price_change = one_sol_price_after
+        .checked_div(current_price)
+        .and_then(|p| p.checked_sub(Decimal::ONE));
+    let ten_sol_price_change = ten_sol_price_after
+        .checked_div(current_price)
+        .and_then(|p| p.checked_sub(Decimal::ONE));
+    let thousand_sol_price_change = thousand_sol_price_after
+        .checked_div(current_price)
+        .and_then(|p| p.checked_sub(Decimal::ONE));
 
     Some(LiqLevels {
         one_sol_depth: one_sol_price_change,
@@ -244,16 +249,20 @@ pub fn get_clmm_liq_levels(
     })
 }
 
-fn get_tick_array_start_idx(tick_index: i32, tick_spacing: i32) -> Option<i32> {
-    tick_index.checked_sub(tick_index.checked_rem(tick_spacing)?)
+/// See https://dev.orca.so/Architecture%20Overview/Understanding%20Tick%20Arrays
+fn get_tick_array_start_idx(tick_index: i32, space_factor: i32) -> Option<i32> {
+    // These operations do not cancel out one another bc integer math. This is intended
+    tick_index
+        .checked_div(space_factor)?
+        .checked_mul(space_factor)
 }
 
-fn next_tick_array_start_idx(tick_index: i32, tick_spacing: i32, is_reverse: bool) -> Option<i32> {
+fn next_tick_array_start_idx(tick_index: i32, space_factor: i32, is_reverse: bool) -> Option<i32> {
     let step = if is_reverse { -1 } else { 1 };
 
-    let this_tick_array_start = get_tick_array_start_idx(tick_index, tick_spacing)?;
+    let this_tick_array_start = get_tick_array_start_idx(tick_index, space_factor)?;
 
-    this_tick_array_start.checked_add(tick_spacing * step)
+    this_tick_array_start.checked_add(space_factor * step)
 }
 
 /// Returns (amount_used, used_all)
@@ -303,6 +312,32 @@ fn sqrt_price_from_idx(tick_index: i32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tick_array_start_idx() {
+        let tick_index = 32;
+        let ticks_per_array = 88;
+        let tick_spacing = 2;
+        let space_factor = tick_spacing * ticks_per_array;
+
+        let expected = 0;
+        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_array_start_idx_2() {
+        let tick_index = -200;
+        let ticks_per_array = 88;
+        let tick_spacing = 2;
+        let space_factor = tick_spacing * ticks_per_array;
+
+        let expected = -176;
+        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn clmm_price() {

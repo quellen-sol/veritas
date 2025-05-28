@@ -277,7 +277,7 @@ pub async fn handle_clmm(
             } => {
                 let ticks_parsed = ticks
                     .iter()
-                    .map(|tick| tick.clone().try_into())
+                    .map(|tick| tick.try_into())
                     .collect::<Result<_, anyhow::Error>>();
 
                 let Ok(ticks_parsed) = ticks_parsed else {
@@ -452,7 +452,7 @@ pub async fn handle_clmm(
                     } => {
                         let ticks_parsed = ticks
                             .iter()
-                            .map(|tick| tick.clone().try_into())
+                            .map(|tick| tick.try_into())
                             .collect::<Result<Vec<_>, anyhow::Error>>();
 
                         let Ok(ticks_parsed) = ticks_parsed else {
