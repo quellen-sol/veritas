@@ -150,14 +150,14 @@ pub fn get_clmm_liq_levels(
             is_reverse,
         )?;
 
-        if used == Decimal::ZERO {
+        if used <= Decimal::ZERO {
             break;
         }
 
         if used_all_tick {
             let next_arr_idx = offset_in_array + tick_step;
 
-            if !is_reverse && next_arr_idx >= 88 {
+            if !is_reverse && next_arr_idx >= ticks_per_array {
                 offset_in_array = 0;
                 let Some(next_tick_index) =
                     next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
@@ -166,7 +166,7 @@ pub fn get_clmm_liq_levels(
                 };
                 current_tick_index = next_tick_index;
             } else if is_reverse && next_arr_idx <= 0 {
-                offset_in_array = 87;
+                offset_in_array = ticks_per_array - 1;
                 let Some(next_tick_index) =
                     next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
                 else {
@@ -273,8 +273,9 @@ fn tick_swap(
     tick_spacing: i32,
     is_reverse: bool,
 ) -> Option<(Decimal, bool)> {
+    let step = if is_reverse { -1 } else { 1 };
     let this_sqrt_price = sqrt_price_from_idx(this_tick_index)?;
-    let next_sqrt_price = sqrt_price_from_idx(this_tick_index + tick_spacing)?;
+    let next_sqrt_price = sqrt_price_from_idx(this_tick_index + (tick_spacing * step))?;
 
     let (lower, upper) = if this_sqrt_price > next_sqrt_price {
         (next_sqrt_price, this_sqrt_price)
@@ -287,6 +288,7 @@ fn tick_swap(
 
     let delta_param_in_token = if is_reverse {
         (1.0 / upper) - (1.0 / lower)
+        // upper - lower
     } else {
         upper - lower
     };
@@ -317,7 +319,7 @@ mod tests {
     fn tick_array_start_idx() {
         let tick_index = 32;
         let ticks_per_array = 88;
-        let tick_spacing = 2;
+        let tick_spacing = 8;
         let space_factor = tick_spacing * ticks_per_array;
 
         let expected = 0;
@@ -334,6 +336,19 @@ mod tests {
         let space_factor = tick_spacing * ticks_per_array;
 
         let expected = -176;
+        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_array_start_idx_3() {
+        let tick_index = 696 + 8;
+        let ticks_per_array = 88;
+        let tick_spacing = 8;
+        let space_factor = tick_spacing * ticks_per_array;
+
+        let expected = space_factor;
         let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
 
         assert_eq!(actual, expected);
@@ -362,21 +377,28 @@ mod tests {
 
     #[test]
     fn tick_swap_quote() {
+        // https://www.orca.so/pools/8sm62ee94Y3vvYkgaE519f1YgmRu89UNy9gDCqP9gZJo
+        // STEP/USDC pool
         let tick = ClmmTickParsed {
             fee_growth_outside_a: 0,
             fee_growth_outside_b: 0,
-            liquidity_gross: 8906013144118,
+            liquidity_gross: 42070156853, // 30 STEP
             liquidity_net: 0,
         };
 
-        // 846.689408
-        let tick_spacing = 5;
+        let tick_spacing = 128;
+        let start_idx = -101376;
+        let arr_idx = 55;
+        let tick_idx = start_idx - ((88 - arr_idx) * tick_spacing);
+        let price = sqrt_price_from_idx(tick_idx).unwrap().powi(2);
+        println!("tick_idx: {}", tick_idx);
+        println!("price: {}", price);
         let (used, used_all_tick) = tick_swap(
-            Decimal::from(1000000000),
-            -19339,
+            Decimal::from(30000000000u64),
+            tick_idx,
             &tick,
             tick_spacing,
-            false,
+            true,
         )
         .unwrap();
 
