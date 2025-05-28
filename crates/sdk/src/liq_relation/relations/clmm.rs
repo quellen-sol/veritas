@@ -31,7 +31,7 @@ impl TryFrom<ClmmTick> for ClmmTickParsed {
 
 // For precision. Tone down this value if we suspect this is overflowing price calcs
 const SCALE_FACTOR: u128 = 1_000_000;
-const SCALE_FACTOR_DECIMAL: Decimal = Decimal::from_parts(SCALE_FACTOR as u32, 0, 0, false, 0);
+const _SCALE_FACTOR_DECIMAL: Decimal = Decimal::from_parts(SCALE_FACTOR as u32, 0, 0, false, 0);
 
 const SF_SQUARED_LO_BYTES: [u8; 4] = [0, 16, 165, 212];
 const SF_SQUARED_MID_BYTES: [u8; 4] = [232, 0, 0, 0];
@@ -115,14 +115,23 @@ pub fn get_clmm_liq_levels(
     // };
 
     let mut one_sol_tokens = origin_tokens_per_sol.floor();
-    let mut one_sol_price_set = false;
     let mut one_sol_price_after = Decimal::ZERO;
     let mut ten_sol_tokens = one_sol_tokens.checked_mul(Decimal::TEN)?;
-    let mut ten_sol_price_set = false;
     let mut ten_sol_price_after = Decimal::ZERO;
     let mut thousand_sol_tokens = one_sol_tokens.checked_mul(Decimal::ONE_THOUSAND)?;
-    let mut thousand_sol_price_set = false;
     let mut thousand_sol_price_after = Decimal::ZERO;
+
+    let mut one_sol_price_set = false;
+    let mut ten_sol_price_set = false;
+    let mut thousand_sol_price_set = false;
+
+    let mut one_sol_impact_set = false;
+    let mut ten_sol_impact_set = false;
+    let mut thousand_sol_impact_set = false;
+
+    let mut one_sol_price_change = Some(Decimal::ZERO);
+    let mut ten_sol_price_change = Some(Decimal::ZERO);
+    let mut thousand_sol_price_change = Some(Decimal::ZERO);
 
     while thousand_sol_tokens > Decimal::ZERO {
         let amount_in = if one_sol_tokens > Decimal::ZERO {
@@ -156,42 +165,77 @@ pub fn get_clmm_liq_levels(
                 offset_in_array = next_arr_idx;
             }
 
-            current_tick_array = ticks_by_index.get(&current_tick_index)?;
-            tick = current_tick_array.get(offset_in_array as usize)?;
-        }
+            let Some(new_tick_array) = ticks_by_index.get(&current_tick_index) else {
+                break;
+            };
+
+            current_tick_array = new_tick_array;
+
+            let Some(new_tick) = current_tick_array.get(offset_in_array as usize) else {
+                break;
+            };
+
+            tick = new_tick;
+        } else {
+            // Could not use up the entire tick, so set impact to 0
+            if amount_in == one_sol_tokens {
+                one_sol_price_change = Some(Decimal::ZERO);
+                one_sol_price_set = true;
+                one_sol_impact_set = true;
+            } else if amount_in == ten_sol_tokens {
+                ten_sol_price_change = Some(Decimal::ZERO);
+                ten_sol_price_set = true;
+                ten_sol_impact_set = true;
+            } else if amount_in == thousand_sol_tokens {
+                thousand_sol_price_change = Some(Decimal::ZERO);
+                thousand_sol_price_set = true;
+                thousand_sol_impact_set = true;
+            }
+
+            continue;
+        };
 
         one_sol_tokens = one_sol_tokens.checked_sub(used)?.max(Decimal::ZERO);
         ten_sol_tokens = ten_sol_tokens.checked_sub(used)?.max(Decimal::ZERO);
         thousand_sol_tokens = thousand_sol_tokens.checked_sub(used)?.max(Decimal::ZERO);
 
-        if !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
+        if !one_sol_impact_set && !one_sol_price_set && one_sol_tokens <= Decimal::ZERO {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             one_sol_price_after = Decimal::from_f32(price)?;
             one_sol_price_set = true;
         }
 
-        if !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
+        if !ten_sol_impact_set && !ten_sol_price_set && ten_sol_tokens <= Decimal::ZERO {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             ten_sol_price_after = Decimal::from_f32(price)?;
             ten_sol_price_set = true;
         }
 
-        if !thousand_sol_price_set && thousand_sol_tokens <= Decimal::ZERO {
+        if !thousand_sol_impact_set
+            && !thousand_sol_price_set
+            && thousand_sol_tokens <= Decimal::ZERO
+        {
             let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
             thousand_sol_price_after = Decimal::from_f32(price)?;
             thousand_sol_price_set = true;
         }
     }
 
-    let one_sol_price_change = one_sol_price_after
-        .checked_div(current_price)
-        .and_then(|p| p.checked_sub(Decimal::ONE));
-    let ten_sol_price_change = ten_sol_price_after
-        .checked_div(current_price)
-        .and_then(|p| p.checked_sub(Decimal::ONE));
-    let thousand_sol_price_change = thousand_sol_price_after
-        .checked_div(current_price)
-        .and_then(|p| p.checked_sub(Decimal::ONE));
+    if !one_sol_impact_set {
+        one_sol_price_change = one_sol_price_after
+            .checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE));
+    }
+    if !ten_sol_impact_set {
+        ten_sol_price_change = ten_sol_price_after
+            .checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE));
+    }
+    if !thousand_sol_impact_set {
+        thousand_sol_price_change = thousand_sol_price_after
+            .checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE));
+    }
 
     Some(LiqLevels {
         one_sol_depth: one_sol_price_change,
@@ -201,26 +245,15 @@ pub fn get_clmm_liq_levels(
 }
 
 fn get_tick_array_start_idx(tick_index: i32, tick_spacing: i32) -> Option<i32> {
-    let mut idx = tick_index;
-
-    loop {
-        idx -= 1;
-        if idx % tick_spacing == 0 {
-            return Some(idx);
-        }
-    }
+    tick_index.checked_sub(tick_index.checked_rem(tick_spacing)?)
 }
 
 fn next_tick_array_start_idx(tick_index: i32, tick_spacing: i32, is_reverse: bool) -> Option<i32> {
-    let mut idx = tick_index;
     let step = if is_reverse { -1 } else { 1 };
 
-    loop {
-        idx += step;
-        if idx % tick_spacing == 0 {
-            return Some(idx);
-        }
-    }
+    let this_tick_array_start = get_tick_array_start_idx(tick_index, tick_spacing)?;
+
+    this_tick_array_start.checked_add(tick_spacing * step)
 }
 
 /// Returns (amount_used, used_all)
@@ -231,13 +264,13 @@ fn tick_swap(
     tick_spacing: i32,
     is_reverse: bool,
 ) -> Option<(Decimal, bool)> {
-    let this_tick_price = sqrt_price_from_idx(this_tick_index)?;
-    let next_tick_price = sqrt_price_from_idx(this_tick_index + tick_spacing)?;
+    let this_sqrt_price = sqrt_price_from_idx(this_tick_index)?;
+    let next_sqrt_price = sqrt_price_from_idx(this_tick_index + tick_spacing)?;
 
-    let (lower, upper) = if this_tick_price > next_tick_price {
-        (next_tick_price, this_tick_price)
+    let (lower, upper) = if this_sqrt_price > next_sqrt_price {
+        (next_sqrt_price, this_sqrt_price)
     } else {
-        (this_tick_price, next_tick_price)
+        (this_sqrt_price, next_sqrt_price)
     };
 
     // is_reverse = swap in a, get b
@@ -293,14 +326,26 @@ mod tests {
     }
 
     #[test]
-    fn tick_swap() {
+    fn tick_swap_quote() {
         let tick = ClmmTickParsed {
             fee_growth_outside_a: 0,
             fee_growth_outside_b: 0,
-            liquidity_gross: 0,
+            liquidity_gross: 8906013144118,
             liquidity_net: 0,
         };
 
+        // 846.689408
         let tick_spacing = 5;
+        let (used, used_all_tick) = tick_swap(
+            Decimal::from(1000000000),
+            -19339,
+            &tick,
+            tick_spacing,
+            false,
+        )
+        .unwrap();
+
+        println!("used: {used:?}");
+        println!("used_all_tick: {used_all_tick:?}");
     }
 }
