@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use primitive_types::U256;
-use rust_decimal::{Decimal, MathematicalOps};
+use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
 use step_ingestooor_sdk::dooot::ClmmTick;
 
@@ -101,7 +101,6 @@ pub fn get_clmm_liquidity(
 pub fn get_clmm_liq_levels(
     ticks_by_index: &ClmmTickMap,
     current_tick_index: Option<i32>,
-    current_sqrt_price: Option<u128>,
     tick_spacing: Option<i32>,
     origin_tokens_per_sol: &Decimal,
     is_reverse: bool,
@@ -110,38 +109,49 @@ pub fn get_clmm_liq_levels(
 ) -> Option<LiqLevels> {
     let mut current_tick_index = current_tick_index?;
     let tick_spacing = tick_spacing?;
-    let tick_step = if is_reverse { -1 } else { 1 };
     // Do this to avoid worrying about different tick arrays lengths per protocol
     let ticks_per_array = {
         let (_, example_array) = ticks_by_index.iter().next()?;
         example_array.len() as i32
     };
     let space_factor = ticks_per_array.checked_mul(tick_spacing)?;
+    println!("space_factor: {space_factor}");
     let tick_array_start_idx = get_tick_array_start_idx(current_tick_index, space_factor)?;
+    println!("tick_array_start_idx: {tick_array_start_idx}");
     let mut current_tick_array = ticks_by_index.get(&tick_array_start_idx)?;
-    let mut offset_in_array = current_tick_index - tick_array_start_idx;
-    let mut tick = current_tick_array.get(offset_in_array as usize)?;
-    // let current_price = Decimal::from_f32(sqrt_price_from_idx(current_tick_index)?.powi(2))?;
+    println!("current_tick_array exists");
+    let offset_in_array =
+        get_tick_array_offset(current_tick_index, tick_array_start_idx, tick_spacing);
+    println!("offset_in_array: {offset_in_array}");
+    let mut tick = current_tick_array.get(offset_in_array)?;
+    println!("tick exists");
+    let current_price = price_from_tick_index(current_tick_index)?;
+    println!("current_price: {current_price}");
     let decimal_factor = if is_reverse {
         Decimal::TEN.checked_powu(decimals_a as u64)?
     } else {
         Decimal::TEN.checked_powu(decimals_b as u64)?
     };
+    println!("decimal_factor: {decimal_factor}");
 
     let mut one_sol_tokens: u64 = origin_tokens_per_sol
         .checked_mul(decimal_factor)?
         .floor()
         .try_into()
         .ok()?;
-    let one_sol_price_after: Decimal = Decimal::ZERO;
+    println!("one_sol_tokens: {one_sol_tokens}");
     let mut ten_sol_tokens = one_sol_tokens.checked_mul(10)?;
-    let ten_sol_price_after = Decimal::ZERO;
+    println!("ten_sol_tokens: {ten_sol_tokens}");
     let mut thousand_sol_tokens = one_sol_tokens.checked_mul(1_000)?;
-    let thousand_sol_price_after = Decimal::ZERO;
+    println!("thousand_sol_tokens: {thousand_sol_tokens}");
 
-    let one_sol_price_set = false;
-    let ten_sol_price_set = false;
-    let thousand_sol_price_set = false;
+    let mut one_sol_price_after: Option<Decimal> = None;
+    let mut ten_sol_price_after = None;
+    let mut thousand_sol_price_after = None;
+
+    let mut one_sol_price_set = false;
+    let mut ten_sol_price_set = false;
+    let mut thousand_sol_price_set = false;
 
     while thousand_sol_tokens > 0 {
         let amount_in = if one_sol_tokens > 0 {
@@ -159,106 +169,108 @@ pub fn get_clmm_liq_levels(
             tick_spacing,
             is_reverse,
         )?;
+        println!("used: {used}");
 
         if used == 0 {
+            println!("used == 0, breaking");
             break;
         }
 
         if used_all_tick {
-            let next_arr_idx = offset_in_array + tick_step;
+            let next_tick_index =
+                get_very_next_tick_index(current_tick_index, tick_spacing, is_reverse)?;
+            let next_tick_array_start_idx =
+                get_tick_array_start_idx(next_tick_index, space_factor)?;
+            let next_offset_in_array =
+                get_tick_array_offset(next_tick_index, next_tick_array_start_idx, tick_spacing);
 
-            if !is_reverse && next_arr_idx >= ticks_per_array {
-                offset_in_array = 0;
-                let Some(next_tick_index) =
-                    next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
-                else {
-                    break;
-                };
-                current_tick_index = next_tick_index;
-            } else if is_reverse && next_arr_idx <= 0 {
-                offset_in_array = ticks_per_array - 1;
-                let Some(next_tick_index) =
-                    next_tick_array_start_idx(current_tick_index, ticks_per_array, is_reverse)
-                else {
-                    break;
-                };
-                current_tick_index = next_tick_index;
-            } else {
-                offset_in_array = next_arr_idx;
-            }
-
-            let Some(new_tick_array) = ticks_by_index.get(&current_tick_index) else {
+            let Some(next_tick_array) = ticks_by_index.get(&current_tick_index) else {
+                println!("new_tick_array returned None");
                 break;
             };
 
-            let Some(new_tick) = current_tick_array.get(offset_in_array as usize) else {
+            let Some(next_tick) = current_tick_array.get(next_offset_in_array as usize) else {
+                println!("new_tick returned None");
                 break;
             };
 
-            current_tick_array = new_tick_array;
-            tick = new_tick;
+            current_tick_index = next_tick_index;
+            current_tick_array = next_tick_array;
+            tick = next_tick;
         } else {
             // Could not use up the entire tick, so set impact to current price
-            // if amount_in == one_sol_tokens {
-            //     let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            //     one_sol_price_after = Decimal::from_f32(price)?;
-            //     one_sol_price_set = true;
-            //     one_sol_tokens = 0;
-            // } else if amount_in == ten_sol_tokens {
-            //     let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            //     ten_sol_price_after = Decimal::from_f32(price)?;
-            //     ten_sol_price_set = true;
-            //     ten_sol_tokens = 0;
-            // } else if amount_in == thousand_sol_tokens {
-            //     let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            //     thousand_sol_price_after = Decimal::from_f32(price)?;
-            //     thousand_sol_price_set = true;
-            //     thousand_sol_tokens = 0;
-            // }
+            if amount_in == one_sol_tokens && !one_sol_price_set {
+                println!("amount_in == one_sol_tokens");
+                one_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+                println!("one_sol_price_after: {:?}", one_sol_price_after);
+                one_sol_price_set = true;
+                one_sol_tokens = 0;
+            } else if amount_in == ten_sol_tokens && !ten_sol_price_set {
+                println!("amount_in == ten_sol_tokens");
+                ten_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+                println!("ten_sol_price_after: {:?}", ten_sol_price_after);
+                ten_sol_price_set = true;
+                ten_sol_tokens = 0;
+            } else if amount_in == thousand_sol_tokens && !thousand_sol_price_set {
+                println!("amount_in == thousand_sol_tokens");
+                thousand_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+                println!("thousand_sol_price_after: {:?}", thousand_sol_price_after);
+                thousand_sol_price_set = true;
+                thousand_sol_tokens = 0;
+            }
 
             continue;
         };
 
-        one_sol_tokens = one_sol_tokens.checked_sub(used)?;
-        ten_sol_tokens = ten_sol_tokens.checked_sub(used)?;
-        thousand_sol_tokens = thousand_sol_tokens.checked_sub(used)?;
+        println!("one_sol_tokens pre: {one_sol_tokens}");
+        println!("ten_sol_tokens pre: {ten_sol_tokens}");
+        println!("thousand_sol_tokens pre: {thousand_sol_tokens}");
 
-        if !one_sol_price_set && one_sol_tokens <= 0 {
-            // let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            // one_sol_price_after = Decimal::from_f32(price)?;
-            // one_sol_price_set = true;
+        one_sol_tokens = one_sol_tokens.saturating_sub(used);
+        ten_sol_tokens = ten_sol_tokens.saturating_sub(used);
+        thousand_sol_tokens = thousand_sol_tokens.saturating_sub(used);
+
+        println!("one_sol_tokens post: {one_sol_tokens}");
+        println!("ten_sol_tokens post: {ten_sol_tokens}");
+        println!("thousand_sol_tokens post: {thousand_sol_tokens}");
+
+        if !one_sol_price_set && one_sol_tokens == 0 {
+            one_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+            println!("one_sol_price_after: {:?}", one_sol_price_after);
+            one_sol_price_set = true;
         }
 
-        if !ten_sol_price_set && ten_sol_tokens <= 0 {
-            // let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            // ten_sol_price_after = Decimal::from_f32(price)?;
-            // ten_sol_price_set = true;
+        if !ten_sol_price_set && ten_sol_tokens == 0 {
+            ten_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+            println!("ten_sol_price_after: {:?}", ten_sol_price_after);
+            ten_sol_price_set = true;
         }
 
-        if !thousand_sol_price_set && thousand_sol_tokens <= 0 {
-            // let price = sqrt_price_from_idx(current_tick_index)?.powi(2);
-            // thousand_sol_price_after = Decimal::from_f32(price)?;
-            // thousand_sol_price_set = true;
+        if !thousand_sol_price_set && thousand_sol_tokens == 0 {
+            thousand_sol_price_after = Some(price_from_tick_index(current_tick_index)?);
+            println!("thousand_sol_price_after: {:?}", thousand_sol_price_after);
+            thousand_sol_price_set = true;
         }
     }
 
-    // let one_sol_price_change = one_sol_price_after
-    //     .checked_div(current_price)
-    //     .and_then(|p| p.checked_sub(Decimal::ONE));
-    // let ten_sol_price_change = ten_sol_price_after
-    //     .checked_div(current_price)
-    //     .and_then(|p| p.checked_sub(Decimal::ONE));
-    // let thousand_sol_price_change = thousand_sol_price_after
-    //     .checked_div(current_price)
-    //     .and_then(|p| p.checked_sub(Decimal::ONE));
+    let one_sol_price_change = one_sol_price_after.and_then(|p| {
+        p.checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE))
+    });
+    let ten_sol_price_change = ten_sol_price_after.and_then(|p| {
+        p.checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE))
+    });
+    let thousand_sol_price_change = thousand_sol_price_after.and_then(|p| {
+        p.checked_div(current_price)
+            .and_then(|p| p.checked_sub(Decimal::ONE))
+    });
 
-    // Some(LiqLevels {
-    //     one_sol_depth: one_sol_price_change,
-    //     ten_sol_depth: ten_sol_price_change,
-    //     thousand_sol_depth: thousand_sol_price_change,
-    // })
-
-    Some(LiqLevels::ZERO)
+    Some(LiqLevels {
+        one_sol_depth: one_sol_price_change,
+        ten_sol_depth: ten_sol_price_change,
+        thousand_sol_depth: thousand_sol_price_change,
+    })
 }
 
 /// See https://dev.orca.so/Architecture%20Overview/Understanding%20Tick%20Arrays
@@ -269,12 +281,8 @@ fn get_tick_array_start_idx(tick_index: i32, space_factor: i32) -> Option<i32> {
         .checked_mul(space_factor)
 }
 
-fn next_tick_array_start_idx(tick_index: i32, space_factor: i32, is_reverse: bool) -> Option<i32> {
-    let step = if is_reverse { -1 } else { 1 };
-
-    let this_tick_array_start = get_tick_array_start_idx(tick_index, space_factor)?;
-
-    this_tick_array_start.checked_add(space_factor * step)
+fn get_tick_array_offset(tick_index: i32, tick_spacing: i32, ticks_per_array: i32) -> usize {
+    ((tick_index / tick_spacing) % ticks_per_array).unsigned_abs() as usize
 }
 
 fn get_very_next_tick_index(
@@ -310,7 +318,7 @@ fn tick_swap(
     // Absolute amount of tokens used
     let absolute_used = amount_in.min(max_in);
 
-    Some((absolute_used, absolute_used == amount_in))
+    Some((absolute_used, absolute_used == max_in))
 }
 
 const U64_MAX_U256: U256 = U256([u64::MAX, 0, 0, 0]);
@@ -396,6 +404,12 @@ fn sqrt_price_from_tick_index(tick: i32) -> Option<u128> {
     Some(t_int_shifted)
 }
 
+/// Returns price in atoms of token A per atoms of token B
+fn price_from_tick_index(tick: i32) -> Option<Decimal> {
+    let f64_price = 1.0001f64.powf(tick as f64);
+    Decimal::from_f64(f64_price)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -437,6 +451,22 @@ mod tests {
         let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
 
         assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn tick_array_offset() {
+        let index_pos = 356;
+        let index_neg = -356;
+        let ticks_per_array = 88;
+        let tick_spacing = 4;
+        let expected_pos = 1;
+        let expected_neg = 1;
+
+        let actual_pos = get_tick_array_offset(index_pos, tick_spacing, ticks_per_array);
+        let actual_neg = get_tick_array_offset(index_neg, tick_spacing, ticks_per_array);
+
+        assert_eq!(actual_pos, expected_pos);
+        assert_eq!(actual_neg, expected_neg);
     }
 
     #[test]
@@ -518,5 +548,56 @@ mod tests {
         println!("Price Delta: {new_price}");
         println!("Used all tokens: {used_all_tokens}");
         println!("Price exceeded next: {price_exceeded_next}");
+    }
+
+    #[test]
+    fn full_swap() {
+        // https://www.orca.so/pools/Czfq3xZZDmsdGdUyrNLtRhGc47cXcZtLG4crryfu44zE
+        // SOL/USDC pool
+        let tick1 = ClmmTickParsed {
+            fee_growth_outside_a: 0,
+            fee_growth_outside_b: 0,
+            liquidity_gross: 1,
+            liquidity_net: 0,
+        };
+        // let tick1 = ClmmTickParsed {
+        //     fee_growth_outside_a: 0,
+        //     fee_growth_outside_b: 0,
+        //     liquidity_gross: 125999621768,
+        //     liquidity_net: 0,
+        // };
+        let tick2 = ClmmTickParsed {
+            fee_growth_outside_a: 0,
+            fee_growth_outside_b: 0,
+            liquidity_gross: 666655118046,
+            liquidity_net: 0,
+        };
+        let tick3 = ClmmTickParsed {
+            fee_growth_outside_a: 0,
+            fee_growth_outside_b: 0,
+            liquidity_gross: 452727587020,
+            liquidity_net: 0,
+        };
+        let tick4 = ClmmTickParsed {
+            fee_growth_outside_a: 0,
+            fee_growth_outside_b: 0,
+            liquidity_gross: 87502502639,
+            liquidity_net: 0,
+        };
+        let mut tick_map = ClmmTickMap::new();
+        tick_map.insert(-16544, vec![tick1, tick2, tick3, tick4]);
+
+        let liq_levels = get_clmm_liq_levels(
+            &tick_map,
+            Some(-16544),
+            Some(4),
+            &Decimal::from(1), // USDC price
+            false,
+            9,
+            6,
+        )
+        .unwrap();
+
+        println!("Liq levels: {liq_levels:?}");
     }
 }
