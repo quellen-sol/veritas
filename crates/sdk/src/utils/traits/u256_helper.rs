@@ -10,7 +10,7 @@ impl StepU256Helper for primitive_types::U256 {
     fn shift_word_left(&self) -> Self {
         let mut new_words = [0; 4];
 
-        for i in 2..=0 {
+        for i in (0..3).rev() {
             new_words[i + 1] = self.0[i];
         }
 
