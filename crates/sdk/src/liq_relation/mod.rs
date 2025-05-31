@@ -130,6 +130,7 @@ impl LiqRelation {
                 ticks_by_account,
                 is_reverse,
                 current_tick_index,
+                current_price_x64,
                 tick_spacing,
                 decimals_a,
                 decimals_b,
@@ -137,6 +138,7 @@ impl LiqRelation {
             } => get_clmm_liq_levels(
                 ticks_by_account,
                 *current_tick_index,
+                *current_price_x64,
                 *tick_spacing,
                 &tokens_per_sol,
                 *is_reverse,

@@ -93,6 +93,7 @@ pub fn get_clmm_liquidity(
 pub fn get_clmm_liq_levels(
     ticks_by_index: &ClmmTickMap,
     current_tick_index: Option<i32>,
+    current_sqrt_price: Option<u128>,
     tick_spacing: Option<i32>,
     origin_tokens_per_sol: &Decimal,
     is_reverse: bool,
@@ -105,7 +106,7 @@ pub fn get_clmm_liq_levels(
     let space_factor = tick_spacing * ticks_per_array;
     let array_offset = get_tick_array_offset(current_tick_index, tick_spacing, ticks_per_array);
     let mut current_tick = ticks_by_index.get(&current_tick_index)?.get(array_offset)?;
-    let mut current_sqrt_price = sqrt_price_from_tick_index(current_tick_index)?;
+    let mut current_sqrt_price = current_sqrt_price?;
     let current_pool_decimal_price =
         sqrt_price_to_decimal_price(current_sqrt_price, decimals_a, decimals_b)?;
     let sqrt_price_limit = if is_reverse {
@@ -331,12 +332,12 @@ fn get_liq_delta(
             return Some(U64DeltaAmt::ExceedsMax);
         }
 
-        Some(U64DeltaAmt::Valid(result.as_u64()))
+        Some(U64DeltaAmt::Valid(result.as_u64().checked_add(1)?))
     } else {
         let delta = liquidity.checked_mul(diff)?;
-        let token_amt = delta.checked_shr(64)?.try_into().ok()?;
+        let token_amt: u64 = delta.checked_shr(64)?.try_into().ok()?;
 
-        Some(U64DeltaAmt::Valid(token_amt))
+        Some(U64DeltaAmt::Valid(token_amt.checked_add(1)?))
     }
 }
 
@@ -645,6 +646,7 @@ mod tests {
         let liq_levels = get_clmm_liq_levels(
             &tick_map,
             Some(-16544),
+            7303414089792281302.into(),
             Some(4),
             &Decimal::from(1), // USDC price
             false,
