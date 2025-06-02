@@ -9,7 +9,7 @@ use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{ClmmTick, Dooot, LPInfoUnderlyingMintVault};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
-    liq_relation::LiqRelation,
+    liq_relation::{relations::clmm::ClmmTickParsed, LiqRelation},
     ppl_graph::graph::WrappedMintPricingGraph,
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
@@ -272,23 +272,8 @@ pub async fn handle_clmm(
 
                 (new_relation, new_relation_rev)
             }
-            UpdateRelationCbParams::ClmmTickGlobal {
-                start_tick_index,
-                ticks,
-                ..
-            } => {
-                let ticks_parsed = ticks
-                    .iter()
-                    .map(|tick| tick.try_into())
-                    .collect::<Result<_, anyhow::Error>>();
-
-                let Ok(ticks_parsed) = ticks_parsed else {
-                    log::warn!("Could not convert ticks to ClmmTickParsed for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
-                    return;
-                };
-
-                let mut ticks_by_account = HashMap::new();
-                ticks_by_account.insert(start_tick_index, ticks_parsed);
+            UpdateRelationCbParams::ClmmTickGlobal { .. } => {
+                let ticks_by_account = HashMap::new();
 
                 let new_relation = LiqRelation::Clmm {
                     amt_origin: b_balance_units,
@@ -467,18 +452,22 @@ pub async fn handle_clmm(
                         ticks,
                         ..
                     } => {
-                        let ticks_parsed = ticks
-                            .iter()
-                            .map(|tick| tick.try_into())
-                            .collect::<Result<Vec<_>, anyhow::Error>>();
-
-                        let Ok(ticks_parsed) = ticks_parsed else {
-                            log::warn!("Could not convert ticks to ClmmTickParsed for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
+                        let Some(tick_spacing) = tick_spacing else {
+                            // Can't calculate tick indicies without tick spacing
                             return;
                         };
 
-                        ticks_by_account.insert(start_tick_index, ticks_parsed.clone());
-                        ticks_by_account_rev.insert(start_tick_index, ticks_parsed);
+                        let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
+
+                        for (i, tick) in ticks_parsed {
+                            let Ok(tick): Result<ClmmTickParsed> = tick else {
+                                continue;
+                            };
+
+                            let this_idx = start_tick_index + (*tick_spacing * i as i32);
+                            ticks_by_account.insert(this_idx, tick.clone());
+                            ticks_by_account_rev.insert(this_idx, tick);
+                        }
                     }
                 }
             }

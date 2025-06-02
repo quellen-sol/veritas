@@ -14,8 +14,24 @@ use crate::{
 pub const MIN_SQRT_PRICE: u128 = 4295048016;
 /// The maximum sqrt price for a whirlpool.
 pub const MAX_SQRT_PRICE: u128 = 79226673515401279992447579055;
+// For precision. Tone down this value if we suspect this is overflowing price calcs
+const SCALE_FACTOR_U128: u128 = 1_000_000;
 
-pub type ClmmTickMap = HashMap<i32, Vec<ClmmTickParsed>>;
+const SF_SQUARED_LO_BYTES: [u8; 4] = [0, 16, 165, 212];
+const SF_SQUARED_MID_BYTES: [u8; 4] = [232, 0, 0, 0];
+const SCALE_FACTOR_DECIMAL_SQUARED: Decimal = Decimal::from_parts(
+    u32::from_le_bytes(SF_SQUARED_LO_BYTES),
+    u32::from_le_bytes(SF_SQUARED_MID_BYTES),
+    0,
+    false,
+    0,
+);
+
+const SCALE_FACTOR_F64: f64 = 1_000_000.0;
+const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
+const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
+
+pub type ClmmTickMap = HashMap<i32, ClmmTickParsed>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClmmTickParsed {
@@ -37,23 +53,6 @@ impl TryFrom<&ClmmTick> for ClmmTickParsed {
         })
     }
 }
-
-// For precision. Tone down this value if we suspect this is overflowing price calcs
-const SCALE_FACTOR_U128: u128 = 1_000_000;
-
-const SF_SQUARED_LO_BYTES: [u8; 4] = [0, 16, 165, 212];
-const SF_SQUARED_MID_BYTES: [u8; 4] = [232, 0, 0, 0];
-const SCALE_FACTOR_DECIMAL_SQUARED: Decimal = Decimal::from_parts(
-    u32::from_le_bytes(SF_SQUARED_LO_BYTES),
-    u32::from_le_bytes(SF_SQUARED_MID_BYTES),
-    0,
-    false,
-    0,
-);
-
-const SCALE_FACTOR_F64: f64 = 1_000_000.0;
-const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
-const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
 
 pub fn get_clmm_price(
     sqrt_price_x64: &Option<u128>,
@@ -102,10 +101,7 @@ pub fn get_clmm_liq_levels(
 ) -> Option<LiqLevels> {
     let tick_spacing = tick_spacing?;
     let mut current_tick_index = current_tick_index?;
-    let ticks_per_array = { ticks_by_index.iter().next()?.1.len().try_into().ok()? };
-    let space_factor = tick_spacing * ticks_per_array;
-    let array_offset = get_tick_array_offset(current_tick_index, tick_spacing, ticks_per_array);
-    let mut current_tick = ticks_by_index.get(&current_tick_index)?.get(array_offset)?;
+    let mut current_tick = ticks_by_index.get(&current_tick_index)?;
     let mut current_sqrt_price = current_sqrt_price?;
     let current_pool_decimal_price =
         sqrt_price_to_decimal_price(current_sqrt_price, decimals_a, decimals_b)?;
@@ -119,6 +115,9 @@ pub fn get_clmm_liq_levels(
     } else {
         Decimal::from(10).checked_powi(decimals_b as i64)?
     };
+    let minmax_factor = 88 * 5 * tick_spacing;
+    let absolute_min_tick_index = current_tick_index.saturating_sub(minmax_factor);
+    let absolute_max_tick_index = current_tick_index.saturating_add(minmax_factor);
 
     let mut one_sol_tokens: u64 = origin_tokens_per_sol
         .checked_mul(decimal_factor)?
@@ -144,15 +143,16 @@ pub fn get_clmm_liq_levels(
             thousand_sol_tokens
         };
 
-        let next_tick_index =
+        let mut next_tick_index =
             get_very_next_tick_index(current_tick_index, tick_spacing, is_reverse)?;
-        let next_start_index = get_tick_array_start_idx(next_tick_index, space_factor)?;
-
-        let next_array_offset =
-            get_tick_array_offset(next_tick_index, tick_spacing, ticks_per_array);
-        let next_tick = ticks_by_index
-            .get(&next_start_index)
-            .and_then(|v| v.get(next_array_offset));
+        let mut next_tick = ticks_by_index.get(&next_tick_index);
+        while next_tick.is_none()
+            && next_tick_index < absolute_max_tick_index
+            && next_tick_index > absolute_min_tick_index
+        {
+            next_tick_index = get_very_next_tick_index(next_tick_index, tick_spacing, is_reverse)?;
+            next_tick = ticks_by_index.get(&next_tick_index);
+        }
 
         let next_tick_sqrt_price = sqrt_price_from_tick_index(next_tick_index)?;
 
@@ -180,7 +180,6 @@ pub fn get_clmm_liq_levels(
                 let Some(next_tick) = next_tick else {
                     break 'outer;
                 };
-
                 current_tick = next_tick;
                 current_tick_index = next_tick_index;
             } else {
@@ -233,14 +232,14 @@ pub fn get_clmm_liq_levels(
 }
 
 /// See https://dev.orca.so/Architecture%20Overview/Understanding%20Tick%20Arrays
-fn get_tick_array_start_idx(tick_index: i32, space_factor: i32) -> Option<i32> {
+fn _get_tick_array_start_idx(tick_index: i32, space_factor: i32) -> Option<i32> {
     // These operations do not cancel out one another bc integer math. This is intended
     tick_index
         .checked_div(space_factor)?
         .checked_mul(space_factor)
 }
 
-fn get_tick_array_offset(tick_index: i32, tick_spacing: i32, ticks_per_array: i32) -> usize {
+fn _get_tick_array_offset(tick_index: i32, tick_spacing: i32, ticks_per_array: i32) -> usize {
     ((tick_index / tick_spacing) % ticks_per_array).unsigned_abs() as usize
 }
 
@@ -473,7 +472,7 @@ mod tests {
         let space_factor = tick_spacing * ticks_per_array;
 
         let expected = 0;
-        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+        let actual = _get_tick_array_start_idx(tick_index, space_factor).unwrap();
 
         assert_eq!(actual, expected);
     }
@@ -486,7 +485,7 @@ mod tests {
         let space_factor = tick_spacing * ticks_per_array;
 
         let expected = -176;
-        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+        let actual = _get_tick_array_start_idx(tick_index, space_factor).unwrap();
 
         assert_eq!(actual, expected);
     }
@@ -499,7 +498,7 @@ mod tests {
         let space_factor = tick_spacing * ticks_per_array;
 
         let expected = space_factor;
-        let actual = get_tick_array_start_idx(tick_index, space_factor).unwrap();
+        let actual = _get_tick_array_start_idx(tick_index, space_factor).unwrap();
 
         assert_eq!(actual, expected);
     }
@@ -513,8 +512,8 @@ mod tests {
         let expected_pos = 1;
         let expected_neg = 1;
 
-        let actual_pos = get_tick_array_offset(index_pos, tick_spacing, ticks_per_array);
-        let actual_neg = get_tick_array_offset(index_neg, tick_spacing, ticks_per_array);
+        let actual_pos = _get_tick_array_offset(index_pos, tick_spacing, ticks_per_array);
+        let actual_neg = _get_tick_array_offset(index_neg, tick_spacing, ticks_per_array);
 
         assert_eq!(actual_pos, expected_pos);
         assert_eq!(actual_neg, expected_neg);
@@ -632,11 +631,14 @@ mod tests {
         let tick4 = ClmmTickParsed {
             fee_growth_outside_a: 0,
             fee_growth_outside_b: 0,
-            liquidity_gross: 87502502639,
+            liquidity_gross: 4527452727587020,
             liquidity_net: 0,
         };
         let mut tick_map = ClmmTickMap::new();
-        tick_map.insert(-16544, vec![tick1, tick2, tick3, tick4]);
+        tick_map.insert(-16544, tick1);
+        tick_map.insert(-16540, tick2);
+        tick_map.insert(-16536, tick3);
+        tick_map.insert(-16500, tick4);
 
         let liq_levels = get_clmm_liq_levels(
             &tick_map,
