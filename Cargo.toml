@@ -12,11 +12,12 @@ lto = true
 panic = "abort"
 
 [workspace.dependencies]
-step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "4a6f25fab98f32686e58e7473f1bc9564218fb4b" }
-solana-transaction-status = "=2.2.0"
-solana-program = "=2.2.1"
-solana-sdk = "=2.2.1"
-solana-client = "=2.2.0"
+step-ingestooor-sdk = { package = "step-ingestooor-sdk", git = "ssh://git@github.com/step-finance/step-common-rust.git", rev = "808909a3bc8b3714fe56b562914dbfe6ad5926df" }
+solana-transaction-status = "=2.1.16"
+solana-program = "=2.1.16"
+solana-sdk = "=2.1.16"
+solana-client = "=2.1.16"
+
 lapin = "2.0.3"
 tokio = { version = "1.43.0", features = ["full"] }
 anyhow = "1.0.95"
@@ -37,7 +38,18 @@ itertools = "0.14.0"
 primitive-types = "0.13.1"
 
 [patch.crates-io]
-solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "eaba9badbb32a312f2c4c476ae255775a651e631" }
-solana-client = { git = 'https://github.com/step-finance/agave', rev = "eaba9badbb32a312f2c4c476ae255775a651e631" }
-solana-program = { git = 'https://github.com/step-finance/solana-sdk', rev = "558a5075feced42dd4ed430ab908935d9a6ce922" }
-solana-sdk = { git = 'https://github.com/step-finance/solana-sdk', rev = "558a5075feced42dd4ed430ab908935d9a6ce922" }
+solana-cost-model = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-merkle-tree = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-ledger = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-storage-bigtable = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-storage-proto = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-runtime = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-accounts-db = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-client = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-transaction-status = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-sdk = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-logger = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-program = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-metrics = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-account-decoder = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
+solana-derivation-path = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
