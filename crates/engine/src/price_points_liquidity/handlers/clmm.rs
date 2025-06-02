@@ -29,9 +29,9 @@ use crate::{
 
 enum UpdateRelationCbParams<'a> {
     ClmmGlobal {
-        current_price: &'a str,
         time: NaiveDateTime,
         pool_pubkey: &'a str,
+        current_price: &'a str,
         current_tick_index: i32,
         tick_spacing: i32,
     },
@@ -409,6 +409,8 @@ pub async fn handle_clmm(
                     ref mut amt_dest,
                     ref mut current_price_x64,
                     ref mut ticks_by_account,
+                    ref mut current_tick_index,
+                    ref mut tick_spacing,
                     ..
                 } = *w_write
                 else {
@@ -424,6 +426,8 @@ pub async fn handle_clmm(
                     amt_dest: ref mut amt_dest_rev,
                     current_price_x64: ref mut current_price_x64_rev,
                     ticks_by_account: ref mut ticks_by_account_rev,
+                    current_tick_index: ref mut current_tick_index_rev,
+                    tick_spacing: ref mut tick_spacing_rev,
                     ..
                 } = *w_rev_write
                 else {
@@ -440,7 +444,12 @@ pub async fn handle_clmm(
                 *amt_dest_rev = b_balance_units;
 
                 match params {
-                    UpdateRelationCbParams::ClmmGlobal { current_price, .. } => {
+                    UpdateRelationCbParams::ClmmGlobal {
+                        current_price,
+                        current_tick_index: tick_idx_dooot,
+                        tick_spacing: spacing_dooot,
+                        ..
+                    } => {
                         let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
                             log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
                             return;
@@ -448,6 +457,10 @@ pub async fn handle_clmm(
 
                         current_price_x64.replace(curr_price_parsed);
                         current_price_x64_rev.replace(curr_price_parsed);
+                        current_tick_index.replace(tick_idx_dooot);
+                        current_tick_index_rev.replace(tick_idx_dooot);
+                        tick_spacing.replace(spacing_dooot);
+                        tick_spacing_rev.replace(spacing_dooot);
                     }
                     UpdateRelationCbParams::ClmmTickGlobal {
                         start_tick_index,
