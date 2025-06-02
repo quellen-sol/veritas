@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use primitive_types::U256;
-use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
+use rust_decimal::{Decimal, MathematicalOps};
 use serde::{Deserialize, Serialize};
 use step_ingestooor_sdk::dooot::ClmmTick;
 
