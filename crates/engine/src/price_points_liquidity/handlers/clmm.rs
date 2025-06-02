@@ -32,9 +32,11 @@ enum UpdateRelationCbParams<'a> {
         current_price: &'a str,
         time: NaiveDateTime,
         pool_pubkey: &'a str,
+        current_tick_index: i32,
+        tick_spacing: i32,
     },
     ClmmTickGlobal {
-        tick_index: i32,
+        start_tick_index: i32,
         ticks: &'a [ClmmTick],
         time: NaiveDateTime,
         pool_pubkey: &'a str,
@@ -48,9 +50,11 @@ impl<'a> UpdateRelationCbParams<'a> {
                 current_price: &dooot.current_price,
                 time: dooot.time,
                 pool_pubkey: &dooot.pool_pubkey,
+                current_tick_index: dooot.current_tick_index,
+                tick_spacing: dooot.tick_spacing as i32,
             }),
             Dooot::ClmmTickGlobal(dooot) => Some(Self::ClmmTickGlobal {
-                tick_index: dooot.tick_index,
+                start_tick_index: dooot.tick_index,
                 ticks: &dooot.ticks,
                 time: dooot.time,
                 pool_pubkey: &dooot.pool_pubkey,
@@ -229,7 +233,12 @@ pub async fn handle_clmm(
         };
 
         let (new_relation, new_relation_rev) = match params {
-            UpdateRelationCbParams::ClmmGlobal { current_price, .. } => {
+            UpdateRelationCbParams::ClmmGlobal {
+                current_price,
+                current_tick_index,
+                tick_spacing,
+                ..
+            } => {
                 let Ok(current_price_x64) = current_price.parse() else {
                     log::warn!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
                     return;
@@ -239,6 +248,8 @@ pub async fn handle_clmm(
                     amt_origin: b_balance_units,
                     amt_dest: a_balance_units,
                     current_price_x64: Some(current_price_x64),
+                    current_tick_index: Some(current_tick_index),
+                    tick_spacing: Some(tick_spacing),
                     decimals_a,
                     decimals_b,
                     is_reverse: false,
@@ -250,6 +261,8 @@ pub async fn handle_clmm(
                     amt_origin: a_balance_units,
                     amt_dest: b_balance_units,
                     current_price_x64: Some(current_price_x64),
+                    current_tick_index: Some(current_tick_index),
+                    tick_spacing: Some(tick_spacing),
                     decimals_a,
                     decimals_b,
                     is_reverse: true,
@@ -260,11 +273,13 @@ pub async fn handle_clmm(
                 (new_relation, new_relation_rev)
             }
             UpdateRelationCbParams::ClmmTickGlobal {
-                tick_index, ticks, ..
+                start_tick_index,
+                ticks,
+                ..
             } => {
                 let ticks_parsed = ticks
                     .iter()
-                    .map(|tick| tick.clone().try_into())
+                    .map(|tick| tick.try_into())
                     .collect::<Result<_, anyhow::Error>>();
 
                 let Ok(ticks_parsed) = ticks_parsed else {
@@ -273,12 +288,14 @@ pub async fn handle_clmm(
                 };
 
                 let mut ticks_by_account = HashMap::new();
-                ticks_by_account.insert(tick_index, ticks_parsed);
+                ticks_by_account.insert(start_tick_index, ticks_parsed);
 
                 let new_relation = LiqRelation::Clmm {
                     amt_origin: b_balance_units,
                     amt_dest: a_balance_units,
                     current_price_x64: None,
+                    current_tick_index: None,
+                    tick_spacing: None,
                     decimals_a,
                     decimals_b,
                     is_reverse: false,
@@ -290,6 +307,8 @@ pub async fn handle_clmm(
                     amt_origin: a_balance_units,
                     amt_dest: b_balance_units,
                     current_price_x64: None,
+                    current_tick_index: None,
+                    tick_spacing: None,
                     decimals_a,
                     decimals_b,
                     is_reverse: true,
@@ -431,11 +450,13 @@ pub async fn handle_clmm(
                         current_price_x64_rev.replace(curr_price_parsed);
                     }
                     UpdateRelationCbParams::ClmmTickGlobal {
-                        tick_index, ticks, ..
+                        start_tick_index,
+                        ticks,
+                        ..
                     } => {
                         let ticks_parsed = ticks
                             .iter()
-                            .map(|tick| tick.clone().try_into())
+                            .map(|tick| tick.try_into())
                             .collect::<Result<Vec<_>, anyhow::Error>>();
 
                         let Ok(ticks_parsed) = ticks_parsed else {
@@ -443,8 +464,8 @@ pub async fn handle_clmm(
                             return;
                         };
 
-                        ticks_by_account.insert(tick_index, ticks_parsed.clone());
-                        ticks_by_account_rev.insert(tick_index, ticks_parsed);
+                        ticks_by_account.insert(start_tick_index, ticks_parsed.clone());
+                        ticks_by_account_rev.insert(start_tick_index, ticks_parsed);
                     }
                 }
             }
