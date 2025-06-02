@@ -14,8 +14,22 @@ use crate::{
 pub const MIN_SQRT_PRICE: u128 = 4295048016;
 /// The maximum sqrt price for a whirlpool.
 pub const MAX_SQRT_PRICE: u128 = 79226673515401279992447579055;
-pub const MIN_TICK_INDEX: i32 = -443636;
-pub const MAX_TICK_INDEX: i32 = 443636;
+// For precision. Tone down this value if we suspect this is overflowing price calcs
+const SCALE_FACTOR_U128: u128 = 1_000_000;
+
+const SF_SQUARED_LO_BYTES: [u8; 4] = [0, 16, 165, 212];
+const SF_SQUARED_MID_BYTES: [u8; 4] = [232, 0, 0, 0];
+const SCALE_FACTOR_DECIMAL_SQUARED: Decimal = Decimal::from_parts(
+    u32::from_le_bytes(SF_SQUARED_LO_BYTES),
+    u32::from_le_bytes(SF_SQUARED_MID_BYTES),
+    0,
+    false,
+    0,
+);
+
+const SCALE_FACTOR_F64: f64 = 1_000_000.0;
+const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
+const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
 
 pub type ClmmTickMap = HashMap<i32, ClmmTickParsed>;
 
@@ -39,23 +53,6 @@ impl TryFrom<&ClmmTick> for ClmmTickParsed {
         })
     }
 }
-
-// For precision. Tone down this value if we suspect this is overflowing price calcs
-const SCALE_FACTOR_U128: u128 = 1_000_000;
-
-const SF_SQUARED_LO_BYTES: [u8; 4] = [0, 16, 165, 212];
-const SF_SQUARED_MID_BYTES: [u8; 4] = [232, 0, 0, 0];
-const SCALE_FACTOR_DECIMAL_SQUARED: Decimal = Decimal::from_parts(
-    u32::from_le_bytes(SF_SQUARED_LO_BYTES),
-    u32::from_le_bytes(SF_SQUARED_MID_BYTES),
-    0,
-    false,
-    0,
-);
-
-const SCALE_FACTOR_F64: f64 = 1_000_000.0;
-const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
-const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
 
 pub fn get_clmm_price(
     sqrt_price_x64: &Option<u128>,
@@ -118,6 +115,9 @@ pub fn get_clmm_liq_levels(
     } else {
         Decimal::from(10).checked_powi(decimals_b as i64)?
     };
+    let minmax_factor = 88 * 5 * tick_spacing;
+    let absolute_min_tick_index = current_tick_index.saturating_sub(minmax_factor);
+    let absolute_max_tick_index = current_tick_index.saturating_add(minmax_factor);
 
     let mut one_sol_tokens: u64 = origin_tokens_per_sol
         .checked_mul(decimal_factor)?
@@ -147,15 +147,11 @@ pub fn get_clmm_liq_levels(
             get_very_next_tick_index(current_tick_index, tick_spacing, is_reverse)?;
         let mut next_tick = ticks_by_index.get(&next_tick_index);
         while next_tick.is_none()
-            && next_tick_index < MAX_TICK_INDEX
-            && next_tick_index > MIN_TICK_INDEX
+            && next_tick_index < absolute_max_tick_index
+            && next_tick_index > absolute_min_tick_index
         {
             next_tick_index = get_very_next_tick_index(next_tick_index, tick_spacing, is_reverse)?;
             next_tick = ticks_by_index.get(&next_tick_index);
-        }
-
-        if next_tick.is_none() {
-            break 'outer;
         }
 
         let next_tick_sqrt_price = sqrt_price_from_tick_index(next_tick_index)?;
@@ -635,14 +631,14 @@ mod tests {
         let tick4 = ClmmTickParsed {
             fee_growth_outside_a: 0,
             fee_growth_outside_b: 0,
-            liquidity_gross: 87502502639,
+            liquidity_gross: 4527452727587020,
             liquidity_net: 0,
         };
         let mut tick_map = ClmmTickMap::new();
         tick_map.insert(-16544, tick1);
         tick_map.insert(-16540, tick2);
         tick_map.insert(-16536, tick3);
-        tick_map.insert(-16532, tick4);
+        tick_map.insert(-16500, tick4);
 
         let liq_levels = get_clmm_liq_levels(
             &tick_map,
