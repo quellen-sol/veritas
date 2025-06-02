@@ -152,6 +152,9 @@ pub fn get_clmm_liq_levels(
         {
             next_tick_index = get_very_next_tick_index(next_tick_index, tick_spacing, is_reverse)?;
             next_tick = ticks_by_index.get(&next_tick_index);
+            if next_tick.as_ref().is_some_and(|v| v.liquidity_gross == 0) {
+                continue;
+            }
         }
 
         let next_tick_sqrt_price = sqrt_price_from_tick_index(next_tick_index)?;
@@ -163,6 +166,14 @@ pub fn get_clmm_liq_levels(
         };
 
         'inner: loop {
+            println!("current_tick_index: {current_tick_index}");
+            println!("next_tick_index: {next_tick_index}");
+            println!("next_tick: {next_tick:?}");
+            println!("next_tick_sqrt_price: {next_tick_sqrt_price}");
+            println!("target_sqrt_price: {target_sqrt_price}");
+            println!("amount_to_use: {amount_to_use}");
+            println!("current_tick: {current_tick:?}");
+            println!("current_sqrt_price: {current_sqrt_price}");
             let (amount_used, next_sqrt_price) = tick_swap_step(
                 amount_to_use,
                 current_tick.liquidity_gross,
@@ -170,18 +181,23 @@ pub fn get_clmm_liq_levels(
                 target_sqrt_price,
                 is_reverse,
             )?;
+            println!("amount_used: {amount_used}");
 
             one_sol_tokens = one_sol_tokens.saturating_sub(amount_used);
             ten_sol_tokens = ten_sol_tokens.saturating_sub(amount_used);
             thousand_sol_tokens = thousand_sol_tokens.saturating_sub(amount_used);
             amount_to_use = amount_to_use.saturating_sub(amount_used);
 
+            let mut will_break = false;
             if next_sqrt_price == next_tick_sqrt_price {
-                let Some(next_tick) = next_tick else {
-                    break 'outer;
-                };
-                current_tick = next_tick;
-                current_tick_index = next_tick_index;
+                if let Some(next_tick) = next_tick {
+                    println!("next_tick_index: {next_tick_index}. Setting current_tick");
+                    current_tick = next_tick;
+                    current_tick_index = next_tick_index;
+                } else {
+                    println!("next_tick is none, breaking, tried index {next_tick_index}");
+                    will_break = true;
+                }
             } else {
                 current_tick_index = sqrt_price_to_tick_index(next_sqrt_price);
             }
@@ -202,6 +218,10 @@ pub fn get_clmm_liq_levels(
             if thousand_sol_tokens == 0 {
                 thousand_sol_price_after =
                     sqrt_price_to_decimal_price(current_sqrt_price, decimals_a, decimals_b);
+                break 'outer;
+            }
+
+            if will_break {
                 break 'outer;
             }
 
