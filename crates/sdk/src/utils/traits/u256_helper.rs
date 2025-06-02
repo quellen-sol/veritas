@@ -42,11 +42,11 @@ mod tests {
     #[test]
     fn shifting() {
         let u64_val = 69420u64;
-        let num = U256([0, 0, 0, u64_val]);
+        let num = U256([u64_val, 0, 0, 0]);
         let shifted_once = num.shift_word_left();
         let checked_shifted_twice = shifted_once.checked_shift_word_left().unwrap();
 
-        assert_eq!(shifted_once.0, [0, 0, u64_val, 0]);
-        assert_eq!(checked_shifted_twice.0, [0, u64_val, 0, 0]);
+        assert_eq!(shifted_once.0, [0, u64_val, 0, 0]);
+        assert_eq!(checked_shifted_twice.0, [0, 0, u64_val, 0]);
     }
 }
