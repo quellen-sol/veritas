@@ -383,7 +383,7 @@ const BIT_PRECISION: u32 = 14;
 const LOG_B_P_ERR_MARGIN_LOWER_X64: i128 = 184467440737095516i128; // 0.01
 const LOG_B_P_ERR_MARGIN_UPPER_X64: i128 = 15793534762490258745i128; // 2^-precision / log_2_b + 0.01
 
-#[allow(clipp::unwrap_used)]
+#[allow(clippy::unwrap_used)]
 pub fn sqrt_price_to_tick_index(sqrt_price: u128) -> i32 {
     let sqrt_price_x64: u128 = sqrt_price;
     // Determine log_b(sqrt_ratio). First by calculating integer portion (msb)
