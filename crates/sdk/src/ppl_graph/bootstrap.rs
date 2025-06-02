@@ -119,6 +119,9 @@ impl From<ClmmGlobalBootstrapRow> for Dooot {
 
 #[derive(Deserialize, Row)]
 pub struct ClmmTickBootstrapRow {
+    #[serde(
+        deserialize_with = "step_ingestooor_sdk::serde::ch_naive_date_time::deserialize_ch_naive_date_time"
+    )]
     time: NaiveDateTime,
     pool_pubkey: String,
     tick_account_pubkey: String,
