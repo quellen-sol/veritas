@@ -36,7 +36,7 @@ enum UpdateRelationCbParams<'a> {
         tick_spacing: i32,
     },
     ClmmTickGlobal {
-        tick_index: i32,
+        start_tick_index: i32,
         ticks: &'a [ClmmTick],
         time: NaiveDateTime,
         pool_pubkey: &'a str,
@@ -54,7 +54,7 @@ impl<'a> UpdateRelationCbParams<'a> {
                 tick_spacing: dooot.tick_spacing as i32,
             }),
             Dooot::ClmmTickGlobal(dooot) => Some(Self::ClmmTickGlobal {
-                tick_index: dooot.tick_index,
+                start_tick_index: dooot.tick_index,
                 ticks: &dooot.ticks,
                 time: dooot.time,
                 pool_pubkey: &dooot.pool_pubkey,
@@ -273,7 +273,9 @@ pub async fn handle_clmm(
                 (new_relation, new_relation_rev)
             }
             UpdateRelationCbParams::ClmmTickGlobal {
-                tick_index, ticks, ..
+                start_tick_index,
+                ticks,
+                ..
             } => {
                 let ticks_parsed = ticks
                     .iter()
@@ -286,7 +288,7 @@ pub async fn handle_clmm(
                 };
 
                 let mut ticks_by_account = HashMap::new();
-                ticks_by_account.insert(tick_index, ticks_parsed);
+                ticks_by_account.insert(start_tick_index, ticks_parsed);
 
                 let new_relation = LiqRelation::Clmm {
                     amt_origin: b_balance_units,
@@ -448,7 +450,9 @@ pub async fn handle_clmm(
                         current_price_x64_rev.replace(curr_price_parsed);
                     }
                     UpdateRelationCbParams::ClmmTickGlobal {
-                        tick_index, ticks, ..
+                        start_tick_index,
+                        ticks,
+                        ..
                     } => {
                         let ticks_parsed = ticks
                             .iter()
@@ -460,8 +464,8 @@ pub async fn handle_clmm(
                             return;
                         };
 
-                        ticks_by_account.insert(tick_index, ticks_parsed.clone());
-                        ticks_by_account_rev.insert(tick_index, ticks_parsed);
+                        ticks_by_account.insert(start_tick_index, ticks_parsed.clone());
+                        ticks_by_account_rev.insert(start_tick_index, ticks_parsed);
                     }
                 }
             }

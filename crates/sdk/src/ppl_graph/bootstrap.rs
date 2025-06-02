@@ -9,9 +9,12 @@ use clickhouse::Row;
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use step_ingestooor_sdk::dooot::{
-    DLMMPart, DlmmGlobalDooot, Dooot, DoootTrait, MintUnderlyingsGlobalDooot,
+    ClmmGlobalDooot, ClmmTick, ClmmTickGlobalDooot, DLMMPart, DlmmGlobalDooot, Dooot, DoootTrait,
+    MintUnderlyingsGlobalDooot,
 };
 use tokio::{sync::mpsc::Sender, time::Instant};
+
+use crate::liq_relation::relations::clmm::ClmmTickParsed;
 
 #[derive(Deserialize, Row)]
 pub struct MintUnderlyingBootstrapRow {
@@ -88,6 +91,62 @@ impl From<DlmmGlobalBootstrapRow> for Dooot {
     }
 }
 
+#[derive(Deserialize, Row)]
+pub struct ClmmGlobalBootstrapRow {
+    #[serde(
+        deserialize_with = "step_ingestooor_sdk::serde::ch_naive_date_time::deserialize_ch_naive_date_time"
+    )]
+    time: NaiveDateTime,
+    pool_pubkey: String,
+    total_liquidity_shares: Option<u128>,
+    current_price: u128,
+    current_tick_index: i32,
+    tick_spacing: u32,
+}
+
+impl From<ClmmGlobalBootstrapRow> for Dooot {
+    fn from(value: ClmmGlobalBootstrapRow) -> Self {
+        Dooot::ClmmGlobal(ClmmGlobalDooot {
+            time: value.time,
+            pool_pubkey: value.pool_pubkey,
+            total_liquidity_shares: value.total_liquidity_shares.map(|x| x.to_string()),
+            current_price: value.current_price.to_string(),
+            current_tick_index: value.current_tick_index,
+            tick_spacing: value.tick_spacing,
+        })
+    }
+}
+
+#[derive(Deserialize, Row)]
+pub struct ClmmTickBootstrapRow {
+    time: NaiveDateTime,
+    pool_pubkey: String,
+    tick_account_pubkey: String,
+    tick_index: i32,
+    ticks: Vec<ClmmTickParsed>,
+}
+
+impl From<ClmmTickBootstrapRow> for Dooot {
+    fn from(value: ClmmTickBootstrapRow) -> Self {
+        Dooot::ClmmTickGlobal(ClmmTickGlobalDooot {
+            time: value.time,
+            pool_pubkey: value.pool_pubkey,
+            tick_account_pubkey: value.tick_account_pubkey,
+            tick_index: value.tick_index,
+            ticks: value
+                .ticks
+                .into_iter()
+                .map(|t| ClmmTick {
+                    liquidity_gross: t.liquidity_gross.to_string(),
+                    liquidity_net: t.liquidity_net.to_string(),
+                    fee_growth_outside_a: t.fee_growth_outside_a.to_string(),
+                    fee_growth_outside_b: t.fee_growth_outside_b.to_string(),
+                })
+                .collect(),
+        })
+    }
+}
+
 const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
     SELECT
         time,
@@ -96,7 +155,8 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
         arrayMap(x -> base58Encode(x), mints) as mints,
         mints_qty_per_one_parent,
         total_underlying_amounts
-    FROM current_mint_underlyings_global_by_mint
+    FROM current_mint_underlyings_global_by_mint FINAL
+    WHERE time > now() - 86400
 ";
 
 const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
@@ -106,7 +166,31 @@ const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
         base58Encode(parts_account_pubkey) AS parts_account_pubkey,
         part_index,
         parts
-    FROM current_dlmm_global_by_pool_parts
+    FROM current_dlmm_global_by_pool_parts FINAL
+    WHERE time > now() - 86400
+";
+
+const CLMM_GLOBAL_DOOOTS_QUERY: &str = "
+    SELECT
+        time,
+        base58Encode(pool_pubkey) AS pool_pubkey,
+        total_liquidity_shares,
+        current_price,
+        current_tick_index,
+        tick_spacing
+    FROM current_clmm_global ccg FINAL
+    WHERE time > now() - 86400
+";
+
+const CLMM_TICKS_DOOOTS_QUERY: &str = "
+    SELECT
+        time,
+        base58Encode(pool_pubkey) AS pool_pubkey,
+        base58Encode(tick_account_pubkey) AS tick_account_pubkey,
+        tick_index,
+        ticks
+    FROM current_clmm_tick_global cctg FINAL
+    WHERE time > now() - 86400
 ";
 
 pub async fn bootstrap_graph(
@@ -134,7 +218,23 @@ pub async fn bootstrap_graph(
     )
     .await?;
 
-    // TODO: Add other Dooots (Clmm)
+    load_and_send_dooots::<ClmmGlobalBootstrapRow, ClmmGlobalDooot>(
+        CLMM_GLOBAL_DOOOTS_QUERY,
+        "ClmmGlobal",
+        clickhouse_client.clone(),
+        dooot_tx.clone(),
+    )
+    .await?;
+
+    load_and_send_dooots::<ClmmTickBootstrapRow, ClmmTickGlobalDooot>(
+        CLMM_TICKS_DOOOTS_QUERY,
+        "ClmmTickGlobal",
+        clickhouse_client.clone(),
+        dooot_tx.clone(),
+    )
+    .await?;
+
+    // TODO: Add other Dooots (CLOBs?)
 
     log::info!("Bootstrap complete");
 
