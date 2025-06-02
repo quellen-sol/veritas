@@ -103,7 +103,7 @@ pub async fn handle_clmm(
         let lc_read = lp_cache.read().await;
         log::trace!("Got lp cache read lock");
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
-            log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
+            // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
         };
 
