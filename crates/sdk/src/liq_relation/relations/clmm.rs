@@ -31,6 +31,8 @@ const SCALE_FACTOR_F64: f64 = 1_000_000.0;
 const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
 const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
 
+const FIFTY: Decimal = Decimal::from_parts(50, 0, 0, false, 0);
+
 pub type ClmmTickMap = HashMap<i32, ClmmTickParsed>;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -86,6 +88,19 @@ pub fn get_clmm_liquidity(
     let total_liq = liq_origin.saturating_add(liq_dest);
 
     Some(LiqAmount::Amount(total_liq))
+}
+
+pub fn get_clmm_liq_levels_dumb(
+    amt_source: &Decimal,
+    origin_tokens_per_sol: &Decimal,
+) -> Option<LiqLevels> {
+    let amt_sol_units = amt_source.checked_div(*origin_tokens_per_sol)?;
+
+    if amt_sol_units > FIFTY {
+        Some(LiqLevels::ZERO)
+    } else {
+        None
+    }
 }
 
 /// `current_tick_index` must be the actual current tick index, not the tickarraystart index
