@@ -1,7 +1,10 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
+use crate::{
+    liq_relation::relations::clmm::get_clmm_liq_levels_dumb,
+    ppl_graph::structs::{LiqAmount, LiqLevels},
+};
 
 use relations::{
     clmm::{get_clmm_liq_levels, get_clmm_liquidity, get_clmm_price, ClmmTickMap},
@@ -126,25 +129,28 @@ impl LiqRelation {
                 *decimals_x,
                 *decimals_y,
             ),
-            LiqRelation::Clmm {
-                ticks_by_account,
-                is_reverse,
-                current_tick_index,
-                current_price_x64,
-                tick_spacing,
-                decimals_a,
-                decimals_b,
-                ..
-            } => get_clmm_liq_levels(
-                ticks_by_account,
-                *current_tick_index,
-                *current_price_x64,
-                *tick_spacing,
-                &tokens_per_sol,
-                *is_reverse,
-                *decimals_a,
-                *decimals_b,
-            ),
+            // LiqRelation::Clmm {
+            //     ticks_by_account,
+            //     is_reverse,
+            //     current_tick_index,
+            //     current_price_x64,
+            //     tick_spacing,
+            //     decimals_a,
+            //     decimals_b,
+            //     ..
+            // } => get_clmm_liq_levels(
+            //     ticks_by_account,
+            //     *current_tick_index,
+            //     *current_price_x64,
+            //     *tick_spacing,
+            //     &tokens_per_sol,
+            //     *is_reverse,
+            //     *decimals_a,
+            //     *decimals_b,
+            // ),
+            LiqRelation::Clmm { amt_origin, .. } => {
+                get_clmm_liq_levels_dumb(amt_origin, &tokens_per_sol)
+            }
         }
     }
 
