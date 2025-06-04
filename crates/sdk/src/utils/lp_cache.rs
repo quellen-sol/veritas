@@ -32,7 +32,7 @@ pub async fn build_lp_cache(clickhouse_client: &clickhouse::Client) -> Result<Lp
             base58Encode(lp_mint) AS lp_mint,
             arrayMap(x -> (base58Encode(x.mint), base58Encode(x.vault)), underlyings) as underlyings,
             curve_type
-        FROM lookup_lp_info lli
+        FROM lookup_lp_info lli FINAL
     ";
 
     let mut cursor = clickhouse_client.query(query).fetch::<LiquidityPoolRow>()?;
