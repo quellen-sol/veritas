@@ -103,7 +103,7 @@ pub async fn handle_clmm(
         let lc_read = lp_cache.read().await;
         log::trace!("Got lp cache read lock");
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
-            // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
+            log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
         };
 
@@ -471,7 +471,147 @@ pub async fn handle_clmm(
                     }
                 }
             }
-            (None, None) => {}
+            (None, None) => {
+                // We need to add the relation to the graph, but mints exist
+                drop(g_read);
+                drop(ei_read);
+
+                log::trace!("Getting graph write lock");
+                let mut g_write = graph.write().await;
+                log::trace!("Got graph write lock");
+
+                let (new_relation, new_relation_rev) = match params {
+                    UpdateRelationCbParams::ClmmGlobal {
+                        current_price,
+                        current_tick_index,
+                        tick_spacing,
+                        ..
+                    } => {
+                        let Ok(current_price_x64) = current_price.parse() else {
+                            log::warn!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
+                            return;
+                        };
+
+                        let new_relation = LiqRelation::Clmm {
+                            amt_origin: b_balance_units,
+                            amt_dest: a_balance_units,
+                            current_price_x64: Some(current_price_x64),
+                            current_tick_index: Some(current_tick_index),
+                            tick_spacing: Some(tick_spacing),
+                            decimals_a,
+                            decimals_b,
+                            is_reverse: false,
+                            pool_id: pool_pubkey.to_string(),
+                            ticks_by_account: HashMap::new(),
+                        };
+
+                        let new_relation_rev = LiqRelation::Clmm {
+                            amt_origin: a_balance_units,
+                            amt_dest: b_balance_units,
+                            current_price_x64: Some(current_price_x64),
+                            current_tick_index: Some(current_tick_index),
+                            tick_spacing: Some(tick_spacing),
+                            decimals_a,
+                            decimals_b,
+                            is_reverse: true,
+                            pool_id: pool_pubkey.to_string(),
+                            ticks_by_account: HashMap::new(),
+                        };
+
+                        (new_relation, new_relation_rev)
+                    }
+                    UpdateRelationCbParams::ClmmTickGlobal { .. } => {
+                        let ticks_by_account = HashMap::new();
+
+                        let new_relation = LiqRelation::Clmm {
+                            amt_origin: b_balance_units,
+                            amt_dest: a_balance_units,
+                            current_price_x64: None,
+                            current_tick_index: None,
+                            tick_spacing: None,
+                            decimals_a,
+                            decimals_b,
+                            is_reverse: false,
+                            pool_id: pool_pubkey.to_string(),
+                            ticks_by_account: ticks_by_account.clone(),
+                        };
+
+                        let new_relation_rev = LiqRelation::Clmm {
+                            amt_origin: a_balance_units,
+                            amt_dest: b_balance_units,
+                            current_price_x64: None,
+                            current_tick_index: None,
+                            tick_spacing: None,
+                            decimals_a,
+                            decimals_b,
+                            is_reverse: true,
+                            pool_id: pool_pubkey.to_string(),
+                            ticks_by_account,
+                        };
+
+                        (new_relation, new_relation_rev)
+                    }
+                };
+
+                log::trace!("Getting edge indicies write lock");
+                let mut ei_write = edge_indicies.write().await;
+                log::trace!("Got edge indicies write lock");
+
+                let new_edge_rev = add_or_update_relation_edge(
+                    mint_a_ix,
+                    mint_b_ix,
+                    &mut ei_write,
+                    &mut g_write,
+                    new_relation_rev,
+                    pool_pubkey,
+                    time,
+                )
+                .await;
+
+                let new_edge_rev = match new_edge_rev {
+                    Ok(ix) => ix,
+                    Err(e) => {
+                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
+                        return;
+                    }
+                };
+
+                let new_edge = add_or_update_relation_edge(
+                    mint_b_ix,
+                    mint_a_ix,
+                    &mut ei_write,
+                    &mut g_write,
+                    new_relation,
+                    pool_pubkey,
+                    time,
+                )
+                .await;
+
+                let new_edge = match new_edge {
+                    Ok(ix) => ix,
+                    Err(e) => {
+                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
+                        return;
+                    }
+                };
+
+                drop(g_write);
+                drop(ei_write);
+
+                log::trace!("Sending update to calculator");
+                send_update_to_calculator(
+                    CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
+                    &calculator_sender,
+                    &bootstrap_in_progress,
+                )
+                .await;
+                send_update_to_calculator(
+                    CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
+                    &calculator_sender,
+                    &bootstrap_in_progress,
+                )
+                .await;
+            }
             _ => {
                 log::error!("UNREACHABLE - Both relations should have been set! LOGIC BUG!!!");
             }
@@ -521,8 +661,16 @@ mod tests {
             Some(10945387511691u64.into()),
         );
 
-        state.decimal_cache.write().await.insert(mint_a.to_string(), 6);
-        state.decimal_cache.write().await.insert(mint_b.to_string(), 6);
+        state
+            .decimal_cache
+            .write()
+            .await
+            .insert(mint_a.to_string(), 6);
+        state
+            .decimal_cache
+            .write()
+            .await
+            .insert(mint_b.to_string(), 6);
 
         let dooot = Dooot::ClmmGlobal(ClmmGlobalDooot {
             time: Utc::now().naive_utc(),
