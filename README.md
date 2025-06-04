@@ -49,6 +49,23 @@ The `sdk` crate is a library that provides core functionalities and utilities fo
 
 The `engine` crate is another component of the project, though its specific functionalities are not detailed in this document.
 
+#### API Endpoints
+
+The engine crate provides several HTTP endpoints through an Axum server running on port 3000:
+
+- **Health Check**
+  - Endpoint: `/healthcheck`
+  - Method: GET
+  - Returns: 200 OK if service is ready, 503 Service Unavailable during bootstrap
+
+- **Debug Endpoints**
+  - `/debug-node`: Get detailed information about a specific node in the pricing graph
+  - `/lp-cache`: Query liquidity pool cache information
+  - `/decimal-cache`: Retrieve decimal precision information for tokens
+  - `/balance-cache`: Get token balance information from the cache
+
+Each endpoint provides access to internal state and debugging information about the pricing engine's operation.
+
 ## Dependencies
 
 The project relies on several external crates, including but not limited to:
