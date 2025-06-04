@@ -478,3 +478,87 @@ pub async fn handle_clmm(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use chrono::Utc;
+    use step_ingestooor_sdk::dooot::{ClmmGlobalDooot, CurveType};
+    use veritas_sdk::utils::lp_cache::LiquidityPool;
+
+    use crate::price_points_liquidity::handlers::utils::build_test_handler_state;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_clmm_handler() {
+        let state = build_test_handler_state();
+
+        let pool_id = "9RqDTfwCx2SgxsvKpspQHc38HUo3B6hRd3oR9JR966Ps";
+        let mint_a = "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH";
+        let mint_b = "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v";
+
+        let lp = LiquidityPool {
+            curve_type: CurveType::ConcentratedLiquidity,
+            underlyings: vec![
+                LPInfoUnderlyingMintVault {
+                    mint: "2u1tszSeqZ3qBWF3uNGPFc8TzMk2tdiwknnRMWGWjGWH".to_string(),
+                    vault: "6j9UtMmzmWuLu45XXmdUXN3NJBdiicxxoBEex8jUs3j6".to_string(),
+                },
+                LPInfoUnderlyingMintVault {
+                    mint: "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v".to_string(),
+                    vault: "5Sokmb48nt8aH8TnnkrAcVea4SdRqGU3qTxhRFvTHJyn".to_string(),
+                },
+            ],
+        };
+        state.lp_cache.write().await.insert(pool_id.to_string(), lp);
+
+        state.token_balance_cache.write().await.insert(
+            "6j9UtMmzmWuLu45XXmdUXN3NJBdiicxxoBEex8jUs3j6".to_string(),
+            Some(9086579393165u64.into()),
+        );
+        state.token_balance_cache.write().await.insert(
+            "5Sokmb48nt8aH8TnnkrAcVea4SdRqGU3qTxhRFvTHJyn".to_string(),
+            Some(10945387511691u64.into()),
+        );
+
+        state.decimal_cache.write().await.insert(mint_a.to_string(), 6);
+        state.decimal_cache.write().await.insert(mint_b.to_string(), 6);
+
+        let dooot = Dooot::ClmmGlobal(ClmmGlobalDooot {
+            time: Utc::now().naive_utc(),
+            pool_pubkey: pool_id.to_string(),
+            current_price: "18450129097944736781".into(),
+            current_tick_index: 3,
+            tick_spacing: 1,
+            total_liquidity_shares: None,
+        });
+
+        handle_clmm(
+            dooot,
+            state.graph.clone(),
+            state.lp_cache,
+            state.decimal_cache,
+            state.mint_indicies.clone(),
+            state.edge_indicies.clone(),
+            state.sender_arc,
+            state.token_balance_cache,
+            state.calculator_sender,
+            state.bootstrap_in_progress,
+        )
+        .await;
+
+        let g_read = state.graph.read().await;
+        let ei_read = state.edge_indicies.read().await;
+        let mi_read = state.mint_indicies.read().await;
+
+        let mint_a_ix = mi_read.get(mint_a).unwrap();
+        let mint_b_ix = mi_read.get(mint_b).unwrap();
+
+        let relation = get_edge_by_discriminant(*mint_a_ix, *mint_b_ix, &g_read, &ei_read, pool_id);
+        let relation_rev =
+            get_edge_by_discriminant(*mint_b_ix, *mint_a_ix, &g_read, &ei_read, pool_id);
+
+        assert!(relation.is_some());
+        assert!(relation_rev.is_some());
+    }
+}
