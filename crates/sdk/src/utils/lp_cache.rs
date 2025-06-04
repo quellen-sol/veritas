@@ -2,13 +2,13 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use clickhouse::Row;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use step_ingestooor_sdk::dooot::{liquidity::LPInfoUnderlyingMintVault, CurveType};
 
 /// K = pool_id, V = LiquidityPool
 pub type LpCache = HashMap<String, LiquidityPool>;
 
-#[derive(Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct LiquidityPool {
     pub curve_type: CurveType,
     pub underlyings: Vec<LPInfoUnderlyingMintVault>,
