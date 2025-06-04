@@ -7,7 +7,7 @@ use crate::{
 };
 
 use relations::{
-    clmm::{get_clmm_liq_levels, get_clmm_liquidity, get_clmm_price, ClmmTickMap},
+    clmm::{get_clmm_liquidity, get_clmm_price, ClmmTickMap},
     cplp::{get_cplp_liq_levels, get_cplp_liquidity, get_cplp_price},
     dlmm::{get_dlmm_liq_levels, get_dlmm_liquidity, get_dlmm_price, DlmmBinMap},
     fixed::{get_fixed_liq_levels, get_fixed_liquidity, get_fixed_price},

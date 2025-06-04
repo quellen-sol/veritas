@@ -67,12 +67,10 @@ pub fn get_clmm_price(
 
     let price_units = sqrt_price_to_decimal_price(*sqrt_price_x64, decimals_a, decimals_b)?;
 
-    let final_price = price_units.checked_mul(*usd_per_origin_units)?;
-
     if is_reverse {
-        Decimal::ONE.checked_div(final_price)
+        usd_per_origin_units.checked_div(price_units)
     } else {
-        Some(final_price)
+        price_units.checked_mul(*usd_per_origin_units)
     }
 }
 
@@ -497,6 +495,8 @@ fn sqrt_price_to_decimal_price(
 
 #[cfg(test)]
 mod tests {
+    use std::str::FromStr;
+
     use super::*;
 
     #[test]
@@ -557,15 +557,14 @@ mod tests {
     #[test]
     fn clmm_price() {
         // Taken from SOL/USDC CLMM on Orca
-        let current_price_x64 = 7494844777637029369;
-        let usd_per_origin_units = Decimal::from(1);
+        let current_price_x64 = 7283686479546985089;
         let decimals_a = 9;
         let decimals_b = 6;
         let is_reverse = false;
 
         let price = get_clmm_price(
             &Some(current_price_x64),
-            &usd_per_origin_units,
+            &Decimal::from_str("1.0001").unwrap(),
             decimals_a,
             decimals_b,
             is_reverse,
@@ -573,6 +572,17 @@ mod tests {
         .unwrap();
 
         println!("price: {price:?}");
+
+        let price = get_clmm_price(
+            &Some(current_price_x64),
+            &Decimal::from_str("156.0162").unwrap(),
+            decimals_a,
+            decimals_b,
+            true,
+        )
+        .unwrap();
+
+        println!("price reverse: {price:?}");
     }
 
     #[test]
