@@ -57,7 +57,7 @@ pub async fn handle_dlmm(
         let lc_read = lp_cache.read().await;
         log::trace!("Got lp cache read lock");
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
-            log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
+            // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
         };
 
@@ -116,7 +116,6 @@ pub async fn handle_dlmm(
         if let (Some(x_bal_inner_val), Some(y_bal_inner_val)) = (x_bal_cache_op, y_bal_cache_op) {
             let (Some(x_vault_balance), Some(y_vault_balance)) = (x_bal_inner_val, y_bal_inner_val)
             else {
-                log::error!("UNREACHABLE - Both balances should have been set in cache");
                 return;
             };
 

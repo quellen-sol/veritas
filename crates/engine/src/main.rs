@@ -114,15 +114,6 @@ async fn main() -> Result<()> {
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
     let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
 
-    // Start serving the axum server as early as possible
-    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
-    let axum_server_task = spawn_axum_server(
-        bootstrap_in_progress.clone(),
-        mint_price_graph.clone(),
-        mint_indicies.clone(),
-        sol_price_index.clone(),
-    );
-
     // Connect to clickhouse
     let ClickhouseArgs {
         clickhouse_user,
@@ -142,14 +133,26 @@ async fn main() -> Result<()> {
 
     log::info!("Created Clickhouse client");
 
-    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
-    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
-
     let lp_cache = build_lp_cache(&clickhouse_client).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
+    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
+    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
+
     let token_balance_cache = build_token_balance_cache(&clickhouse_client).await?;
     let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
+
+    // Start serving the axum server as early as possible
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
+    let axum_server_task = spawn_axum_server(
+        bootstrap_in_progress.clone(),
+        mint_price_graph.clone(),
+        mint_indicies.clone(),
+        sol_price_index.clone(),
+        lp_cache.clone(),
+        decimal_cache.clone(),
+        token_balance_cache.clone(),
+    );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
         ORACLE_FEED_MAP_PAIRS
