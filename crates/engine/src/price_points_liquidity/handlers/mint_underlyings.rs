@@ -315,32 +315,34 @@ pub async fn handle_mint_underlyings(
                     }
                 };
 
-                let Some(new_relation_opp) = build_mu_relation(
-                    &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
-                )
-                .await
-                else {
-                    log::error!("Could not build relation for {mu_dooot:?}");
-                    return;
-                };
-                match add_or_update_relation_edge(
-                    ix_b,
-                    ix_a,
-                    &mut ei_write,
-                    &mut g_write,
-                    new_relation_opp,
-                    parent_mint,
-                    *time,
-                )
-                .await
-                {
-                    Ok(_) => {}
-                    Err(e) => {
-                        log::error!(
-                            "Error adding new relation edge for {mint_a} and {mint_b}: {e}"
-                        );
-                    }
-                };
+                if is_pool {
+                    let Some(new_relation_opp) = build_mu_relation(
+                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
+                    )
+                    .await
+                    else {
+                        log::error!("Could not build relation for {mu_dooot:?}");
+                        return;
+                    };
+                    match add_or_update_relation_edge(
+                        ix_b,
+                        ix_a,
+                        &mut ei_write,
+                        &mut g_write,
+                        new_relation_opp,
+                        parent_mint,
+                        *time,
+                    )
+                    .await
+                    {
+                        Ok(_) => {}
+                        Err(e) => {
+                            log::error!(
+                                "Error adding new relation edge for {mint_a} and {mint_b}: {e}"
+                            );
+                        }
+                    };
+                }
             }
         }
     }
