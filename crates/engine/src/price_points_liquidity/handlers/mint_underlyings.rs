@@ -116,7 +116,7 @@ pub async fn handle_mint_underlyings(
         )
         .await
         else {
-            log::error!("Could not build relation for {mu_dooot:?}");
+            // log::error!("Could not build relation for {mu_dooot:?}");
             return;
         };
 
@@ -145,7 +145,7 @@ pub async fn handle_mint_underlyings(
             )
             .await
             else {
-                log::error!("Could not build relation for {mu_dooot:?}");
+                // log::error!("Could not build relation for {mu_dooot:?}");
                 return;
             };
 
@@ -223,7 +223,7 @@ pub async fn handle_mint_underlyings(
                     )
                     .await
                     else {
-                        log::error!("Could not build relation for {mu_dooot:?}");
+                        // log::error!("Could not build relation for {mu_dooot:?}");
                         return;
                     };
 
@@ -257,7 +257,7 @@ pub async fn handle_mint_underlyings(
                     )
                     .await
                     else {
-                        log::error!("Could not build relation for {mu_dooot:?}");
+                        // log::error!("Could not build relation for {mu_dooot:?}");
                         return;
                     };
 
@@ -289,7 +289,7 @@ pub async fn handle_mint_underlyings(
                 )
                 .await
                 else {
-                    log::error!("Could not build relation for {mu_dooot:?}");
+                    // log::error!("Could not build relation for {mu_dooot:?}");
                     return;
                 };
 
@@ -321,7 +321,7 @@ pub async fn handle_mint_underlyings(
                     )
                     .await
                     else {
-                        log::error!("Could not build relation for {mu_dooot:?}");
+                        // log::error!("Could not build relation for {mu_dooot:?}");
                         return;
                     };
                     match add_or_update_relation_edge(
@@ -373,7 +373,7 @@ async fn build_mu_relation(
         let curve_type = {
             let lp = lp_cache.read().await.get(mint_a).cloned();
             let Some(lp) = lp else {
-                log::warn!("LP mint missing from cache: {mu_dooot:?}");
+                // log::warn!("LP mint missing from cache: {mu_dooot:?}");
                 return None;
             };
 
