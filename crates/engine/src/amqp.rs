@@ -107,7 +107,19 @@ impl AMQPManager {
                             match dooots {
                                 Ok(dooots) => {
                                     for dooot in dooots {
-                                        msg_tx.send(dooot).await.unwrap();
+                                        if matches!(
+                                            dooot,
+                                            Dooot::MintUnderlyingsGlobal(_)
+                                                | Dooot::OraclePriceEvent(_)
+                                                | Dooot::MintInfo(_)
+                                                | Dooot::LPInfo(_)
+                                                | Dooot::DlmmGlobal(_)
+                                                | Dooot::TokenBalanceUser(_)
+                                                | Dooot::ClmmGlobal(_)
+                                                | Dooot::ClmmTickGlobal(_)
+                                        ) {
+                                            msg_tx.send(dooot).await.unwrap();
+                                        }
                                     }
                                     delivery.ack(BasicAckOptions::default()).await.unwrap();
                                 }
