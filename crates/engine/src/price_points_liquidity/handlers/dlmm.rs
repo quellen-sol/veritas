@@ -38,8 +38,8 @@ pub async fn handle_dlmm(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     sender_arc: Sender<String>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    calculator_sender: Sender<CalculatorUpdate>,
-    bootstrap_in_progress: Arc<AtomicBool>,
+    _calculator_sender: Sender<CalculatorUpdate>,
+    _bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let now = Instant::now();
     let DlmmGlobalDooot {

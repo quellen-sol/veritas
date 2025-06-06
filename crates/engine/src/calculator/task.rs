@@ -27,7 +27,7 @@ pub enum CalculatorUpdate {
     /// Price of USD (from oracle) and index in the graph
     OracleUSDPrice(NodeIndex, Decimal),
     /// A Relation pointing TO this token has changed (edge id provided)
-    NewTokenRatio(NodeIndex, EdgeIndex),
+    _NewTokenRatio(NodeIndex, EdgeIndex),
 }
 
 pub fn spawn_calculator_task(
@@ -85,7 +85,7 @@ pub fn spawn_calculator_task(
                         )
                         .await;
                     }
-                    CalculatorUpdate::NewTokenRatio(_token, _updated_edge) => {
+                    CalculatorUpdate::_NewTokenRatio(_token, _updated_edge) => {
                         // handle_token_relation_update(
                         //     graph,
                         //     token,
