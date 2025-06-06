@@ -18,12 +18,9 @@ use veritas_sdk::{
 
 use crate::{
     calculator::task::CalculatorUpdate,
-    price_points_liquidity::{
-        handlers::utils::send_update_to_calculator,
-        task::{
-            add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-            get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
-        },
+    price_points_liquidity::task::{
+        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
+        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
 
@@ -88,8 +85,8 @@ pub async fn handle_clmm(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     sender_arc: Sender<String>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    calculator_sender: Sender<CalculatorUpdate>,
-    bootstrap_in_progress: Arc<AtomicBool>,
+    _calculator_sender: Sender<CalculatorUpdate>,
+    _bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let Some(params) = UpdateRelationCbParams::extract_clmm_params(&dooot) else {
         return;
@@ -320,7 +317,7 @@ pub async fn handle_clmm(
         )
         .await;
 
-        let new_edge_rev = match new_edge_rev {
+        let _new_edge_rev = match new_edge_rev {
             Ok(ix) => ix,
             Err(e) => {
                 log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
@@ -339,7 +336,7 @@ pub async fn handle_clmm(
         )
         .await;
 
-        let new_edge = match new_edge {
+        let _new_edge = match new_edge {
             Ok(ix) => ix,
             Err(e) => {
                 log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
@@ -347,22 +344,22 @@ pub async fn handle_clmm(
             }
         };
 
-        drop(g_write);
-        drop(ei_write);
+        // drop(g_write);
+        // drop(ei_write);
 
-        log::trace!("Sending update to calculator");
-        send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
-            &calculator_sender,
-            &bootstrap_in_progress,
-        )
-        .await;
-        send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
-            &calculator_sender,
-            &bootstrap_in_progress,
-        )
-        .await;
+        // log::trace!("Sending update to calculator");
+        // send_update_to_calculator(
+        //     CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
+        //     &calculator_sender,
+        //     &bootstrap_in_progress,
+        // )
+        // .await;
+        // send_update_to_calculator(
+        //     CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
+        //     &calculator_sender,
+        //     &bootstrap_in_progress,
+        // )
+        // .await;
     } else {
         let (Some(mint_a_ix), Some(mint_b_ix)) = (mint_a_ix, mint_b_ix) else {
             log::error!("UNREACHABLE - Both indicies should have been set already. Checked above");
@@ -568,7 +565,7 @@ pub async fn handle_clmm(
                 )
                 .await;
 
-                let new_edge_rev = match new_edge_rev {
+                let _new_edge_rev = match new_edge_rev {
                     Ok(ix) => ix,
                     Err(e) => {
                         log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
@@ -587,7 +584,7 @@ pub async fn handle_clmm(
                 )
                 .await;
 
-                let new_edge = match new_edge {
+                let _new_edge = match new_edge {
                     Ok(ix) => ix,
                     Err(e) => {
                         log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
@@ -595,22 +592,22 @@ pub async fn handle_clmm(
                     }
                 };
 
-                drop(g_write);
-                drop(ei_write);
+                // drop(g_write);
+                // drop(ei_write);
 
-                log::trace!("Sending update to calculator");
-                send_update_to_calculator(
-                    CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
-                    &calculator_sender,
-                    &bootstrap_in_progress,
-                )
-                .await;
-                send_update_to_calculator(
-                    CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
-                    &calculator_sender,
-                    &bootstrap_in_progress,
-                )
-                .await;
+                // log::trace!("Sending update to calculator");
+                // send_update_to_calculator(
+                //     CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
+                //     &calculator_sender,
+                //     &bootstrap_in_progress,
+                // )
+                // .await;
+                // send_update_to_calculator(
+                //     CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
+                //     &calculator_sender,
+                //     &bootstrap_in_progress,
+                // )
+                // .await;
             }
             _ => {
                 log::error!("UNREACHABLE - Both relations should have been set! LOGIC BUG!!!");

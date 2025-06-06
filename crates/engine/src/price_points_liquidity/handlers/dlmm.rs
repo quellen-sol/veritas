@@ -25,8 +25,6 @@ use crate::{
     },
 };
 
-use super::utils::send_update_to_calculator;
-
 /// DLMMs are always in the form of X/Y where X is "base" and Y is "quote"
 ///
 /// The edge from Y -> X is NOT the `reverse` relation, since Y is expected to price X in most cases.
@@ -40,8 +38,8 @@ pub async fn handle_dlmm(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     sender_arc: Sender<String>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    calculator_sender: Sender<CalculatorUpdate>,
-    bootstrap_in_progress: Arc<AtomicBool>,
+    _calculator_sender: Sender<CalculatorUpdate>,
+    _bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let now = Instant::now();
     let DlmmGlobalDooot {
@@ -225,7 +223,7 @@ pub async fn handle_dlmm(
         )
         .await;
 
-        let new_edge_rev = match new_edge_rev {
+        let _new_edge_rev = match new_edge_rev {
             Ok(ix) => ix,
             Err(e) => {
                 log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
@@ -244,7 +242,7 @@ pub async fn handle_dlmm(
         )
         .await;
 
-        let new_edge = match new_edge {
+        let _new_edge = match new_edge {
             Ok(ix) => ix,
             Err(e) => {
                 log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
@@ -252,22 +250,22 @@ pub async fn handle_dlmm(
             }
         };
 
-        drop(g_write);
-        drop(ei_write);
+        // drop(g_write);
+        // drop(ei_write);
 
-        log::trace!("Sending update to calculator");
-        send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(y_ix, new_edge_rev),
-            &calculator_sender,
-            &bootstrap_in_progress,
-        )
-        .await;
-        send_update_to_calculator(
-            CalculatorUpdate::NewTokenRatio(x_ix, new_edge),
-            &calculator_sender,
-            &bootstrap_in_progress,
-        )
-        .await;
+        // log::trace!("Sending update to calculator");
+        // send_update_to_calculator(
+        //     CalculatorUpdate::NewTokenRatio(y_ix, new_edge_rev),
+        //     &calculator_sender,
+        //     &bootstrap_in_progress,
+        // )
+        // .await;
+        // send_update_to_calculator(
+        //     CalculatorUpdate::NewTokenRatio(x_ix, new_edge),
+        //     &calculator_sender,
+        //     &bootstrap_in_progress,
+        // )
+        // .await;
     } else {
         // Only need to update the relation in the edge
         let (Some(x_ix), Some(y_ix)) = (mint_x_ix, mint_y_ix) else {
@@ -331,7 +329,7 @@ pub async fn handle_dlmm(
             let mut ei_write = edge_indicies.write().await;
             log::trace!("Got edge indicies write lock");
 
-            let new_ix_rev = match add_or_update_relation_edge(
+            let _new_ix_rev = match add_or_update_relation_edge(
                 x_ix,
                 y_ix,
                 &mut ei_write,
@@ -349,7 +347,7 @@ pub async fn handle_dlmm(
                 }
             };
 
-            let new_ix = match add_or_update_relation_edge(
+            let _new_ix = match add_or_update_relation_edge(
                 y_ix,
                 x_ix,
                 &mut ei_write,
@@ -367,22 +365,22 @@ pub async fn handle_dlmm(
                 }
             };
 
-            drop(g_write);
-            drop(ei_write);
+            // drop(g_write);
+            // drop(ei_write);
 
-            log::trace!("Sending update to calculator");
-            send_update_to_calculator(
-                CalculatorUpdate::NewTokenRatio(y_ix, new_ix_rev),
-                &calculator_sender,
-                &bootstrap_in_progress,
-            )
-            .await;
-            send_update_to_calculator(
-                CalculatorUpdate::NewTokenRatio(x_ix, new_ix),
-                &calculator_sender,
-                &bootstrap_in_progress,
-            )
-            .await;
+            // log::trace!("Sending update to calculator");
+            // send_update_to_calculator(
+            //     CalculatorUpdate::NewTokenRatio(y_ix, new_ix_rev),
+            //     &calculator_sender,
+            //     &bootstrap_in_progress,
+            // )
+            // .await;
+            // send_update_to_calculator(
+            //     CalculatorUpdate::NewTokenRatio(x_ix, new_ix),
+            //     &calculator_sender,
+            //     &bootstrap_in_progress,
+            // )
+            // .await;
         } else if relation_rev.is_some() && relation.is_some() {
             let Some(amt_x_units) = x_balance.checked_div(x_factor) else {
                 log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
