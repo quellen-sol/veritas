@@ -49,7 +49,7 @@ pub async fn handle_mint_underlyings(
     let (mint_a, mint_b) = if is_pool {
         (&mints[0], &mints[1])
     } else {
-        (parent_mint, &mints[0])
+        (&mints[0], parent_mint)
     };
 
     let (decimals_a, decimals_b) = {
@@ -105,15 +105,20 @@ pub async fn handle_mint_underlyings(
         };
 
         let Some(new_relation) = build_mu_relation(
-            &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool,
+            &mu_dooot,
+            lp_cache.clone(),
+            mint_a,
+            mint_b,
+            decimals_a,
+            decimals_b,
+            is_pool,
+            false,
         )
         .await
         else {
             log::error!("Could not build relation for {mu_dooot:?}");
             return;
         };
-
-        let new_relation_opp = new_relation.clone();
 
         let mut ei_write = edge_indicies.write().await;
 
@@ -134,25 +139,35 @@ pub async fn handle_mint_underlyings(
             }
         };
 
-        match add_or_update_relation_edge(
-            mint_b_ix,
-            mint_a_ix,
-            &mut ei_write,
-            &mut g_write,
-            new_relation_opp,
-            parent_mint,
-            *time,
-        )
-        .await
-        {
-            Ok(_) => {}
-            Err(e) => {
-                log::error!("Error adding new relation edge for {mint_b} -> {mint_a}: {e}");
-            }
-        };
+        if is_pool {
+            let Some(new_relation_opp) = build_mu_relation(
+                &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
+            )
+            .await
+            else {
+                log::error!("Could not build relation for {mu_dooot:?}");
+                return;
+            };
+
+            match add_or_update_relation_edge(
+                mint_b_ix,
+                mint_a_ix,
+                &mut ei_write,
+                &mut g_write,
+                new_relation_opp,
+                parent_mint,
+                *time,
+            )
+            .await
+            {
+                Ok(_) => {}
+                Err(e) => {
+                    log::error!("Error adding new relation edge for {mint_b} -> {mint_a}: {e}");
+                }
+            };
+        }
     } else {
         // Exists, but need to update/create relation
-
         let (Some(ix_a), Some(ix_b)) = (mint_a_ix, mint_b_ix) else {
             log::error!("UNREACHABLE - Both indicies should have been set {mu_dooot:?}");
             return;
@@ -162,75 +177,115 @@ pub async fn handle_mint_underlyings(
         let ei_read = edge_indicies.read().await;
 
         let edge_ix = get_edge_by_discriminant(ix_a, ix_b, &g_read, &ei_read, parent_mint);
-        let edge_ix_opposite = get_edge_by_discriminant(ix_b, ix_a, &g_read, &ei_read, parent_mint);
 
-        match (edge_ix, edge_ix_opposite) {
-            (Some(edge_ix), Some(edge_ix_opposite)) => {
+        match edge_ix {
+            Some(edge_ix) => {
                 // Just need to update them.
                 let Some(edge) = g_read.edge_weight(edge_ix) else {
                     log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
                     return;
                 };
 
-                let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
-                    log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
-                    return;
-                };
-
                 let mut e_write = edge.inner_relation.write().await;
-                let mut e_opp_write = edge_opp.inner_relation.write().await;
 
-                let LiqRelation::CpLp {
-                    amt_origin: ref mut amt_origin_dooot,
-                    amt_dest: ref mut amt_dest_dooot,
-                } = *e_write
-                else {
-                    log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                    return;
-                };
-
-                let LiqRelation::CpLp {
-                    amt_origin: ref mut amt_origin_dooot_opp,
-                    amt_dest: ref mut amt_dest_dooot_opp,
-                } = *e_opp_write
-                else {
-                    log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                    return;
-                };
-
-                let Some(relation) = build_mu_relation(
-                    &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool,
-                )
-                .await
-                else {
-                    log::error!("Could not build relation for {mu_dooot:?}");
-                    return;
-                };
-
-                let (amt_origin, amt_dest) = match relation {
-                    LiqRelation::CpLp {
-                        amt_origin,
-                        amt_dest,
-                    } => (amt_origin, amt_dest),
-                    _ => {
+                if is_pool {
+                    let Some(edge_ix_opposite) =
+                        get_edge_by_discriminant(ix_b, ix_a, &g_read, &ei_read, parent_mint)
+                    else {
+                        log::error!("UNREACHABLE - Opp edge should exist for {mu_dooot:?}");
+                        return;
+                    };
+                    let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
+                        log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
+                        return;
+                    };
+                    let mut e_opp_write = edge_opp.inner_relation.write().await;
+                    let LiqRelation::CpLp {
+                        amt_origin: ref mut amt_origin_dooot,
+                        amt_dest: ref mut amt_dest_dooot,
+                    } = *e_write
+                    else {
                         log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
                         return;
-                    }
-                };
+                    };
 
-                *amt_origin_dooot = amt_origin;
-                *amt_dest_dooot = amt_dest;
+                    let LiqRelation::CpLp {
+                        amt_origin: ref mut amt_origin_dooot_opp,
+                        amt_dest: ref mut amt_dest_dooot_opp,
+                    } = *e_opp_write
+                    else {
+                        log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                        return;
+                    };
 
-                *amt_origin_dooot_opp = amt_dest;
-                *amt_dest_dooot_opp = amt_origin;
+                    let Some(relation) = build_mu_relation(
+                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, false,
+                    )
+                    .await
+                    else {
+                        log::error!("Could not build relation for {mu_dooot:?}");
+                        return;
+                    };
+
+                    let (amt_origin, amt_dest) = match relation {
+                        LiqRelation::CpLp {
+                            amt_origin,
+                            amt_dest,
+                        } => (amt_origin, amt_dest),
+                        _ => {
+                            log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                            return;
+                        }
+                    };
+
+                    *amt_origin_dooot = amt_origin;
+                    *amt_dest_dooot = amt_dest;
+
+                    *amt_origin_dooot_opp = amt_dest;
+                    *amt_dest_dooot_opp = amt_origin;
+                } else {
+                    let LiqRelation::Fixed {
+                        amt_per_parent: ref mut amt_per_parent_dooot,
+                    } = *e_write
+                    else {
+                        log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
+                        return;
+                    };
+
+                    let Some(relation) = build_mu_relation(
+                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, false,
+                    )
+                    .await
+                    else {
+                        log::error!("Could not build relation for {mu_dooot:?}");
+                        return;
+                    };
+
+                    let amt_per_parent = match relation {
+                        LiqRelation::Fixed { amt_per_parent } => amt_per_parent,
+                        _ => {
+                            log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
+                            return;
+                        }
+                    };
+
+                    *amt_per_parent_dooot = amt_per_parent;
+                }
             }
-            (None, None) => {
+            None => {
                 drop(g_read);
                 drop(ei_read);
                 // Need to create new ones
 
                 let Some(new_relation) = build_mu_relation(
-                    &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool,
+                    &mu_dooot,
+                    lp_cache.clone(),
+                    mint_a,
+                    mint_b,
+                    decimals_a,
+                    decimals_b,
+                    is_pool,
+                    false,
                 )
                 .await
                 else {
@@ -238,7 +293,6 @@ pub async fn handle_mint_underlyings(
                     return;
                 };
 
-                let new_relation_opp = new_relation.clone();
                 let mut g_write = graph.write().await;
                 let mut ei_write = edge_indicies.write().await;
 
@@ -261,6 +315,14 @@ pub async fn handle_mint_underlyings(
                     }
                 };
 
+                let Some(new_relation_opp) = build_mu_relation(
+                    &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
+                )
+                .await
+                else {
+                    log::error!("Could not build relation for {mu_dooot:?}");
+                    return;
+                };
                 match add_or_update_relation_edge(
                     ix_b,
                     ix_a,
@@ -279,9 +341,6 @@ pub async fn handle_mint_underlyings(
                         );
                     }
                 };
-            }
-            _ => {
-                log::error!("UNREACHABLE - Both edges should exist for {mu_dooot:?}");
             }
         }
     }
@@ -306,6 +365,7 @@ async fn build_mu_relation(
     decimals_a: u8,
     decimals_b: u8,
     is_pool: bool,
+    is_reverse: bool,
 ) -> Option<LiqRelation> {
     if is_pool {
         let curve_type = {
@@ -341,9 +401,16 @@ async fn build_mu_relation(
                 };
                 let amt_origin = amt_a.checked_div(a_dec_factor)?;
                 let amt_dest = amt_b.checked_div(b_dec_factor)?;
-                let relation = LiqRelation::CpLp {
-                    amt_origin,
-                    amt_dest,
+                let relation = if !is_reverse {
+                    LiqRelation::CpLp {
+                        amt_origin,
+                        amt_dest,
+                    }
+                } else {
+                    LiqRelation::CpLp {
+                        amt_origin: amt_dest,
+                        amt_dest: amt_origin,
+                    }
                 };
                 Some(relation)
             }
@@ -354,14 +421,14 @@ async fn build_mu_relation(
             log::error!("Could not convert mints_qty_per_one_parent[0] to Decimal: {mu_dooot:?}");
             return None;
         };
-        let Some(decimal_factor) = Decimal::TEN.checked_powi(decimals_a as i64 - decimals_b as i64)
+        let Some(decimal_factor) = Decimal::TEN.checked_powi(decimals_b as i64 - decimals_a as i64)
         else {
-            log::error!("Math overflowed for Fixed {mint_a} ({decimals_a}) {mu_dooot:?}");
+            log::error!("Math overflowed for Fixed {mint_b} ({decimals_b}) {mu_dooot:?}");
             return None;
         };
 
         let Some(amt_per_parent) = ratio.checked_mul(decimal_factor) else {
-            log::error!("Math overflowed for Fixed {mint_a} ({decimals_a}) {mu_dooot:?}");
+            log::error!("Math overflowed for Fixed {mint_b} ({decimals_b}) {mu_dooot:?}");
             return None;
         };
 
