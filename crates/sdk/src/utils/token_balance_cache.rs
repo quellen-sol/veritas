@@ -17,26 +17,7 @@ pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCa
     log::info!("Building token balance cache...");
 
     let query = "
-        WITH
-            clmm_and_dlmm_vaults AS (
-                SELECT
-                DISTINCT u.vault AS vault
-                FROM lookup_lp_info lli FINAL
-                ARRAY JOIN underlyings AS u
-                WHERE lli.curve_type = 7
-                OR lli.curve_type = 4
-            ),
-            token_balance as (
-                SELECT
-                    token_account_pubkey,
-                    balance
-                from current_token_balance_by_user_mint FINAL
-                where token_account_pubkey in (select vault from clmm_and_dlmm_vaults)
-            )
-        SELECT
-            base58Encode(token_account_pubkey) AS vault,
-            toUInt64(balance) AS balance
-        FROM token_balance
+        SELECT * FROM vw_global_current_pool_vault_balances
     ";
 
     let mut cursor = client.query(query).fetch::<TokenBalanceRow>()?;
