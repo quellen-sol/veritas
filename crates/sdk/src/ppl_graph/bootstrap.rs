@@ -96,7 +96,7 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
         arrayMap(x -> base58Encode(x), mints) as mints,
         mints_qty_per_one_parent,
         total_underlying_amounts
-    FROM current_mint_underlyings_global_by_mint
+    FROM current_mint_underlyings_global_by_mint FINAL
 ";
 
 const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
@@ -106,7 +106,7 @@ const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
         base58Encode(parts_account_pubkey) AS parts_account_pubkey,
         part_index,
         parts
-    FROM current_dlmm_global_by_pool_parts
+    FROM current_dlmm_global_by_pool_parts FINAL
 ";
 
 pub async fn bootstrap_graph(
