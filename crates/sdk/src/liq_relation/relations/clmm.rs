@@ -31,7 +31,8 @@ const SCALE_FACTOR_F64: f64 = 1_000_000.0;
 const SCALE_FACTOR_F64_SQUARED: f64 = SCALE_FACTOR_F64 * SCALE_FACTOR_F64;
 const SCALE_FACTOR_U128_SQAURED: u128 = SCALE_FACTOR_U128 * SCALE_FACTOR_U128;
 
-const FIFTY: Decimal = Decimal::from_parts(50, 0, 0, false, 0);
+// 220 SOL atm (~$35k)
+const SOL_LIQ_THRESHOLD: Decimal = Decimal::from_parts(220, 0, 0, false, 0);
 
 pub type ClmmTickMap = HashMap<i32, ClmmTickParsed>;
 
@@ -94,7 +95,7 @@ pub fn get_clmm_liq_levels_dumb(
 ) -> Option<LiqLevels> {
     let amt_sol_units = amt_source.checked_div(*origin_tokens_per_sol)?;
 
-    if amt_sol_units > FIFTY {
+    if amt_sol_units > SOL_LIQ_THRESHOLD {
         Some(LiqLevels::ZERO)
     } else {
         None
