@@ -142,6 +142,9 @@ async fn main() -> Result<()> {
     let token_balance_cache = build_token_balance_cache(&clickhouse_client).await?;
     let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
 
+    let max_price_impact =
+        Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
+
     // Start serving the axum server as early as possible
     let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
     let axum_server_task = spawn_axum_server(
@@ -152,6 +155,7 @@ async fn main() -> Result<()> {
         lp_cache.clone(),
         decimal_cache.clone(),
         token_balance_cache.clone(),
+        max_price_impact,
     );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
@@ -212,9 +216,6 @@ async fn main() -> Result<()> {
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
-
-    let max_price_impact =
-        Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
 
     // "CS" or "Calculator" Task
     let calculator_task = spawn_calculator_task(

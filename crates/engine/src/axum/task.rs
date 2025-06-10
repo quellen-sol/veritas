@@ -26,6 +26,7 @@ pub struct VeritasServerState {
     pub lp_cache: Arc<RwLock<LpCache>>,
     pub decimal_cache: Arc<RwLock<DecimalCache>>,
     pub token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
+    pub max_price_impact: Decimal,
 }
 
 pub fn spawn_axum_server(
@@ -36,6 +37,7 @@ pub fn spawn_axum_server(
     lp_cache: Arc<RwLock<LpCache>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
+    max_price_impact: Decimal,
 ) -> JoinHandle<()> {
     tokio::spawn(
         #[allow(clippy::unwrap_used)]
@@ -48,6 +50,7 @@ pub fn spawn_axum_server(
                 lp_cache,
                 decimal_cache,
                 token_balance_cache,
+                max_price_impact,
             });
 
             let app = Router::new()
