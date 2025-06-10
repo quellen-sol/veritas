@@ -94,7 +94,7 @@ pub async fn debug_node_info(
                 };
 
                 if only_acceptable
-                    && relation_with_liq
+                    && !relation_with_liq
                         .liquidity_levels
                         .as_ref()
                         .is_some_and(|l| l.acceptable(&price_impact))
@@ -122,7 +122,7 @@ pub async fn debug_node_info(
                 });
 
                 if only_acceptable
-                    && liquidity_levels
+                    && !liquidity_levels
                         .as_ref()
                         .is_some_and(|l| l.acceptable(&price_impact))
                 {
