@@ -60,6 +60,34 @@ The engine crate provides several HTTP endpoints through an Axum server running 
 
 - **Debug Endpoints**
   - `/debug-node`: Get detailed information about a specific node in the pricing graph
+    - Query Parameters:
+      - `mint` (required): The mint address of the token to get information about
+      - `only_incoming` (optional): Filter to show only incoming relations (default: false)
+      - `only_outgoing` (optional): Filter to show only outgoing relations (default: false)
+      - `only_acceptable` (optional): Filter to show only relations with acceptable price impact (default: false)
+      - `custom_price_impact` (optional): Override the default price impact threshold with a custom decimal value (e.g. "0.01" for 1%)
+    - Example Requests:
+      ```bash
+      # Get all relations for a token
+      curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112"
+
+      # Get only incoming relations
+      curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_incoming=true"
+
+      # Get only outgoing relations with acceptable price impact
+      curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_outgoing=true&only_acceptable=true"
+
+      # Get relations with custom price impact threshold of 0.5%
+      curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_acceptable=true&custom_price_impact=0.005"
+      ```
+    - Response includes:
+      - Token mint address
+      - Calculated price
+      - Neighbor tokens and their relations
+      - For each relation:
+        - Liquidity amount
+        - Liquidity levels
+        - Derived price
   - `/lp-cache`: Query liquidity pool cache information
   - `/decimal-cache`: Retrieve decimal precision information for tokens
   - `/balance-cache`: Get token balance information from the cache
