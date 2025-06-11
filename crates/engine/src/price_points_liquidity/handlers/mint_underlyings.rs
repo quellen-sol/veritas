@@ -107,6 +107,7 @@ pub async fn handle_mint_underlyings(
         let Some(new_relation) = build_mu_relation(
             &mu_dooot,
             lp_cache.clone(),
+            parent_mint,
             mint_a,
             mint_b,
             decimals_a,
@@ -141,7 +142,15 @@ pub async fn handle_mint_underlyings(
 
         if is_pool {
             let Some(new_relation_opp) = build_mu_relation(
-                &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
+                &mu_dooot,
+                lp_cache,
+                parent_mint,
+                mint_a,
+                mint_b,
+                decimals_a,
+                decimals_b,
+                is_pool,
+                true,
             )
             .await
             else {
@@ -219,7 +228,15 @@ pub async fn handle_mint_underlyings(
                     };
 
                     let Some(relation) = build_mu_relation(
-                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, false,
+                        &mu_dooot,
+                        lp_cache,
+                        parent_mint,
+                        mint_a,
+                        mint_b,
+                        decimals_a,
+                        decimals_b,
+                        is_pool,
+                        false,
                     )
                     .await
                     else {
@@ -253,7 +270,15 @@ pub async fn handle_mint_underlyings(
                     };
 
                     let Some(relation) = build_mu_relation(
-                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, false,
+                        &mu_dooot,
+                        lp_cache,
+                        parent_mint,
+                        mint_a,
+                        mint_b,
+                        decimals_a,
+                        decimals_b,
+                        is_pool,
+                        false,
                     )
                     .await
                     else {
@@ -280,6 +305,7 @@ pub async fn handle_mint_underlyings(
                 let Some(new_relation) = build_mu_relation(
                     &mu_dooot,
                     lp_cache.clone(),
+                    parent_mint,
                     mint_a,
                     mint_b,
                     decimals_a,
@@ -317,7 +343,15 @@ pub async fn handle_mint_underlyings(
 
                 if is_pool {
                     let Some(new_relation_opp) = build_mu_relation(
-                        &mu_dooot, lp_cache, mint_a, mint_b, decimals_a, decimals_b, is_pool, true,
+                        &mu_dooot,
+                        lp_cache,
+                        parent_mint,
+                        mint_a,
+                        mint_b,
+                        decimals_a,
+                        decimals_b,
+                        is_pool,
+                        true,
                     )
                     .await
                     else {
@@ -362,6 +396,7 @@ pub async fn handle_mint_underlyings(
 async fn build_mu_relation(
     mu_dooot: &MintUnderlyingsGlobalDooot,
     lp_cache: Arc<RwLock<LpCache>>,
+    discriminant_id: &str,
     mint_a: &str,
     mint_b: &str,
     decimals_a: u8,
@@ -371,7 +406,7 @@ async fn build_mu_relation(
 ) -> Option<LiqRelation> {
     if is_pool {
         let curve_type = {
-            let lp = lp_cache.read().await.get(mint_a).cloned();
+            let lp = lp_cache.read().await.get(discriminant_id).cloned();
             let Some(lp) = lp else {
                 // log::warn!("LP mint missing from cache: {mu_dooot:?}");
                 return None;
