@@ -419,10 +419,7 @@ async fn build_mu_relation(
         };
 
         match curve_type {
-            CurveType::ConstantProduct
-            | CurveType::ConstantPrice
-            | CurveType::Stable
-            | CurveType::StableWithOffset => {
+            CurveType::ConstantProduct => {
                 let Some(amt_a) = mu_dooot.total_underlying_amounts.first() else {
                     log::error!("MALFORMED CPLP DOOOT: {mu_dooot:?}");
                     return None;
