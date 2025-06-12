@@ -24,6 +24,7 @@ pub async fn bfs_recalculate(
     oracle_mint_set: &HashSet<String>,
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
+    update_nodes: bool,
 ) -> Result<()> {
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
@@ -37,7 +38,6 @@ pub async fn bfs_recalculate(
             return Ok(());
         };
 
-        // Calc
         let Some(node_weight) = graph.node_weight(node) else {
             log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
             return Ok(());
@@ -58,7 +58,7 @@ pub async fn bfs_recalculate(
 
             log::debug!("Calculated price of {mint}: {new_price}");
 
-            {
+            if update_nodes {
                 log::trace!("Getting price write lock for price calc");
                 let mut price_mut = node_weight.usd_price.write().await;
                 log::trace!("Got price write lock for price calc");
@@ -292,6 +292,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(5),
+                    pool_id: "SomeMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -306,6 +307,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
+                    pool_id: "OtherMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -320,6 +322,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
+                    pool_id: "IlliquidMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -361,6 +364,7 @@ mod tests {
         let relation = LiqRelation::CpLp {
             amt_origin: Decimal::from(10),
             amt_dest: Decimal::from(10),
+            pool_id: "SomeMarket".into(),
         };
 
         let sol_price = Decimal::ONE_HUNDRED;
@@ -405,6 +409,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN A (To be priced)
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -418,6 +423,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10_000), // 10k TOKEN A (To be priced)
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -433,6 +439,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN B (To be priced)
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -446,6 +453,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10_000), // 10k TOKEN AB (To be priced)
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -465,6 +473,7 @@ mod tests {
             &oracle_mint_set,
             &Some(oracle_price),
             &max_price_impact,
+            true,
         )
         .await
         .unwrap();

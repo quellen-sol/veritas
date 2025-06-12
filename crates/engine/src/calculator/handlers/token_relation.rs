@@ -40,6 +40,7 @@ pub async fn _handle_token_relation_update(
         oracle_mint_set,
         &sol_index,
         max_price_impact,
+        true,
     )
     .await;
 

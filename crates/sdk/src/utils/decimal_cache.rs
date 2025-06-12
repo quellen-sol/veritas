@@ -28,7 +28,7 @@ pub async fn build_decimal_cache(clickhouse_client: &clickhouse::Client) -> Resu
         SELECT
             base58Encode(mint) AS mint_pk,
             finalizeAggregation(decimals) AS decimals
-        FROM lookup_mint_info lmi
+        FROM lookup_mint_info lmi FINAL
         WHERE decimals > 0
     ";
 

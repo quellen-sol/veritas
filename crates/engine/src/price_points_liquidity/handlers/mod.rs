@@ -1,3 +1,4 @@
+pub mod clmm;
 pub mod dlmm;
 pub mod lp_info;
 pub mod mint_info;

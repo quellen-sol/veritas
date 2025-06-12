@@ -1,28 +1,45 @@
 use std::{
-    collections::HashMap,
+    collections::HashSet,
     sync::{atomic::AtomicBool, Arc},
 };
 
 use axum::{
-    extract::{Query, State},
+    extract::State,
     http::StatusCode,
-    routing::get,
-    Json, Router,
+    routing::{get, post},
+    Router,
 };
-use itertools::Itertools;
 use rust_decimal::Decimal;
 use tokio::{sync::RwLock, task::JoinHandle};
-use veritas_sdk::ppl_graph::{graph::WrappedMintPricingGraph, utils::get_price_by_node_idx};
+use veritas_sdk::{
+    ppl_graph::graph::WrappedMintPricingGraph,
+    utils::{
+        decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
+    },
+};
 
-use crate::price_points_liquidity::task::MintIndiciesMap;
+use crate::{
+    axum::routes::{
+        balance_cache::get_balance_cache_token, debug_node::debug_node_info,
+        decimal_cache::get_decimal_cache_token, force_recalc::force_recalc,
+        lp_cache::get_lp_cache_pool, stats::get_stats, toggle_calculation::toggle_calculation,
+        toggle_ingestion::toggle_ingestion,
+    },
+    price_points_liquidity::task::MintIndiciesMap,
+};
 
-use veritas_sdk::api::types::{NodeInfo, NodeRelationInfo, RelationWithLiq};
-
-struct VeritasServerState {
-    bootstrap_in_progress: Arc<AtomicBool>,
-    graph: WrappedMintPricingGraph,
-    mint_indicies: Arc<RwLock<MintIndiciesMap>>,
-    sol_price_index: Arc<RwLock<Option<Decimal>>>,
+pub struct VeritasServerState {
+    pub bootstrap_in_progress: Arc<AtomicBool>,
+    pub graph: WrappedMintPricingGraph,
+    pub mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+    pub sol_price_index: Arc<RwLock<Option<Decimal>>>,
+    pub lp_cache: Arc<RwLock<LpCache>>,
+    pub decimal_cache: Arc<RwLock<DecimalCache>>,
+    pub token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
+    pub max_price_impact: Decimal,
+    pub paused_ingestion: Arc<AtomicBool>,
+    pub paused_calculation: Arc<AtomicBool>,
+    pub oracle_mint_set: HashSet<String>,
 }
 
 pub fn spawn_axum_server(
@@ -30,6 +47,13 @@ pub fn spawn_axum_server(
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     sol_price_index: Arc<RwLock<Option<Decimal>>>,
+    lp_cache: Arc<RwLock<LpCache>>,
+    decimal_cache: Arc<RwLock<DecimalCache>>,
+    token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
+    max_price_impact: Decimal,
+    paused_ingestion: Arc<AtomicBool>,
+    paused_calculation: Arc<AtomicBool>,
+    oracle_mint_set: HashSet<String>,
 ) -> JoinHandle<()> {
     tokio::spawn(
         #[allow(clippy::unwrap_used)]
@@ -39,11 +63,25 @@ pub fn spawn_axum_server(
                 graph,
                 mint_indicies,
                 sol_price_index,
+                lp_cache,
+                decimal_cache,
+                token_balance_cache,
+                max_price_impact,
+                paused_ingestion,
+                paused_calculation,
+                oracle_mint_set,
             });
 
             let app = Router::new()
                 .route("/healthcheck", get(handle_healthcheck))
                 .route("/debug-node", get(debug_node_info))
+                .route("/lp-cache", get(get_lp_cache_pool))
+                .route("/decimal-cache", get(get_decimal_cache_token))
+                .route("/balance-cache", get(get_balance_cache_token))
+                .route("/toggle-ingestion", post(toggle_ingestion))
+                .route("/toggle-calculation", post(toggle_calculation))
+                .route("/stats", get(get_stats))
+                .route("/force-recalc", post(force_recalc))
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
@@ -63,95 +101,4 @@ async fn handle_healthcheck(State(state): State<Arc<VeritasServerState>>) -> Sta
         // 200
         StatusCode::OK
     }
-}
-
-async fn debug_node_info(
-    State(state): State<Arc<VeritasServerState>>,
-    Query(params): Query<HashMap<String, String>>,
-) -> Result<Json<NodeInfo>, StatusCode> {
-    let mint = params.get("mint").ok_or(StatusCode::BAD_REQUEST)?;
-    let mint_ix = {
-        let mi_read = state.mint_indicies.read().await;
-        mi_read.get(mint).cloned().ok_or(StatusCode::NOT_FOUND)?
-    };
-
-    let g_read = state.graph.read().await;
-    let sol_price = *state.sol_price_index.read().await;
-    let this_price = get_price_by_node_idx(&g_read, mint_ix).await;
-
-    let mut node_info = NodeInfo {
-        mint: mint.clone(),
-        calculated_price: this_price,
-        neighbors: vec![],
-    };
-
-    for neighbor in g_read.neighbors_undirected(mint_ix).unique() {
-        let Some(neigh_weight) = g_read.node_weight(neighbor) else {
-            log::error!("UNREACHABLE - {neighbor:?} should exist in graph??");
-            return Err(StatusCode::INTERNAL_SERVER_ERROR);
-        };
-
-        let neighbor_mint = &neigh_weight.mint;
-
-        let mut relation_info = NodeRelationInfo {
-            mint: neighbor_mint.clone(),
-            incoming_relations: vec![],
-            outgoing_relations: vec![],
-        };
-
-        // All outgoing edges
-        for edge in g_read.edges_connecting(mint_ix, neighbor) {
-            let e_weight = edge.weight();
-            let relation = e_weight.inner_relation.read().await.clone();
-            let calc_res = this_price.map(|p| {
-                let this_tokens_per_sol = sol_price.and_then(|s| s.checked_div(p));
-                let liq = relation.get_liquidity(p, Decimal::ZERO);
-                let levels = this_tokens_per_sol.and_then(|tps| relation.get_liq_levels(tps));
-                let derived = relation.get_price(p);
-
-                (liq, levels, derived)
-            });
-
-            let mut relation_with_liq = RelationWithLiq {
-                relation,
-                liquidity_amount: None,
-                liquidity_levels: None,
-                derived_price: None,
-            };
-
-            if let Some((liquidity_amount, liquidity_levels, derived_price)) = calc_res {
-                relation_with_liq.liquidity_amount = liquidity_amount;
-                relation_with_liq.liquidity_levels = liquidity_levels;
-                relation_with_liq.derived_price = derived_price;
-            };
-
-            relation_info.outgoing_relations.push(relation_with_liq);
-        }
-
-        // All incoming edges
-        for edge in g_read.edges_connecting(neighbor, mint_ix) {
-            let e_weight = edge.weight();
-            let relation = e_weight.inner_relation.read().await.clone();
-            let price_neighbor = get_price_by_node_idx(&g_read, neighbor).await;
-            let liquidity_amount =
-                price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
-            let derived_price = price_neighbor.and_then(|p| relation.get_price(p));
-            let liquidity_levels = price_neighbor.and_then(|p| {
-                let sol_price = sol_price?;
-                let tokens_per_sol = sol_price.checked_div(p)?;
-                relation.get_liq_levels(tokens_per_sol)
-            });
-
-            relation_info.incoming_relations.push(RelationWithLiq {
-                relation,
-                liquidity_amount,
-                liquidity_levels,
-                derived_price,
-            });
-        }
-
-        node_info.neighbors.push(relation_info);
-    }
-
-    Ok(Json(node_info))
 }

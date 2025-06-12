@@ -110,19 +110,12 @@ async fn main() -> Result<()> {
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let sol_price_index = Arc::new(RwLock::new(None));
+    let paused_ingestion = Arc::new(AtomicBool::new(false));
+    let paused_calculation = Arc::new(AtomicBool::new(false));
 
     // Only to be used if we never *remove* nodes from the graph
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
     let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
-
-    // Start serving the axum server as early as possible
-    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
-    let axum_server_task = spawn_axum_server(
-        bootstrap_in_progress.clone(),
-        mint_price_graph.clone(),
-        mint_indicies.clone(),
-        sol_price_index.clone(),
-    );
 
     // Connect to clickhouse
     let ClickhouseArgs {
@@ -148,14 +141,38 @@ async fn main() -> Result<()> {
         clickhouse_client.clone(),
     ));
 
-    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
-    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
-
     let lp_cache = build_lp_cache(&clickhouse_client).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
+    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
+    let decimal_cache = Arc::new(RwLock::new(decimal_cache));
+
     let token_balance_cache = build_token_balance_cache(&clickhouse_client).await?;
     let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
+
+    let max_price_impact =
+        Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
+
+    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
+        .iter()
+        .map(|(_, v)| v.to_string())
+        .collect::<HashSet<String>>();
+
+    // Start serving the axum server as early as possible
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
+    let axum_server_task = spawn_axum_server(
+        bootstrap_in_progress.clone(),
+        mint_price_graph.clone(),
+        mint_indicies.clone(),
+        sol_price_index.clone(),
+        lp_cache.clone(),
+        decimal_cache.clone(),
+        token_balance_cache.clone(),
+        max_price_impact,
+        paused_ingestion.clone(),
+        paused_calculation.clone(),
+        oracle_mint_set.clone(),
+    );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
         ORACLE_FEED_MAP_PAIRS
@@ -163,10 +180,6 @@ async fn main() -> Result<()> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<HashMap<String, String>>(),
     );
-    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
-        .iter()
-        .map(|(_, v)| v.to_string())
-        .collect::<HashSet<String>>();
 
     // Connect to amqp
     let AMQPArgs {
@@ -216,9 +229,6 @@ async fn main() -> Result<()> {
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
 
-    let max_price_impact =
-        Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
-
     // "CS" or "Calculator" Task
     let calculator_task = spawn_calculator_task(
         calculator_receiver,
@@ -229,6 +239,7 @@ async fn main() -> Result<()> {
         oracle_mint_set,
         sol_price_index,
         max_price_impact,
+        paused_calculation.clone(),
     );
 
     // "CU" or "Cache Updator" Task
@@ -286,7 +297,9 @@ async fn main() -> Result<()> {
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
     // Completing the pipeline AMQP -> PPL (+CU) -> CS -> DP
-    let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
+    let amqp_task = amqp_manager
+        .spawn_amqp_listener(amqp_dooot_tx, paused_ingestion.clone())
+        .await?;
 
     tokio::select! {
         e = amqp_task => {
