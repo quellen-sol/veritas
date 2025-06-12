@@ -37,7 +37,6 @@ pub async fn bfs_recalculate(
             return Ok(());
         };
 
-        // Calc
         let Some(node_weight) = graph.node_weight(node) else {
             log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
             return Ok(());
