@@ -24,6 +24,7 @@ pub async fn bfs_recalculate(
     oracle_mint_set: &HashSet<String>,
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
+    update_nodes: bool,
 ) -> Result<()> {
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
@@ -57,7 +58,7 @@ pub async fn bfs_recalculate(
 
             log::debug!("Calculated price of {mint}: {new_price}");
 
-            {
+            if update_nodes {
                 log::trace!("Getting price write lock for price calc");
                 let mut price_mut = node_weight.usd_price.write().await;
                 log::trace!("Got price write lock for price calc");
@@ -464,6 +465,7 @@ mod tests {
             &oracle_mint_set,
             &Some(oracle_price),
             &max_price_impact,
+            true,
         )
         .await
         .unwrap();

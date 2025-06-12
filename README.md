@@ -78,10 +78,11 @@ The engine crate provides several HTTP endpoints through an Axum server running 
       }
       ```
 
-- **Debug Endpoints**
+- **Debug and State Endpoints**
 
   - `/debug-node`: Get detailed information about a specific node in the pricing graph
 
+    - Method: GET
     - Query Parameters:
       - `mint` (required): The mint address of the token to get information about
       - `only_incoming` (optional): Filter to show only incoming relations (default: false)
@@ -89,21 +90,16 @@ The engine crate provides several HTTP endpoints through an Axum server running 
       - `only_acceptable` (optional): Filter to show only relations with acceptable price impact (default: false)
       - `custom_price_impact` (optional): Override the default price impact threshold with a custom decimal value (e.g. "0.01" for 1%)
     - Example Requests:
-
       ```bash
       # Get all relations for a token
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112"
-
       # Get only incoming relations
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_incoming=true"
-
       # Get only outgoing relations with acceptable price impact
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_outgoing=true&only_acceptable=true"
-
       # Get relations with custom price impact threshold of 0.5%
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_acceptable=true&custom_price_impact=0.005"
       ```
-
     - Response includes:
       - Token mint address
       - Calculated price
@@ -114,8 +110,62 @@ The engine crate provides several HTTP endpoints through an Axum server running 
         - Derived price
 
   - `/lp-cache`: Query liquidity pool cache information
+
+    - Method: GET
+    - Query Parameters:
+      - `pool` (required): The pool identifier
+    - Returns: JSON with liquidity pool details or 404 if not found
+
   - `/decimal-cache`: Retrieve decimal precision information for tokens
+
+    - Method: GET
+    - Query Parameters:
+      - `mint` (required): The mint address of the token
+    - Returns: `{ "decimal": <u8> }` or 404 if not found
+
   - `/balance-cache`: Get token balance information from the cache
+
+    - Method: GET
+    - Query Parameters:
+      - `mint` (required): The mint address of the token
+    - Returns: One of:
+      ```json
+      { "type": "NotInMap" }
+      { "type": "InMapButNull" }
+      { "type": "BalanceExists", "balance": <u64> }
+      ```
+
+  - `/stats`: Get engine and graph statistics
+
+    - Method: GET
+    - Query Parameters:
+      - `top_n` (optional): Number of top dominator nodes to return (default: 10)
+    - Returns: JSON with engine and graph stats, e.g.
+      ```json
+      {
+        "ingesting": true,
+        "calculating": true,
+        "node_count": 123,
+        "edge_count": 456,
+        "top_dominators": [
+          ["mint1", 12],
+          ["mint2", 10]
+        ]
+      }
+      ```
+
+  - `/force-recalc`: Force recalculation of prices in the graph
+    - Method: POST
+    - Request Body (JSON, optional):
+      - `update_nodes` (bool, optional): Whether to update nodes in the graph (default: false)
+      - `start_mint` (string, optional): Mint address to start recalculation from (default: WSOL_MINT)
+    - Returns: JSON map of updated token prices:
+      ```json
+      {
+        "<mint_address>": "<price_decimal>",
+        ...
+      }
+      ```
 
 Each endpoint provides access to internal state and debugging information about the pricing engine's operation.
 
