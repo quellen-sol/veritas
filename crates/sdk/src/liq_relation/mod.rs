@@ -25,6 +25,7 @@ pub enum LiqRelation {
         amt_origin: Decimal,
         /// Expressed in UNITS
         amt_dest: Decimal,
+        pool_id: String,
     },
     /// Fixed ratio of parent to underlying, e.g., STEP -> xSTEP
     Fixed { amt_per_parent: Decimal },
@@ -112,6 +113,7 @@ impl LiqRelation {
             LiqRelation::CpLp {
                 amt_origin: amt_a,
                 amt_dest: amt_b,
+                ..
             } => get_cplp_liq_levels(amt_a, amt_b, &tokens_per_sol),
             LiqRelation::Fixed { .. } => get_fixed_liq_levels(),
             LiqRelation::Dlmm {

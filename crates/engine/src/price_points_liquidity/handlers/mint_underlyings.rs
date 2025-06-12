@@ -212,6 +212,7 @@ pub async fn handle_mint_underlyings(
                     let LiqRelation::CpLp {
                         amt_origin: ref mut amt_origin_dooot,
                         amt_dest: ref mut amt_dest_dooot,
+                        ..
                     } = *e_write
                     else {
                         log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
@@ -221,6 +222,7 @@ pub async fn handle_mint_underlyings(
                     let LiqRelation::CpLp {
                         amt_origin: ref mut amt_origin_dooot_opp,
                         amt_dest: ref mut amt_dest_dooot_opp,
+                        ..
                     } = *e_opp_write
                     else {
                         log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
@@ -248,6 +250,7 @@ pub async fn handle_mint_underlyings(
                         LiqRelation::CpLp {
                             amt_origin,
                             amt_dest,
+                            ..
                         } => (amt_origin, amt_dest),
                         _ => {
                             log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
@@ -436,17 +439,19 @@ async fn build_mu_relation(
                     log::error!("Math overflowed for CPLP {mint_b} ({decimals_b}) {mu_dooot:?}");
                     return None;
                 };
-                let amt_origin = amt_a.checked_div(a_dec_factor)?;
-                let amt_dest = amt_b.checked_div(b_dec_factor)?;
+                let amt_a_units = amt_a.checked_div(a_dec_factor)?;
+                let amt_b_units = amt_b.checked_div(b_dec_factor)?;
                 let relation = if !is_reverse {
                     LiqRelation::CpLp {
-                        amt_origin,
-                        amt_dest,
+                        amt_origin: amt_a_units,
+                        amt_dest: amt_b_units,
+                        pool_id: discriminant_id.to_string(),
                     }
                 } else {
                     LiqRelation::CpLp {
-                        amt_origin: amt_dest,
-                        amt_dest: amt_origin,
+                        amt_origin: amt_b_units,
+                        amt_dest: amt_a_units,
+                        pool_id: discriminant_id.to_string(),
                     }
                 };
                 Some(relation)
