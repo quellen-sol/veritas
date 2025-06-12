@@ -292,6 +292,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(5),
+                    pool_id: "SomeMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -306,6 +307,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
+                    pool_id: "OtherMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -320,6 +322,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10),
                     amt_dest: Decimal::from(2),
+                    pool_id: "IlliquidMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
             },
@@ -361,6 +364,7 @@ mod tests {
         let relation = LiqRelation::CpLp {
             amt_origin: Decimal::from(10),
             amt_dest: Decimal::from(10),
+            pool_id: "SomeMarket".into(),
         };
 
         let sol_price = Decimal::ONE_HUNDRED;
@@ -405,6 +409,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN A (To be priced)
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -418,6 +423,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10_000), // 10k TOKEN A (To be priced)
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -433,6 +439,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(100_000), // 100k ORACLE TOKEN @ $100
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN B (To be priced)
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
@@ -446,6 +453,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::CpLp {
                     amt_origin: Decimal::from(10_000), // 10k TOKEN AB (To be priced)
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
+                    pool_id: "SomeMarket".into(),
                 }),
             },
         );
