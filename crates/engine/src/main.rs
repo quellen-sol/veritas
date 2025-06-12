@@ -147,6 +147,11 @@ async fn main() -> Result<()> {
     let max_price_impact =
         Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
 
+    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
+        .iter()
+        .map(|(_, v)| v.to_string())
+        .collect::<HashSet<String>>();
+
     // Start serving the axum server as early as possible
     let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
     let axum_server_task = spawn_axum_server(
@@ -160,6 +165,7 @@ async fn main() -> Result<()> {
         max_price_impact,
         paused_ingestion.clone(),
         paused_calculation.clone(),
+        oracle_mint_set.clone(),
     );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
@@ -168,10 +174,6 @@ async fn main() -> Result<()> {
             .map(|(k, v)| (k.to_string(), v.to_string()))
             .collect::<HashMap<String, String>>(),
     );
-    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
-        .iter()
-        .map(|(_, v)| v.to_string())
-        .collect::<HashSet<String>>();
 
     // Connect to amqp
     let AMQPArgs {

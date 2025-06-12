@@ -63,6 +63,7 @@ pub async fn handle_oracle_price_update(
         oracle_mint_set,
         &sol_index,
         max_price_impact,
+        true,
     )
     .await;
 

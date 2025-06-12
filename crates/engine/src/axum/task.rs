@@ -1,4 +1,7 @@
-use std::sync::{atomic::AtomicBool, Arc};
+use std::{
+    collections::HashSet,
+    sync::{atomic::AtomicBool, Arc},
+};
 
 use axum::{
     extract::State,
@@ -18,8 +21,9 @@ use veritas_sdk::{
 use crate::{
     axum::routes::{
         balance_cache::get_balance_cache_token, debug_node::debug_node_info,
-        decimal_cache::get_decimal_cache_token, lp_cache::get_lp_cache_pool,
-        toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
+        decimal_cache::get_decimal_cache_token, force_recalc::force_recalc,
+        lp_cache::get_lp_cache_pool, stats::get_stats, toggle_calculation::toggle_calculation,
+        toggle_ingestion::toggle_ingestion,
     },
     price_points_liquidity::task::MintIndiciesMap,
 };
@@ -35,6 +39,7 @@ pub struct VeritasServerState {
     pub max_price_impact: Decimal,
     pub paused_ingestion: Arc<AtomicBool>,
     pub paused_calculation: Arc<AtomicBool>,
+    pub oracle_mint_set: HashSet<String>,
 }
 
 pub fn spawn_axum_server(
@@ -48,6 +53,7 @@ pub fn spawn_axum_server(
     max_price_impact: Decimal,
     paused_ingestion: Arc<AtomicBool>,
     paused_calculation: Arc<AtomicBool>,
+    oracle_mint_set: HashSet<String>,
 ) -> JoinHandle<()> {
     tokio::spawn(
         #[allow(clippy::unwrap_used)]
@@ -63,6 +69,7 @@ pub fn spawn_axum_server(
                 max_price_impact,
                 paused_ingestion,
                 paused_calculation,
+                oracle_mint_set,
             });
 
             let app = Router::new()
@@ -73,6 +80,8 @@ pub fn spawn_axum_server(
                 .route("/balance-cache", get(get_balance_cache_token))
                 .route("/toggle-ingestion", post(toggle_ingestion))
                 .route("/toggle-calculation", post(toggle_calculation))
+                .route("/stats", get(get_stats))
+                .route("/force-recalc", post(force_recalc))
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
