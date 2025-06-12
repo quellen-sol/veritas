@@ -1,3 +1,8 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
+
 use anyhow::{Context, Result};
 use futures::StreamExt;
 use lapin::{
@@ -62,7 +67,11 @@ impl AMQPManager {
         Ok(())
     }
 
-    pub async fn spawn_amqp_listener(&self, msg_tx: Sender<Dooot>) -> Result<JoinHandle<()>> {
+    pub async fn spawn_amqp_listener(
+        &self,
+        msg_tx: Sender<Dooot>,
+        paused_ingestion: Arc<AtomicBool>,
+    ) -> Result<JoinHandle<()>> {
         self.set_prefetch().await?;
         self.assert_amqp_topology().await?;
 
@@ -83,7 +92,11 @@ impl AMQPManager {
                 while let Some(delivery) = consumer.next().await {
                     match delivery {
                         Ok(delivery) => {
-                            // log::info!("Received message: {:?}", delivery);
+                            if paused_ingestion.load(Ordering::Relaxed) {
+                                delivery.ack(BasicAckOptions::default()).await.unwrap();
+                                continue;
+                            }
+
                             let data = &delivery.data;
                             let dooots = data
                                 .split(|b| *b == b'\n')

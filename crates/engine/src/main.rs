@@ -109,6 +109,8 @@ async fn main() -> Result<()> {
 
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let sol_price_index = Arc::new(RwLock::new(None));
+    let paused_ingestion = Arc::new(AtomicBool::new(false));
+    let paused_calculation = Arc::new(AtomicBool::new(false));
 
     // Only to be used if we never *remove* nodes from the graph
     // See https://docs.rs/petgraph/latest/petgraph/graph/struct.Graph.html#graph-indices
@@ -156,6 +158,8 @@ async fn main() -> Result<()> {
         decimal_cache.clone(),
         token_balance_cache.clone(),
         max_price_impact,
+        paused_ingestion.clone(),
+        paused_calculation.clone(),
     );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
@@ -227,6 +231,7 @@ async fn main() -> Result<()> {
         oracle_mint_set,
         sol_price_index,
         max_price_impact,
+        paused_calculation.clone(),
     );
 
     // "CU" or "Cache Updator" Task
@@ -284,7 +289,9 @@ async fn main() -> Result<()> {
 
     // Spawn the AMQP listener **after** the bootstrap, so that we don't get flooded with new Dooots during the bootstrap
     // Completing the pipeline AMQP -> PPL (+CU) -> CS -> DP
-    let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
+    let amqp_task = amqp_manager
+        .spawn_amqp_listener(amqp_dooot_tx, paused_ingestion.clone())
+        .await?;
 
     tokio::select! {
         _ = amqp_task => {

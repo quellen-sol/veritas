@@ -54,12 +54,34 @@ The `engine` crate is another component of the project, though its specific func
 The engine crate provides several HTTP endpoints through an Axum server running on port 3000:
 
 - **Health Check**
+
   - Endpoint: `/healthcheck`
   - Method: GET
   - Returns: 200 OK if service is ready, 503 Service Unavailable during bootstrap
 
+- **Control Endpoints**
+
+  - `/toggle-ingestion`: Toggle the ingestion of new data from AMQP
+    - Method: POST
+    - Returns: JSON response with the new state
+      ```json
+      {
+        "ingesting": true // true if ingesting, false if paused
+      }
+      ```
+  - `/toggle-calculation`: Toggle the calculation of prices
+    - Method: POST
+    - Returns: JSON response with the new state
+      ```json
+      {
+        "calculating": true // true if calculating new prices, false if paused
+      }
+      ```
+
 - **Debug Endpoints**
+
   - `/debug-node`: Get detailed information about a specific node in the pricing graph
+
     - Query Parameters:
       - `mint` (required): The mint address of the token to get information about
       - `only_incoming` (optional): Filter to show only incoming relations (default: false)
@@ -67,6 +89,7 @@ The engine crate provides several HTTP endpoints through an Axum server running 
       - `only_acceptable` (optional): Filter to show only relations with acceptable price impact (default: false)
       - `custom_price_impact` (optional): Override the default price impact threshold with a custom decimal value (e.g. "0.01" for 1%)
     - Example Requests:
+
       ```bash
       # Get all relations for a token
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112"
@@ -80,6 +103,7 @@ The engine crate provides several HTTP endpoints through an Axum server running 
       # Get relations with custom price impact threshold of 0.5%
       curl "http://veritas.pre.step.local/debug-node?mint=So11111111111111111111111111111111111111112&only_acceptable=true&custom_price_impact=0.005"
       ```
+
     - Response includes:
       - Token mint address
       - Calculated price
@@ -88,6 +112,7 @@ The engine crate provides several HTTP endpoints through an Axum server running 
         - Liquidity amount
         - Liquidity levels
         - Derived price
+
   - `/lp-cache`: Query liquidity pool cache information
   - `/decimal-cache`: Retrieve decimal precision information for tokens
   - `/balance-cache`: Get token balance information from the cache

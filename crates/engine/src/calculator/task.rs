@@ -39,6 +39,7 @@ pub fn spawn_calculator_task(
     oracle_mint_set: HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: Decimal,
+    paused_calculation: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     log::info!("Spawning Calculator tasks...");
 
@@ -49,7 +50,9 @@ pub fn spawn_calculator_task(
         let max_price_impact = &max_price_impact;
 
         while let Some(update) = calculator_receiver.recv().await {
-            if bootstrap_in_progress.load(Ordering::Relaxed) {
+            if bootstrap_in_progress.load(Ordering::Relaxed)
+                || paused_calculation.load(Ordering::Relaxed)
+            {
                 // Do not process graph updates while bootstrapping,
                 // Avoids thousands of recalcs while bootstrapping
                 continue;
