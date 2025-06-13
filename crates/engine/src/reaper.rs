@@ -1,19 +1,36 @@
 use std::time::Duration;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clickhouse::Client;
 use veritas_sdk::ppl_graph::graph::WrappedMintPricingGraph;
 
 pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Client) {
     loop {
-        let g_read = graph.write().await; // Write lock for exclusive access to the graph
-        for node in g_read.node_weights() {
-            let mut p_write = node.usd_price.write().await;
-            p_write.take();
+        let now = Utc::now();
+        log::info!("Starting reaper task at {}", now);
+        {
+            let g_read = graph.write().await; // Write lock for exclusive access to the graph
+            log::info!("Graph locked. Starting to clear usd_price from nodes...");
+            for node in g_read.node_weights() {
+                let mut p_write = node.usd_price.write().await;
+                p_write.take();
+            }
+            log::info!("Cleared nodes. Unlocking graph...");
         }
 
-        let now_timestamp = Utc::now().timestamp();
+        let now_timestamp = now.timestamp();
         let one_week_ago_timestamp = now_timestamp - (86400 * 7);
+        let Some(one_week_ago_time) = DateTime::from_timestamp(one_week_ago_timestamp, 0) else {
+            log::error!(
+                "Failed to convert one_week_ago_timestamp to DateTime ({})",
+                one_week_ago_timestamp
+            );
+            continue;
+        };
+        log::info!(
+            "Cleared usd_price from nodes. Starting to clear current_token_price_global_by_mint older than {}...",
+            one_week_ago_time
+        );
 
         let q_result = clickhouse_client
             .query(
@@ -27,11 +44,20 @@ pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Clie
             .await;
 
         match q_result {
-            Ok(_) => {}
+            Ok(_) => {
+                log::info!(
+                    "Cleared current_token_price_global_by_mint older than {}.",
+                    one_week_ago_time
+                );
+            }
             Err(e) => {
                 log::error!("Error during reaper task: {:?}", e);
             }
         }
+        log::info!(
+            "Reaper task completed at {}. Sleeping for 1 day...",
+            Utc::now()
+        );
 
         tokio::time::sleep(Duration::from_secs(86400)).await;
     }
