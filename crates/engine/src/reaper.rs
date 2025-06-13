@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use chrono::Utc;
 use clickhouse::Client;
 use veritas_sdk::ppl_graph::graph::WrappedMintPricingGraph;
 
@@ -11,7 +12,19 @@ pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Clie
             p_write.take();
         }
 
-        let q_result = clickhouse_client.query("DELETE FROM current_token_price_global_by_mint WHERE time < now() - interval '1 week'").execute().await;
+        let now_timestamp = Utc::now().timestamp();
+        let one_week_ago_timestamp = now_timestamp - (86400 * 7);
+
+        let q_result = clickhouse_client
+            .query(
+                format!(
+                    "DELETE FROM current_token_price_global_by_mint WHERE time < {}",
+                    one_week_ago_timestamp
+                )
+                .as_str(),
+            )
+            .execute()
+            .await;
 
         match q_result {
             Ok(_) => {}
