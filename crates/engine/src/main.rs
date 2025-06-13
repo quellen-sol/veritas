@@ -30,6 +30,7 @@ mod axum;
 mod calculator;
 mod ch_cache_updator;
 mod price_points_liquidity;
+mod reaper;
 
 #[derive(Parser)]
 pub struct Args {
@@ -141,6 +142,11 @@ async fn main() -> Result<()> {
     }
 
     log::info!("Created Clickhouse client");
+
+    let reaper_task = tokio::spawn(reaper::reaper_task(
+        mint_price_graph.clone(),
+        clickhouse_client.clone(),
+    ));
 
     let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
@@ -283,26 +289,29 @@ async fn main() -> Result<()> {
     let amqp_task = amqp_manager.spawn_amqp_listener(amqp_dooot_tx).await?;
 
     tokio::select! {
-        _ = amqp_task => {
-            log::warn!("AMQP task exited");
+        e = amqp_task => {
+            log::warn!("AMQP task exited: {:?}", e);
         }
-        _ = ppl_task => {
-            log::warn!("PPL task exited");
+        e = ppl_task => {
+            log::warn!("PPL task exited: {:?}", e);
         }
-        _ = ch_cache_updator_receiver_task => {
-            log::warn!("CH cache updator receiver task exited");
+        e = ch_cache_updator_receiver_task => {
+            log::warn!("CH cache updator receiver task exited: {:?}", e);
         }
-        _ = ch_cache_updator_query_task => {
-            log::warn!("CH cache updator query task exited");
+        e = ch_cache_updator_query_task => {
+            log::warn!("CH cache updator query task exited: {:?}", e);
         }
-        _ = calculator_task => {
-            log::warn!("Calculator update task exited");
+        e = calculator_task => {
+            log::warn!("Calculator update task exited: {:?}", e);
         }
-        _ = dooot_publisher_task => {
-            log::warn!("Dooot publisher task exited");
+        e = dooot_publisher_task => {
+            log::warn!("Dooot publisher task exited: {:?}", e);
         }
-        _ = axum_server_task => {
-            log::warn!("Axum server task exited");
+        e = axum_server_task => {
+            log::warn!("Axum server task exited: {:?}", e);
+        }
+        e = reaper_task => {
+            log::warn!("Reaper task exited: {:?}", e);
         }
     }
 
