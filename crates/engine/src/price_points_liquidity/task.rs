@@ -10,7 +10,6 @@ use std::{
 use anyhow::{Context, Result};
 use chrono::NaiveDateTime;
 use petgraph::graph::{EdgeIndex, NodeIndex};
-use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::{
     sync::{
@@ -30,7 +29,7 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::handlers::{
-        dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
+        clmm::handle_clmm, dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
         mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event,
         token_balance::handle_token_balance,
     },
@@ -92,10 +91,8 @@ pub fn spawn_price_points_liquidity_task(
                                 graph,
                                 decimal_cache,
                                 sender_arc,
-                                calculator_sender,
                                 mint_indicies,
                                 edge_indicies,
-                                bootstrap_in_progress,
                             )
                             .await;
                         }
@@ -133,6 +130,21 @@ pub fn spawn_price_points_liquidity_task(
                         }
                         Dooot::TokenBalanceUser(balance) => {
                             handle_token_balance(balance, token_balance_cache).await;
+                        }
+                        Dooot::ClmmGlobal(_) | Dooot::ClmmTickGlobal(_) => {
+                            handle_clmm(
+                                dooot,
+                                graph,
+                                lp_cache,
+                                decimal_cache,
+                                mint_indicies,
+                                edge_indicies,
+                                sender_arc,
+                                token_balance_cache,
+                                calculator_sender,
+                                bootstrap_in_progress,
+                            )
+                            .await;
                         }
                         _ => {}
                     }
@@ -192,26 +204,6 @@ pub fn get_or_dispatch_decimals(
         }
     };
     Some(decimals_x)
-}
-
-/// Returns the decimal factor for a mint, or None if the decimal factor is not in the cache
-///
-/// If the decimal factor is not in the cache, it will dispatch a request to get the decimal factor
-#[inline]
-pub fn get_or_dispatch_decimal_factor(
-    sender: &Sender<String>,
-    dc_read: &HashMap<String, u8>,
-    mint_x: &str,
-) -> Option<Decimal> {
-    let dec = get_or_dispatch_decimals(sender, dc_read, mint_x)?;
-
-    let dec_factor = Decimal::from(10).checked_powi(dec as i64);
-
-    if dec_factor.is_none() {
-        log::warn!("Decimal overflow when trying to get decimals for {mint_x}: Decimals {dec}");
-    }
-
-    dec_factor
 }
 
 #[inline]
@@ -358,6 +350,7 @@ pub fn update_edge_index(
 #[cfg(test)]
 mod tests {
     use chrono::Utc;
+    use rust_decimal::Decimal;
 
     use super::*;
 

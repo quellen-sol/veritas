@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:latest-rust-1.82-slim-bullseye AS chef
+FROM lukemathwalker/cargo-chef:latest-rust-1.84.1-slim-bullseye AS chef
 WORKDIR /app
 RUN apt-get update && apt-get install -y pkg-config libssl-dev git openssh-client libclang-dev cmake g++ protobuf-compiler
 RUN mkdir -p -m 0600 ~/.ssh && ssh-keyscan github.com >> ~/.ssh/known_hosts
