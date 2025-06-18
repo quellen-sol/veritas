@@ -15,16 +15,16 @@ executors:
 jobs:
   lint-test-build:
     docker:
-      - image: rust:1.82
+      - image: rust:1.87
     resource_class: xlarge
     steps:
       - checkout
       - run: echo $PWD
       - restore_cache:
           keys:
-            - v2-cargo-cache-{{ .Branch }}-{{ checksum "Cargo.lock" }}
-            - v2-cargo-cache-{{ .Branch }}-
-            - v2-cargo-cache-
+            - v2-cargo-cache-1.87-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+            - v2-cargo-cache-1.87-{{ .Branch }}-
+            - v2-cargo-cache-1.87-
       - run:
           name: "Install prereqs"
           command: "apt-get update && apt-get install -y pkg-config libssl-dev git openssh-client libclang-dev protobuf-compiler"
@@ -51,7 +51,7 @@ jobs:
             - /usr/local/cargo/registry
             - /usr/local/cargo/git
             - target/release
-          key: v2-cargo-cache-{{ .Branch }}-{{ checksum "Cargo.lock" }}
+          key: v2-cargo-cache-1.87-{{ .Branch }}-{{ checksum "Cargo.lock" }}
 
 workflows:
   run-pipeline:
