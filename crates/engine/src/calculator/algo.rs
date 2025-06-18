@@ -122,7 +122,7 @@ pub async fn get_total_weighted_price(
             log::error!("UNREACHABLE - This node should always exist");
             return None;
         };
-        this_node_weight.cached_fixed_relation.read().await.clone()
+        *this_node_weight.cached_fixed_relation.read().await
     };
 
     if let Some(cached_fixed_relation) = cached_fixed_relation {
