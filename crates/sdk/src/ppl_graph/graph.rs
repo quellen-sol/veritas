@@ -1,7 +1,7 @@
 use std::{fmt::Debug, sync::Arc};
 
 use chrono::NaiveDateTime;
-use petgraph::{Directed, Graph};
+use petgraph::{graph::EdgeIndex, Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
@@ -17,6 +17,9 @@ pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 pub struct MintNode {
     pub mint: String,
     pub usd_price: RwLock<Option<USDPriceWithSource>>,
+    /// If this node has a `Fixed` relation pointing to it (meaning it takes absolute precedence over other relations),
+    /// we cache the edge index here to avoid having to traverse the graph to find it
+    pub cached_fixed_relation: RwLock<Option<EdgeIndex>>,
 }
 
 #[cfg(feature = "debug-graph")]
