@@ -198,7 +198,7 @@ pub async fn get_single_wighted_price(
                 }
                 amt
             }
-            LiqAmount::Inf => return Some((relation.get_price(price_a)?, LiqAmount::Inf)),
+            LiqAmount::Inf => return Some((relation.get_price(price_a, graph).await?, LiqAmount::Inf)),
         };
 
         if let Some(sol_price) = sol_index {
@@ -223,7 +223,7 @@ pub async fn get_single_wighted_price(
             }
         }
 
-        let Some(price_b_usd) = relation.get_price(price_a) else {
+        let Some(price_b_usd) = relation.get_price(price_a, graph).await else {
             continue;
         };
 
@@ -265,16 +265,19 @@ mod tests {
         let step_node = MintNode {
             mint: "STEP".into(),
             usd_price: RwLock::new(None),
+            non_vertex_relations: RwLock::new(None),
         };
 
         let usdc_node = MintNode {
             mint: "USDC".into(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
+            non_vertex_relations: RwLock::new(None),
         };
 
         let illiquid_node = MintNode {
             mint: "DUMB".into(),
             usd_price: RwLock::new(None),
+            non_vertex_relations: RwLock::new(None),
         };
 
         let mut graph = Graph::new();
@@ -386,16 +389,19 @@ mod tests {
         let oracle_node = graph.add_node(MintNode {
             mint: oracle_token_mint.clone(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(oracle_price))),
+            non_vertex_relations: RwLock::new(None),
         });
 
         let test_token_a = graph.add_node(MintNode {
             mint: "TOKEN_A".into(),
             usd_price: RwLock::new(None),
+            non_vertex_relations: RwLock::new(None),
         });
 
         let test_token_b = graph.add_node(MintNode {
             mint: "TOKEN_B".into(),
             usd_price: RwLock::new(None),
+            non_vertex_relations: RwLock::new(None),
         });
 
         // Link Oracle -> Token A and vice versa

@@ -1,13 +1,15 @@
-use std::{fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use chrono::NaiveDateTime;
-use petgraph::{Directed, Graph};
+use petgraph::{graph::NodeIndex, Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
 use crate::liq_relation::LiqRelation;
 
-pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed>;
+pub type MintGraphNodeIndexType = u32;
+
+pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed, MintGraphNodeIndexType>;
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
@@ -17,6 +19,13 @@ pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 pub struct MintNode {
     pub mint: String,
     pub usd_price: RwLock<Option<USDPriceWithSource>>,
+    /// Relations that are not represented as edges in the graph, e.g., (BTC, ETH, USDC, USDT) -> CRT.
+    ///
+    /// Relations like these would require a hypertree, which is not supported by petgraph.
+    /// We store them here instead.
+    ///
+    /// `HashMap<K = Market ID/Discriminant, V = Relation>`
+    pub non_vertex_relations: RwLock<Option<HashMap<String, LiqRelation>>>,
 }
 
 #[cfg(feature = "debug-graph")]
