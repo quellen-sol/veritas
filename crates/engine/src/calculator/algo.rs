@@ -139,10 +139,7 @@ pub async fn get_total_weighted_price(
         };
 
         let relation = edge_weight.inner_relation.read().await;
-        let Some(price) = relation.get_price(origin_price) else {
-            log::error!("UNREACHABLE - Cached fixed relation should always have a price");
-            return None;
-        };
+        let price = relation.get_price(origin_price)?;
 
         return Some(price);
     }
