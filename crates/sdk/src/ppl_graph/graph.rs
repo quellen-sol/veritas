@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Debug, sync::Arc};
 
 use chrono::NaiveDateTime;
-use petgraph::{graph::NodeIndex, Directed, Graph};
+use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 

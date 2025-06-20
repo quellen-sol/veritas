@@ -198,7 +198,9 @@ pub async fn get_single_wighted_price(
                 }
                 amt
             }
-            LiqAmount::Inf => return Some((relation.get_price(price_a, graph).await?, LiqAmount::Inf)),
+            LiqAmount::Inf => {
+                return Some((relation.get_price(price_a, graph).await?, LiqAmount::Inf))
+            }
         };
 
         if let Some(sol_price) = sol_index {
