@@ -118,7 +118,7 @@ pub async fn get_total_weighted_price(
     };
     let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
     for (_, relation) in non_vertex_relations.iter() {
-        let relation = relation.read().await.clone();
+        let relation = relation.read().await;
 
         // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
         let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
@@ -129,11 +129,11 @@ pub async fn get_total_weighted_price(
                 LiqAmount::Inf => {
                     return derived_price.and_then(|p| clamp_to_scale(&p));
                 }
-                LiqAmount::Amount(amt) => {
+                LiqAmount::Amount(liq) => {
                     if let Some(price) = derived_price {
                         cm_weighted_price =
-                            cm_weighted_price.checked_add(price.checked_mul(amt)?)?;
-                        total_liq = total_liq.checked_add(amt)?;
+                            cm_weighted_price.checked_add(price.checked_mul(liq)?)?;
+                        total_liq = total_liq.checked_add(liq)?;
                     } else {
                         continue;
                     }
