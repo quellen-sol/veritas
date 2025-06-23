@@ -116,30 +116,41 @@ pub async fn get_total_weighted_price(
         log::error!("UNREACHABLE - This node should always exist");
         return None;
     };
-    let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
-    for (_, relation) in non_vertex_relations.iter() {
-        let relation = relation.read().await;
 
-        // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
-        let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
-        let derived_price = relation.get_price(Decimal::ZERO, graph).await;
+    {
+        let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+        for (_, relation) in non_vertex_relations.iter() {
+            let relation = relation.read().await;
 
-        match liquidity_amount {
-            Some(amt) => match amt {
-                LiqAmount::Inf => {
-                    return derived_price.and_then(|p| clamp_to_scale(&p));
-                }
-                LiqAmount::Amount(liq) => {
-                    if let Some(price) = derived_price {
-                        cm_weighted_price =
-                            cm_weighted_price.checked_add(price.checked_mul(liq)?)?;
-                        total_liq = total_liq.checked_add(liq)?;
-                    } else {
-                        continue;
+            // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
+            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
+            let derived_price = relation.get_price(Decimal::ZERO, graph).await;
+
+            match liquidity_amount {
+                Some(amt) => match amt {
+                    LiqAmount::Inf => {
+                        log::info!(
+                            "Inf liq found, returning price. Price is none: {}",
+                            derived_price.is_none()
+                        );
+                        return derived_price.and_then(|p| {
+                            let p = clamp_to_scale(&p);
+                            log::info!("Clamped price: {:?}", p);
+                            p
+                        });
                     }
-                }
-            },
-            None => continue,
+                    LiqAmount::Amount(liq) => {
+                        if let Some(price) = derived_price {
+                            cm_weighted_price =
+                                cm_weighted_price.checked_add(price.checked_mul(liq)?)?;
+                            total_liq = total_liq.checked_add(liq)?;
+                        } else {
+                            continue;
+                        }
+                    }
+                },
+                None => continue,
+            }
         }
     }
 
