@@ -2,7 +2,7 @@ use rust_decimal::Decimal;
 
 use crate::{
     liq_relation::{relations::index_like::carrot::get_carrot_price, IndexPart},
-    ppl_graph::graph::MintPricingGraph,
+    types::MintPricingGraph,
 };
 
 pub mod carrot;

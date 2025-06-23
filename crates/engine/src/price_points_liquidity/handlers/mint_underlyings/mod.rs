@@ -5,7 +5,7 @@ use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::MintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
@@ -13,7 +13,7 @@ use crate::price_points_liquidity::{
     handlers::mint_underlyings::handle_specials::handle_special_mint_underlyings,
     task::{
         add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        get_or_dispatch_decimals,
     },
 };
 

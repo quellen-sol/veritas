@@ -5,11 +5,10 @@ use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
 use tokio::sync::RwLock;
 use veritas_sdk::{
     liq_relation::{IndexPart, LiqRelation},
-    ppl_graph::graph::{MintNode, WrappedMintPricingGraph},
+    ppl_graph::graph::MintNode,
+    types::{MintIndiciesMap, WrappedMintPricingGraph},
     utils::decimal_cache::DecimalCache,
 };
-
-use crate::price_points_liquidity::task::MintIndiciesMap;
 
 pub async fn handle_carrot_dooot(
     dooot: &MintUnderlyingsGlobalDooot,

@@ -3,10 +3,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::{
     liq_relation::relations::{clmm::get_clmm_liq_levels_dumb, index_like::get_index_like_price},
-    ppl_graph::{
-        graph::{MintGraphNodeIndexType, MintPricingGraph},
-        structs::{LiqAmount, LiqLevels},
-    },
+    ppl_graph::structs::{LiqAmount, LiqLevels},
+    types::{MintGraphNodeIndexType, MintPricingGraph},
 };
 
 use relations::{

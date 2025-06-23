@@ -20,7 +20,8 @@ use tokio::{
 };
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
+    ppl_graph::graph::{MintEdge, MintNode},
+    types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -34,9 +35,6 @@ use crate::{
         token_balance::handle_token_balance,
     },
 };
-
-pub type MintIndiciesMap = HashMap<String, NodeIndex>;
-pub type EdgeIndiciesMap = HashMap<String, [Option<EdgeIndex>; 2]>; // Given one discriminant (market), we should only have max 2 relations (A -> B, and B -> A)
 
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,

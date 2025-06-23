@@ -11,7 +11,7 @@ use tokio::{
 };
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::WrappedMintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -21,7 +21,7 @@ use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
         add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        get_or_dispatch_decimals,
     },
 };
 

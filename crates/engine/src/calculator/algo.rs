@@ -8,11 +8,8 @@ use petgraph::{graph::NodeIndex, Direction};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::sync::mpsc::Sender;
 use veritas_sdk::{
-    ppl_graph::{
-        graph::{MintPricingGraph, USDPriceWithSource},
-        structs::LiqAmount,
-        utils::get_price_by_node_idx,
-    },
+    ppl_graph::{graph::USDPriceWithSource, structs::LiqAmount, utils::get_price_by_node_idx},
+    types::MintPricingGraph,
     utils::checked_math::{clamp_to_scale, is_significant_change},
 };
 
@@ -253,9 +250,10 @@ mod tests {
     use veritas_sdk::{
         liq_relation::LiqRelation,
         ppl_graph::{
-            graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
+            graph::{MintEdge, MintNode, USDPriceWithSource},
             structs::LiqAmount,
         },
+        types::MintPricingGraph,
     };
 
     use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};

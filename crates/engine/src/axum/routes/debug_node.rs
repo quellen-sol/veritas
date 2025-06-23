@@ -9,7 +9,7 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use veritas_sdk::{
     api::types::{NodeInfo, NodeRelationInfo, RelationWithLiq},
-    ppl_graph::utils::get_price_by_node_idx,
+    ppl_graph::utils::{get_price_by_mint, get_price_by_node_idx},
 };
 
 use crate::axum::task::VeritasServerState;
@@ -30,6 +30,7 @@ pub async fn debug_node_info(
     let only_incoming = option_is_valid(&params.get("only_incoming"));
     let only_outgoing = option_is_valid(&params.get("only_outgoing"));
     let only_acceptable = option_is_valid(&params.get("only_acceptable"));
+    let only_non_vertex = option_is_valid(&params.get("only_non_vertex"));
     let price_impact = params
         .get("custom_price_impact")
         .map(|v| Decimal::from_str(v))
@@ -50,7 +51,40 @@ pub async fn debug_node_info(
         mint: mint.clone(),
         calculated_price: this_price,
         neighbors: vec![],
+        non_vertex_relations: vec![],
     };
+
+    // All non-vertex edges
+    if !only_non_vertex {
+        let this_node_weight = g_read.node_weight(mint_ix).ok_or(StatusCode::NOT_FOUND)?;
+        let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+        for (mint, relation) in non_vertex_relations.iter() {
+            let relation = relation.read().await.clone();
+            let mi_read = state.mint_indicies.read().await;
+
+            let price_neighbor = get_price_by_mint(&g_read, &mi_read, mint).await;
+            let liquidity_amount =
+                price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
+            let derived_price = if let Some(p) = price_neighbor {
+                relation.get_price(p, &g_read).await
+            } else {
+                None
+            };
+            let liquidity_levels = price_neighbor.and_then(|p| {
+                let sol_price = sol_price.and_then(|s| s.checked_div(p));
+                sol_price.and_then(|s| relation.get_liq_levels(s))
+            });
+
+            let relation_with_liq = RelationWithLiq {
+                relation,
+                liquidity_amount,
+                liquidity_levels,
+                derived_price,
+            };
+
+            node_info.non_vertex_relations.push(relation_with_liq);
+        }
+    }
 
     for neighbor in g_read.neighbors_undirected(mint_ix).unique() {
         let Some(neigh_weight) = g_read.node_weight(neighbor) else {

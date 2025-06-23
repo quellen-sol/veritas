@@ -1,16 +1,10 @@
-use std::{collections::HashMap, fmt::Debug, sync::Arc};
+use std::{collections::HashMap, fmt::Debug};
 
 use chrono::NaiveDateTime;
-use petgraph::{Directed, Graph};
 use rust_decimal::Decimal;
 use tokio::sync::RwLock;
 
 use crate::liq_relation::LiqRelation;
-
-pub type MintGraphNodeIndexType = u32;
-
-pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed, MintGraphNodeIndexType>;
-pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 
 pub const NODE_SIZE: usize = std::mem::size_of::<MintNode>();
 pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();

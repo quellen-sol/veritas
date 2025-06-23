@@ -5,11 +5,14 @@ use std::{
 
 use step_ingestooor_sdk::dooot::{Dooot, OraclePriceEventDooot, TokenPriceGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
-use veritas_sdk::constants::{EMPTY_PUBKEY, WSOL_MINT};
+use veritas_sdk::{
+    constants::{EMPTY_PUBKEY, WSOL_MINT},
+    types::MintIndiciesMap,
+};
 
 use crate::{
     calculator::task::CalculatorUpdate,
-    price_points_liquidity::{handlers::utils::send_update_to_calculator, task::MintIndiciesMap},
+    price_points_liquidity::handlers::utils::send_update_to_calculator,
 };
 
 #[allow(clippy::unwrap_used)]

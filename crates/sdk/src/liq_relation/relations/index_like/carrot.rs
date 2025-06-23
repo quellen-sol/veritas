@@ -4,8 +4,7 @@ use petgraph::graph::NodeIndex;
 use rust_decimal::{Decimal, MathematicalOps};
 
 use crate::{
-    liq_relation::IndexPart,
-    ppl_graph::{graph::MintPricingGraph, utils::get_price_by_node_idx},
+    liq_relation::IndexPart, ppl_graph::utils::get_price_by_node_idx, types::MintPricingGraph,
 };
 
 pub async fn get_carrot_price(
