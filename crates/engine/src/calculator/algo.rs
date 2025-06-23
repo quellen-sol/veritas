@@ -129,15 +129,7 @@ pub async fn get_total_weighted_price(
             match liquidity_amount {
                 Some(amt) => match amt {
                     LiqAmount::Inf => {
-                        log::info!(
-                            "Inf liq found, returning price. Price is none: {}",
-                            derived_price.is_none()
-                        );
-                        return derived_price.and_then(|p| {
-                            let p = clamp_to_scale(&p);
-                            log::info!("Clamped price: {:?}", p);
-                            p
-                        });
+                        return derived_price.and_then(|p| clamp_to_scale(&p));
                     }
                     LiqAmount::Amount(liq) => {
                         if let Some(price) = derived_price {
