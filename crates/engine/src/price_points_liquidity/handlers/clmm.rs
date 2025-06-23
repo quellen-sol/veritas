@@ -207,21 +207,16 @@ pub async fn handle_clmm(
     let add_mint_b = mint_b_ix.is_none();
 
     if add_mint_a || add_mint_b {
-        log::trace!("Getting graph write lock");
-        let mut g_write = graph.write().await;
-        log::trace!("Got graph write lock");
-        {
-            log::trace!("Getting mint indicies write lock");
-            let mut mi_write = mint_indicies.write().await;
-            log::trace!("Got mint indicies write lock");
+        if add_mint_a {
+            mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
+        }
 
-            if add_mint_a {
-                mint_a_ix = get_or_add_mint_ix(mint_a, &mut g_write, &mut mi_write).into();
-            }
-
-            if add_mint_b {
-                mint_b_ix = get_or_add_mint_ix(mint_b, &mut g_write, &mut mi_write).into();
-            }
+        if add_mint_b {
+            mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
         }
 
         let (Some(mint_a_ix), Some(mint_b_ix)) = (mint_a_ix, mint_b_ix) else {
@@ -302,15 +297,11 @@ pub async fn handle_clmm(
             }
         };
 
-        log::trace!("Getting edge indicies write lock");
-        let mut ei_write = edge_indicies.write().await;
-        log::trace!("Got edge indicies write lock");
-
         let new_edge_rev = add_or_update_relation_edge(
             mint_a_ix,
             mint_b_ix,
-            &mut ei_write,
-            &mut g_write,
+            edge_indicies.clone(),
+            graph.clone(),
             new_relation_rev,
             pool_pubkey,
             time,
@@ -328,8 +319,8 @@ pub async fn handle_clmm(
         let new_edge = add_or_update_relation_edge(
             mint_b_ix,
             mint_a_ix,
-            &mut ei_write,
-            &mut g_write,
+            edge_indicies.clone(),
+            graph.clone(),
             new_relation,
             pool_pubkey,
             time,
@@ -366,20 +357,26 @@ pub async fn handle_clmm(
             return;
         };
 
-        log::trace!("Getting graph read lock");
-        let g_read = graph.read().await;
-        log::trace!("Got graph read lock");
-        log::trace!("Getting edge indicies read lock");
-        let ei_read = edge_indicies.read().await;
-        log::trace!("Got edge indicies read lock");
-
-        let relation_rev =
-            get_edge_by_discriminant(mint_a_ix, mint_b_ix, &g_read, &ei_read, pool_pubkey);
-        let relation =
-            get_edge_by_discriminant(mint_b_ix, mint_a_ix, &g_read, &ei_read, pool_pubkey);
+        let relation_rev = get_edge_by_discriminant(
+            mint_a_ix,
+            mint_b_ix,
+            graph.clone(),
+            edge_indicies.clone(),
+            pool_pubkey,
+        )
+        .await;
+        let relation = get_edge_by_discriminant(
+            mint_b_ix,
+            mint_a_ix,
+            graph.clone(),
+            edge_indicies.clone(),
+            pool_pubkey,
+        )
+        .await;
 
         match (relation, relation_rev) {
             (Some(relation), Some(relation_rev)) => {
+                let g_read = graph.read().await;
                 let weight = g_read.edge_weight(relation).unwrap();
                 let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
@@ -470,13 +467,6 @@ pub async fn handle_clmm(
             }
             (None, None) => {
                 // We need to add the relation to the graph, but mints exist
-                drop(g_read);
-                drop(ei_read);
-
-                log::trace!("Getting graph write lock");
-                let mut g_write = graph.write().await;
-                log::trace!("Got graph write lock");
-
                 let (new_relation, new_relation_rev) = match params {
                     UpdateRelationCbParams::ClmmGlobal {
                         current_price,
@@ -550,15 +540,11 @@ pub async fn handle_clmm(
                     }
                 };
 
-                log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
-                log::trace!("Got edge indicies write lock");
-
                 let new_edge_rev = add_or_update_relation_edge(
                     mint_a_ix,
                     mint_b_ix,
-                    &mut ei_write,
-                    &mut g_write,
+                    edge_indicies.clone(),
+                    graph.clone(),
                     new_relation_rev,
                     pool_pubkey,
                     time,
@@ -576,8 +562,8 @@ pub async fn handle_clmm(
                 let new_edge = add_or_update_relation_edge(
                     mint_b_ix,
                     mint_a_ix,
-                    &mut ei_write,
-                    &mut g_write,
+                    edge_indicies.clone(),
+                    graph.clone(),
                     new_relation,
                     pool_pubkey,
                     time,
@@ -692,16 +678,27 @@ mod tests {
         )
         .await;
 
-        let g_read = state.graph.read().await;
-        let ei_read = state.edge_indicies.read().await;
         let mi_read = state.mint_indicies.read().await;
 
         let mint_a_ix = mi_read.get(mint_a).unwrap();
         let mint_b_ix = mi_read.get(mint_b).unwrap();
 
-        let relation = get_edge_by_discriminant(*mint_a_ix, *mint_b_ix, &g_read, &ei_read, pool_id);
-        let relation_rev =
-            get_edge_by_discriminant(*mint_b_ix, *mint_a_ix, &g_read, &ei_read, pool_id);
+        let relation = get_edge_by_discriminant(
+            *mint_a_ix,
+            *mint_b_ix,
+            state.graph.clone(),
+            state.edge_indicies.clone(),
+            pool_id,
+        )
+        .await;
+        let relation_rev = get_edge_by_discriminant(
+            *mint_b_ix,
+            *mint_a_ix,
+            state.graph.clone(),
+            state.edge_indicies.clone(),
+            pool_id,
+        )
+        .await;
 
         assert!(relation.is_some());
         assert!(relation_rev.is_some());

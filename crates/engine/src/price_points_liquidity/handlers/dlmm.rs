@@ -10,7 +10,7 @@ use tokio::{
     time::Instant,
 };
 use veritas_sdk::{
-    liq_relation::LiqRelation,
+    liq_relation::{relations::dlmm::DlmmBinParsed, LiqRelation},
     ppl_graph::graph::WrappedMintPricingGraph,
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
@@ -151,21 +151,16 @@ pub async fn handle_dlmm(
     let add_mint_y = mint_y_ix.is_none();
 
     if add_mint_x || add_mint_y {
-        log::trace!("Getting graph write lock");
-        let mut g_write = graph.write().await;
-        log::trace!("Got graph write lock");
-        {
-            log::trace!("Getting mint indicies write lock");
-            let mut mi_write = mint_indicies.write().await;
-            log::trace!("Got mint indicies write lock");
+        if add_mint_x {
+            mint_x_ix = get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
+        }
 
-            if add_mint_x {
-                mint_x_ix = get_or_add_mint_ix(mint_x, &mut g_write, &mut mi_write).into();
-            }
-
-            if add_mint_y {
-                mint_y_ix = get_or_add_mint_ix(mint_y, &mut g_write, &mut mi_write).into();
-            }
+        if add_mint_y {
+            mint_y_ix = get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
         }
 
         let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
@@ -208,15 +203,11 @@ pub async fn handle_dlmm(
             return;
         };
 
-        log::trace!("Getting edge indicies write lock");
-        let mut ei_write = edge_indicies.write().await;
-        log::trace!("Got edge indicies write lock");
-
         let new_edge_rev = add_or_update_relation_edge(
             x_ix,
             y_ix,
-            &mut ei_write,
-            &mut g_write,
+            edge_indicies.clone(),
+            graph.clone(),
             new_relation_rev,
             pool_pubkey,
             *time,
@@ -234,8 +225,8 @@ pub async fn handle_dlmm(
         let new_edge = add_or_update_relation_edge(
             y_ix,
             x_ix,
-            &mut ei_write,
-            &mut g_write,
+            edge_indicies.clone(),
+            graph.clone(),
             new_relation,
             pool_pubkey,
             *time,
@@ -273,15 +264,22 @@ pub async fn handle_dlmm(
             return;
         };
 
-        log::trace!("Getting graph read lock");
-        let g_read = graph.read().await;
-        log::trace!("Got graph read lock");
-        log::trace!("Getting edge indicies read lock");
-        let ei_read = edge_indicies.read().await;
-        log::trace!("Got edge indicies read lock");
-
-        let relation_rev = get_edge_by_discriminant(x_ix, y_ix, &g_read, &ei_read, pool_pubkey);
-        let relation = get_edge_by_discriminant(y_ix, x_ix, &g_read, &ei_read, pool_pubkey);
+        let relation_rev = get_edge_by_discriminant(
+            x_ix,
+            y_ix,
+            graph.clone(),
+            edge_indicies.clone(),
+            pool_pubkey,
+        )
+        .await;
+        let relation = get_edge_by_discriminant(
+            y_ix,
+            x_ix,
+            graph.clone(),
+            edge_indicies.clone(),
+            pool_pubkey,
+        )
+        .await;
 
         let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
             log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
@@ -319,21 +317,11 @@ pub async fn handle_dlmm(
                 pool_id: pool_pubkey.to_string(),
             };
 
-            drop(g_read);
-            drop(ei_read);
-
-            log::trace!("Getting graph write lock");
-            let mut g_write = graph.write().await;
-            log::trace!("Got graph write lock");
-            log::trace!("Getting edge indicies write lock");
-            let mut ei_write = edge_indicies.write().await;
-            log::trace!("Got edge indicies write lock");
-
             let _new_ix_rev = match add_or_update_relation_edge(
                 x_ix,
                 y_ix,
-                &mut ei_write,
-                &mut g_write,
+                edge_indicies.clone(),
+                graph.clone(),
                 new_relation_rev,
                 pool_pubkey,
                 *time,
@@ -350,8 +338,8 @@ pub async fn handle_dlmm(
             let _new_ix = match add_or_update_relation_edge(
                 y_ix,
                 x_ix,
-                &mut ei_write,
-                &mut g_write,
+                edge_indicies.clone(),
+                graph.clone(),
                 new_relation,
                 pool_pubkey,
                 *time,
@@ -394,6 +382,16 @@ pub async fn handle_dlmm(
 
             let edge = relation.unwrap();
             let edge_rev = relation_rev.unwrap();
+
+            let new_bins_by_account: Vec<DlmmBinParsed> = parts.iter().map(|p| p.into()).collect();
+
+            // Is the active bin in this binarray?
+            let active_bin_opt = parts
+                .iter()
+                .enumerate()
+                .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
+
+            let g_read = graph.read().await;
 
             let weight = g_read.edge_weight(edge).unwrap();
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
@@ -440,19 +438,13 @@ pub async fn handle_dlmm(
             *amt_origin_rev = amt_x_units;
             *amt_dest_rev = amt_y_units;
 
-            // Is the active bin in this binarray?
-            let active_bin_opt = parts
-                .iter()
-                .enumerate()
-                .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
-
             if let Some((ix, _)) = active_bin_opt {
                 active_bin_account.replace((*part_index, ix));
                 active_bin_rev.replace((*part_index, ix));
             }
 
-            bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
-            bins_by_account_rev.insert(*part_index, parts.iter().map(|p| p.into()).collect());
+            bins_by_account.insert(*part_index, new_bins_by_account.clone());
+            bins_by_account_rev.insert(*part_index, new_bins_by_account);
 
             log::debug!("handle_dlmm took {:?}", now.elapsed());
         } else {
