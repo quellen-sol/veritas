@@ -110,6 +110,39 @@ pub async fn get_total_weighted_price(
 ) -> Option<Decimal> {
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
+
+    // Check non-vertex relations first
+    let Some(this_node_weight) = graph.node_weight(this_node) else {
+        log::error!("UNREACHABLE - This node should always exist");
+        return None;
+    };
+    let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+    for (_, relation) in non_vertex_relations.iter() {
+        let relation = relation.read().await.clone();
+
+        // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
+        let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
+        let derived_price = relation.get_price(Decimal::ZERO, graph).await;
+
+        match liquidity_amount {
+            Some(amt) => match amt {
+                LiqAmount::Inf => {
+                    return derived_price.and_then(|p| clamp_to_scale(&p));
+                }
+                LiqAmount::Amount(amt) => {
+                    if let Some(price) = derived_price {
+                        cm_weighted_price =
+                            cm_weighted_price.checked_add(price.checked_mul(amt)?)?;
+                        total_liq = total_liq.checked_add(amt)?;
+                    } else {
+                        continue;
+                    }
+                }
+            },
+            None => continue,
+        }
+    }
+
     for neighbor in graph
         .neighbors_directed(this_node, Direction::Incoming)
         .unique()

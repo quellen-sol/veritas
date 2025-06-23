@@ -26,7 +26,7 @@ pub async fn get_carrot_price(
             .checked_mul(usd_price)?;
     }
 
-    let dec_factor_parent = Decimal::TEN.checked_powi(decimals_parent as i64)?;
+    let dec_factor_parent = Decimal::TEN.checked_powi((decimals_parent as i64).neg())?;
 
     let final_crt_price = cm_sum.checked_mul(dec_factor_parent)?;
 

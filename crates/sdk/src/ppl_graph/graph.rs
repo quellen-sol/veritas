@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Debug};
 
 use chrono::NaiveDateTime;
 use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::liq_relation::LiqRelation;
@@ -44,7 +45,8 @@ impl Debug for MintEdge {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "source")]
 pub enum USDPriceWithSource {
     Oracle(Decimal),
     /// Priced via related nodes on the graph
