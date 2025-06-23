@@ -68,9 +68,7 @@ pub async fn handle_carrot_dooot(
             };
 
             let mint = &dooot.mints[i];
-            let Some(decimals) = dc_read.get(mint) else {
-                return None;
-            };
+            let decimals = dc_read.get(mint)?;
 
             let amt_per_parent = dooot.mints_qty_per_one_parent[i];
             let Some(ratio) = Decimal::from_f64(amt_per_parent) else {
