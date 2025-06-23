@@ -218,7 +218,7 @@ pub fn get_or_add_mint_ix(
             let ix = graph.add_node(MintNode {
                 mint: mint.to_string(),
                 usd_price: RwLock::new(None),
-                non_vertex_relations: RwLock::new(None),
+                non_vertex_relations: RwLock::new(HashMap::new()),
             });
 
             mint_indicies.insert(mint.to_string(), ix);
@@ -394,12 +394,12 @@ mod tests {
         let ix_a = graph.add_node(MintNode {
             mint: "test_mint_a".to_string(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let ix_edge = graph.add_edge(

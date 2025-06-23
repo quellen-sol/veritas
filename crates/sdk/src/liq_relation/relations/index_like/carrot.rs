@@ -1,3 +1,5 @@
+use std::ops::Neg;
+
 use petgraph::graph::NodeIndex;
 use rust_decimal::{Decimal, MathematicalOps};
 
@@ -18,7 +20,7 @@ pub async fn get_carrot_price(
         let usd_price =
             get_price_by_node_idx(graph, NodeIndex::new(part.node_idx as usize)).await?;
 
-        let decimal_factor = Decimal::TEN.checked_powi(-(part.decimals as i64))?;
+        let decimal_factor = Decimal::TEN.checked_powi((part.decimals as i64).neg())?;
         cm_sum += part
             .ratio
             .checked_mul(decimal_factor)?

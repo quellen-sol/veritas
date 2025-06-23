@@ -244,7 +244,7 @@ pub async fn get_single_wighted_price(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use chrono::Utc;
     use petgraph::Graph;
@@ -267,19 +267,19 @@ mod tests {
         let step_node = MintNode {
             mint: "STEP".into(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let usdc_node = MintNode {
             mint: "USDC".into(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let illiquid_node = MintNode {
             mint: "DUMB".into(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let mut graph = Graph::new();
@@ -391,19 +391,19 @@ mod tests {
         let oracle_node = graph.add_node(MintNode {
             mint: oracle_token_mint.clone(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(oracle_price))),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_a = graph.add_node(MintNode {
             mint: "TOKEN_A".into(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_b = graph.add_node(MintNode {
             mint: "TOKEN_B".into(),
             usd_price: RwLock::new(None),
-            non_vertex_relations: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         // Link Oracle -> Token A and vice versa

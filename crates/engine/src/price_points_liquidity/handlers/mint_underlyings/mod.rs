@@ -9,10 +9,16 @@ use veritas_sdk::{
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
-use crate::price_points_liquidity::task::{
-    add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-    get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+use crate::price_points_liquidity::{
+    handlers::mint_underlyings::handle_specials::handle_special_mint_underlyings,
+    task::{
+        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
+        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+    },
 };
+
+mod handle_carrot_dooot;
+mod handle_specials;
 
 #[allow(clippy::unwrap_used)]
 pub async fn handle_mint_underlyings(
@@ -41,7 +47,7 @@ pub async fn handle_mint_underlyings(
             true
         }
         _ => {
-            // We can't handle yet
+            handle_special_mint_underlyings(&mu_dooot, graph, mint_indicies, decimal_cache).await;
             return;
         }
     };

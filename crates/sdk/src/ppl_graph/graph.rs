@@ -25,7 +25,7 @@ pub struct MintNode {
     /// We store them here instead.
     ///
     /// `HashMap<K = Market ID/Discriminant, V = Relation>`
-    pub non_vertex_relations: RwLock<Option<HashMap<String, LiqRelation>>>,
+    pub non_vertex_relations: RwLock<HashMap<String, RwLock<LiqRelation>>>,
 }
 
 #[cfg(feature = "debug-graph")]
