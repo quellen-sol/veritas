@@ -223,8 +223,8 @@ pub async fn get_or_add_mint_ix(
                     cached_fixed_relation: RwLock::new(None),
                 })
             };
-            let mut mi_write = mint_indicies.write().await;
 
+            let mut mi_write = mint_indicies.write().await;
             mi_write.insert(mint.to_string(), ix);
 
             ix
