@@ -47,33 +47,34 @@ pub async fn handle_oracle_price_update(
         log::trace!("Replaced price for OracleUSDPrice update");
     }
 
-    {
-        let sol_index = sol_index.read().await;
-        log::trace!("Starting BFS recalculation for OracleUSDPrice update");
-        let recalc_result = bfs_recalculate(
-            &g_read,
-            token,
-            &mut visited,
-            dooot_tx.clone(),
-            oracle_mint_set,
-            &sol_index,
-            max_price_impact,
-            true,
-        )
-        .await;
-
-        match recalc_result {
-            Ok(_) => {
-                log::trace!("Finished BFS recalculation for OracleUSDPrice update");
-            }
-            Err(e) => {
-                log::error!("Error during BFS recalculation for OracleUSDPrice update: {e}");
-            }
-        }
-    }
-
-    if node_weight.mint == WSOL_MINT {
+    let sol_index_price = if node_weight.mint == WSOL_MINT {
         let mut sol_index_write = sol_index.write().await;
         sol_index_write.replace(new_price);
+
+        Some(new_price)
+    } else {
+        *sol_index.read().await
+    };
+
+    log::trace!("Starting BFS recalculation for OracleUSDPrice update");
+    let recalc_result = bfs_recalculate(
+        &g_read,
+        token,
+        &mut visited,
+        dooot_tx.clone(),
+        oracle_mint_set,
+        &sol_index_price,
+        max_price_impact,
+        true,
+    )
+    .await;
+
+    match recalc_result {
+        Ok(_) => {
+            log::trace!("Finished BFS recalculation for OracleUSDPrice update");
+        }
+        Err(e) => {
+            log::error!("Error during BFS recalculation for OracleUSDPrice update: {e}");
+        }
     }
 }

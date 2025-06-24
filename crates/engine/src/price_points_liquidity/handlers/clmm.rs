@@ -19,8 +19,8 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_two_way_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
+        get_two_way_edges_by_discriminant, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
 
@@ -199,24 +199,10 @@ pub async fn handle_clmm(
         get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone()).await;
     let (mint_b_ix, add_mint_b) =
         get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone()).await;
-    let edge_ix = get_edge_by_discriminant(
-        mint_a_ix,
-        mint_b_ix,
-        graph.clone(),
-        edge_indicies.clone(),
-        pool_pubkey,
-    )
-    .await;
-    let edge_ix_rev = get_edge_by_discriminant(
-        mint_b_ix,
-        mint_a_ix,
-        graph.clone(),
-        edge_indicies.clone(),
-        pool_pubkey,
-    )
-    .await;
 
-    if add_mint_a || add_mint_b || edge_ix.is_none() || edge_ix_rev.is_none() {
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
+
+    if add_mint_a || add_mint_b || edges.is_none() {
         let (new_relation, new_relation_rev) = match params {
             UpdateRelationCbParams::ClmmGlobal {
                 current_price,
@@ -309,11 +295,11 @@ pub async fn handle_clmm(
             }
         }
     } else {
-        let Some(relation) = edge_ix else {
+        let Some(relation) = edges.as_ref().and_then(|v| v.normal) else {
             log::error!("UNREACHABLE - Relation was already checked above");
             return;
         };
-        let Some(relation_rev) = edge_ix_rev else {
+        let Some(relation_rev) = edges.as_ref().and_then(|v| v.reverse) else {
             log::error!("UNREACHABLE - Reverse relation was already checked above");
             return;
         };
@@ -462,7 +448,9 @@ mod tests {
     use step_ingestooor_sdk::dooot::{ClmmGlobalDooot, CurveType};
     use veritas_sdk::utils::lp_cache::LiquidityPool;
 
-    use crate::price_points_liquidity::handlers::utils::build_test_handler_state;
+    use crate::price_points_liquidity::{
+        handlers::utils::build_test_handler_state, task::get_edge_by_discriminant,
+    };
 
     use super::*;
 
@@ -532,27 +520,9 @@ mod tests {
         )
         .await;
 
-        let mi_read = state.mint_indicies.read().await;
-
-        let mint_a_ix = mi_read.get(mint_a).unwrap();
-        let mint_b_ix = mi_read.get(mint_b).unwrap();
-
-        let relation = get_edge_by_discriminant(
-            *mint_a_ix,
-            *mint_b_ix,
-            state.graph.clone(),
-            state.edge_indicies.clone(),
-            pool_id,
-        )
-        .await;
-        let relation_rev = get_edge_by_discriminant(
-            *mint_b_ix,
-            *mint_a_ix,
-            state.graph.clone(),
-            state.edge_indicies.clone(),
-            pool_id,
-        )
-        .await;
+        let relation = get_edge_by_discriminant(false, state.edge_indicies.clone(), pool_id).await;
+        let relation_rev =
+            get_edge_by_discriminant(true, state.edge_indicies.clone(), pool_id).await;
 
         assert!(relation.is_some());
         assert!(relation_rev.is_some());

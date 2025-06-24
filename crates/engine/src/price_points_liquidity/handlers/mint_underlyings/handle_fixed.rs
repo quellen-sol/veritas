@@ -87,6 +87,7 @@ pub async fn handle_fixed(
         relation,
         parent_mint,
         *time,
+        false,
     )
     .await;
 

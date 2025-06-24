@@ -20,8 +20,8 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_two_way_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
+        get_two_way_edges_by_discriminant, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
 
@@ -153,24 +153,10 @@ pub async fn handle_dlmm(
         get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone()).await;
     let (mint_y_ix, add_mint_y) =
         get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone()).await;
-    let edge_ix = get_edge_by_discriminant(
-        mint_x_ix,
-        mint_y_ix,
-        graph.clone(),
-        edge_indicies.clone(),
-        pool_pubkey,
-    )
-    .await;
-    let edge_ix_rev = get_edge_by_discriminant(
-        mint_y_ix,
-        mint_x_ix,
-        graph.clone(),
-        edge_indicies.clone(),
-        pool_pubkey,
-    )
-    .await;
 
-    if add_mint_x || add_mint_y || edge_ix.is_none() || edge_ix_rev.is_none() {
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
+
+    if add_mint_x || add_mint_y || edges.is_none() {
         let mut bins_by_account = HashMap::new();
         bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
 
@@ -215,11 +201,11 @@ pub async fn handle_dlmm(
             }
         }
     } else {
-        let Some(edge) = edge_ix else {
+        let Some(edge) = edges.as_ref().and_then(|v| v.normal) else {
             log::error!("UNREACHABLE - Relation was already checked above");
             return;
         };
-        let Some(edge_rev) = edge_ix_rev else {
+        let Some(edge_rev) = edges.as_ref().and_then(|v| v.reverse) else {
             log::error!("UNREACHABLE - Reverse relation was already checked above");
             return;
         };
