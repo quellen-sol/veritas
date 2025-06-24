@@ -212,11 +212,17 @@ pub async fn get_or_add_mint_ix(
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> NodeIndex {
-    let ix = match mint_indicies.read().await.get(mint).cloned() {
+    log::trace!("Getting mint indicies read lock");
+    let mint_index_op = mint_indicies.read().await.get(mint).cloned();
+    log::trace!("Got mint indicies read lock");
+
+    match mint_index_op {
         Some(ix) => ix,
         None => {
             let ix = {
+                log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
+                log::trace!("Got graph write lock");
                 g_write.add_node(MintNode {
                     mint: mint.to_string(),
                     usd_price: RwLock::new(None),
@@ -224,14 +230,14 @@ pub async fn get_or_add_mint_ix(
                 })
             };
 
+            log::trace!("Getting mint indicies write lock");
             let mut mi_write = mint_indicies.write().await;
+            log::trace!("Got mint indicies write lock");
             mi_write.insert(mint.to_string(), ix);
 
             ix
         }
-    };
-
-    ix
+    }
 }
 
 /// Get edge from A -> B that matches the discriminant ID
@@ -243,10 +249,14 @@ pub async fn get_edge_by_discriminant(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     discriminant_id: &str,
 ) -> Option<EdgeIndex> {
+    log::trace!("Getting edge indicies read lock");
     let indexed_edge = edge_indicies.read().await.get(discriminant_id).cloned()?;
+    log::trace!("Got edge indicies read lock");
 
     for i_edge in indexed_edge.iter().flatten() {
+        log::trace!("Getting graph read lock");
         let g_read = graph.read().await;
+        log::trace!("Got graph read lock");
         let Some((src, target)) = g_read.edge_endpoints(*i_edge) else {
             continue;
         };
@@ -286,31 +296,41 @@ where
         Some(edge_ix) => {
             // Edge already exists, update it
             // Guaranteed by being Some
+            log::trace!("Getting graph read lock");
             let g_read = graph.read().await;
+            log::trace!("Got graph read lock");
             let e_r = g_read
                 .edge_weight(edge_ix)
                 .context("UNREACHABLE - Edge index {edge_ix:?} should be present in graph!")?;
 
             // Quick update of the last updated time
             {
+                log::trace!("Getting last updated write lock");
                 let mut last_updated = e_r.last_updated.write().await;
+                log::trace!("Got last updated write lock");
                 *last_updated = time;
             }
 
             // Quick update of the relation
             {
+                log::trace!("Getting inner relation write lock");
                 let mut relation = e_r.inner_relation.write().await;
+                log::trace!("Got inner relation write lock");
                 *relation = update_with;
             }
 
+            log::trace!("Getting edge indicies write lock");
             let mut ei_write = edge_indicies.write().await;
+            log::trace!("Got edge indicies write lock");
             update_edge_index(&mut ei_write, discriminant_id, edge_ix)?;
 
             Ok(edge_ix)
         }
         None => {
             let new_ix = {
+                log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
+                log::trace!("Got graph write lock");
                 let new_edge = MintEdge {
                     id: discriminant_id.to_string(),
                     dirty: true,
@@ -321,7 +341,9 @@ where
                 g_write.add_edge(ix_a, ix_b, new_edge)
             };
 
+            log::trace!("Getting edge indicies write lock");
             let mut ei_write = edge_indicies.write().await;
+            log::trace!("Got edge indicies write lock");
             update_edge_index(&mut ei_write, discriminant_id, new_ix)?;
 
             Ok(new_ix)

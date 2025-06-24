@@ -105,8 +105,8 @@ pub async fn handle_dlmm(
     };
 
     let (x_balance, y_balance) = {
-        log::trace!("Getting token balance cache read lock");
         let (x_bal_cache_op, y_bal_cache_op) = {
+            log::trace!("Getting token balance cache read lock");
             let tbc_read = token_balance_cache.read().await;
             log::trace!("Got token balance cache read lock");
             (
@@ -394,7 +394,9 @@ pub async fn handle_dlmm(
                 .enumerate()
                 .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
 
+            log::trace!("Getting graph read lock");
             let g_read = graph.read().await;
+            log::trace!("Got graph read lock");
 
             {
                 let weight = g_read.edge_weight(edge).unwrap();

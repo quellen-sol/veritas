@@ -189,7 +189,9 @@ pub async fn handle_mint_underlyings(
         match edge_ix {
             Some(edge_ix) => {
                 // Just need to update them.
+                log::trace!("Getting graph read lock");
                 let g_read = graph.read().await;
+                log::trace!("Got graph read lock");
                 let Some(edge) = g_read.edge_weight(edge_ix) else {
                     log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
                     return;
@@ -226,7 +228,9 @@ pub async fn handle_mint_underlyings(
                     };
 
                     {
+                        log::trace!("Getting inner relation write lock");
                         let mut e_write = edge.inner_relation.write().await;
+                        log::trace!("Got inner relation write lock");
 
                         let LiqRelation::CpLp {
                             amt_origin: ref mut amt_origin_dooot,
@@ -259,7 +263,9 @@ pub async fn handle_mint_underlyings(
                             log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
                             return;
                         };
+                        log::trace!("Getting inner relation write lock");
                         let mut e_opp_write = edge_opp.inner_relation.write().await;
+                        log::trace!("Got inner relation write lock");
 
                         let LiqRelation::CpLp {
                             amt_origin: ref mut amt_origin_dooot_opp,
@@ -300,7 +306,9 @@ pub async fn handle_mint_underlyings(
                         }
                     };
 
+                    log::trace!("Getting inner relation write lock");
                     let mut e_write = edge.inner_relation.write().await;
+                    log::trace!("Got inner relation write lock");
 
                     let LiqRelation::Fixed {
                         amt_per_parent: ref mut amt_per_parent_dooot,
@@ -415,12 +423,14 @@ async fn build_mu_relation(
     is_reverse: bool,
 ) -> Option<LiqRelation> {
     if is_pool {
+        log::trace!("Getting lp cache read lock");
         let curve_type = lp_cache
             .read()
             .await
             .get(discriminant_id)
             .cloned()?
             .curve_type;
+        log::trace!("Got lp cache read lock");
 
         match curve_type {
             CurveType::ConstantProduct => {
