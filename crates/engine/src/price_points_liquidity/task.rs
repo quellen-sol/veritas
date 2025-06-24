@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use chrono::NaiveDateTime;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use step_ingestooor_sdk::dooot::Dooot;
@@ -281,6 +281,76 @@ pub async fn get_edge_by_discriminant(
     None
 }
 
+/// Get both edges for a discriminant ID
+///
+/// Returns a tuple of the two edges, or None if the edges are not present
+#[inline]
+pub async fn get_two_way_edges_by_discriminant(
+    ix_a: NodeIndex,
+    ix_b: NodeIndex,
+    graph: WrappedMintPricingGraph,
+    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
+    discriminant_id: &str,
+) -> [Option<EdgeIndex>; 2] {
+    let ei_read = edge_indicies.read().await;
+    let Some(entry) = ei_read.get(discriminant_id) else {
+        return [None, None];
+    };
+
+    for (i, edge) in entry.iter().enumerate() {
+        if let Some(edge) = edge {
+            let Some((src, target)) = graph.read().await.edge_endpoints(*edge) else {
+                continue;
+            };
+
+            if src == ix_a && target == ix_b {
+                // "Reverse" edge
+                return [entry[1 - i], Some(*edge)];
+            } else {
+                // "Normal" edge
+                return [Some(*edge), entry[1 - i]];
+            }
+        }
+    }
+
+    [None, None]
+}
+
+/// Get both edges for a discriminant ID
+///
+/// Returns a tuple of the two edges, or None if the edges are not present.
+/// Ordered by the "normal" direction edge first, then the "reverse" direction edge
+#[inline]
+pub async fn get_two_way_edges_by_discriminant_with_locks(
+    ix_a: NodeIndex,
+    ix_b: NodeIndex,
+    graph: &MintPricingGraph,
+    edge_indicies: &EdgeIndiciesMap,
+    discriminant_id: &str,
+) -> [Option<EdgeIndex>; 2] {
+    let Some(entry) = edge_indicies.get(discriminant_id) else {
+        return [None, None];
+    };
+
+    for (i, edge) in entry.iter().enumerate() {
+        if let Some(edge) = edge {
+            let Some((src, target)) = graph.edge_endpoints(*edge) else {
+                continue;
+            };
+
+            if src == ix_a && target == ix_b {
+                // "Reverse" edge
+                return [entry[1 - i], Some(*edge)];
+            } else {
+                // "Normal" edge
+                return [Some(*edge), entry[1 - i]];
+            }
+        }
+    }
+
+    [None, None]
+}
+
 /// Get edge from A -> B that matches the discriminant ID
 #[inline]
 pub async fn get_edge_by_discriminant_with_locks(
@@ -316,15 +386,7 @@ pub async fn add_or_update_two_way_relation_edge(
     discriminant_id: &str,
     time: NaiveDateTime,
 ) -> Result<(EdgeIndex, EdgeIndex)> {
-    let edge = get_edge_by_discriminant(
-        ix_b,
-        ix_a,
-        graph.clone(),
-        edge_indicies.clone(),
-        discriminant_id,
-    )
-    .await;
-    let edge_rev = get_edge_by_discriminant(
+    let [edge, edge_rev] = get_two_way_edges_by_discriminant(
         ix_a,
         ix_b,
         graph.clone(),
@@ -377,15 +439,7 @@ pub async fn add_or_update_two_way_relation_edge(
                 log::trace!("Got edge indicies write lock");
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
-                let edge = get_edge_by_discriminant_with_locks(
-                    ix_b,
-                    ix_a,
-                    &g_write,
-                    &ei_write,
-                    discriminant_id,
-                )
-                .await;
-                let edge_rev = get_edge_by_discriminant_with_locks(
+                let [edge, edge_rev] = get_two_way_edges_by_discriminant_with_locks(
                     ix_a,
                     ix_b,
                     &g_write,
@@ -406,9 +460,45 @@ pub async fn add_or_update_two_way_relation_edge(
 
             Ok((new_ix, new_ix_rev))
         }
-        _ => Err(anyhow::anyhow!(
-            "UNREACHABLE - Both edges should have been set! Likely race condition!"
-        )),
+        _ => {
+            // // One edge is missing, but somehow the other is present.
+            // // Fill in the missing edge
+            // let edge = match edge {
+            //     Some(edge) => edge,
+            //     None => {
+            //         add_or_update_relation_edge(
+            //             ix_b,
+            //             ix_a,
+            //             edge_indicies.clone(),
+            //             graph.clone(),
+            //             update_with,
+            //             discriminant_id,
+            //             time,
+            //         )
+            //         .await?
+            //     }
+            // };
+
+            // let edge_rev = match edge_rev {
+            //     Some(edge_rev) => edge_rev,
+            //     None => {
+            //         add_or_update_relation_edge(
+            //             ix_a,
+            //             ix_b,
+            //             edge_indicies.clone(),
+            //             graph.clone(),
+            //             update_with_rev,
+            //             discriminant_id,
+            //             time,
+            //         )
+            //         .await?
+            //     }
+            // };
+
+            // Ok((edge, edge_rev))
+
+            bail!("UNREACHABLE - Both edges should have been set! Likely race condition!")
+        }
     }
 }
 
@@ -550,6 +640,64 @@ mod tests {
     use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
     use super::*;
+
+    #[tokio::test]
+    async fn test_get_two_way_edges_by_discriminant() {
+        let mut graph = MintPricingGraph::new();
+        let mut edge_indicies = EdgeIndiciesMap::new();
+
+        let ix_a = graph.add_node(MintNode {
+            mint: "test_mint_a".to_string(),
+            usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
+        });
+        let ix_b = graph.add_node(MintNode {
+            mint: "test_mint_b".to_string(),
+            usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
+        });
+
+        let ix_edge_rev = graph.add_edge(
+            ix_a,
+            ix_b,
+            MintEdge {
+                id: "test_disc".to_string(),
+                dirty: true,
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+                inner_relation: RwLock::new(LiqRelation::Fixed {
+                    amt_per_parent: Decimal::from(100),
+                }),
+            },
+        );
+
+        let ix_edge = graph.add_edge(
+            ix_b,
+            ix_a,
+            MintEdge {
+                id: "test_disc".to_string(),
+                dirty: true,
+                last_updated: RwLock::new(Utc::now().naive_utc()),
+                inner_relation: RwLock::new(LiqRelation::Fixed {
+                    amt_per_parent: Decimal::from(100),
+                }),
+            },
+        );
+
+        update_edge_index(&mut edge_indicies, "test_disc", ix_edge).unwrap();
+        update_edge_index(&mut edge_indicies, "test_disc", ix_edge_rev).unwrap();
+
+        let [edge, edge_rev] = get_two_way_edges_by_discriminant_with_locks(
+            ix_a,
+            ix_b,
+            &graph,
+            &edge_indicies,
+            "test_disc",
+        )
+        .await;
+
+        assert_eq!(edge, Some(ix_edge));
+        assert_eq!(edge_rev, Some(ix_edge_rev));
+    }
 
     #[test]
     fn test_updating_edge_indicies() {

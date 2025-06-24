@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
+use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
@@ -65,8 +65,6 @@ pub async fn handle_amm_lp(
         mint_b,
         decimals_a,
         decimals_b,
-        true,
-        false,
     )
     .await
     else {
@@ -102,73 +100,43 @@ async fn build_mu_relation(
     mint_b: &str,
     decimals_a: u8,
     decimals_b: u8,
-    is_pool: bool,
-    is_reverse: bool,
 ) -> Option<LiqRelation> {
-    if is_pool {
-        log::trace!("Getting lp cache read lock");
-        let curve_type = lp_cache
-            .read()
-            .await
-            .get(discriminant_id)
-            .cloned()?
-            .curve_type;
-        log::trace!("Got lp cache read lock");
+    log::trace!("Getting lp cache read lock");
+    let curve_type = lp_cache
+        .read()
+        .await
+        .get(discriminant_id)
+        .cloned()?
+        .curve_type;
+    log::trace!("Got lp cache read lock");
 
-        match curve_type {
-            CurveType::ConstantProduct => {
-                let Some(amt_a) = mu_dooot.total_underlying_amounts.first() else {
-                    log::error!("MALFORMED CPLP DOOOT: {mu_dooot:?}");
-                    return None;
-                };
-                let Some(amt_b) = mu_dooot.total_underlying_amounts.get(1) else {
-                    log::error!("MALFORMED CPLP DOOOT: {mu_dooot:?}");
-                    return None;
-                };
-                let Some(a_dec_factor) = Decimal::TEN.checked_powi(decimals_a as i64) else {
-                    log::error!("Math overflowed for CPLP {mint_a} ({decimals_a}) {mu_dooot:?}");
-                    return None;
-                };
-                let Some(b_dec_factor) = Decimal::TEN.checked_powi(decimals_b as i64) else {
-                    log::error!("Math overflowed for CPLP {mint_b} ({decimals_b}) {mu_dooot:?}");
-                    return None;
-                };
-                let amt_a_units = amt_a.checked_div(a_dec_factor)?;
-                let amt_b_units = amt_b.checked_div(b_dec_factor)?;
-                let relation = if !is_reverse {
-                    LiqRelation::CpLp {
-                        amt_origin: amt_a_units,
-                        amt_dest: amt_b_units,
-                        pool_id: discriminant_id.to_string(),
-                    }
-                } else {
-                    LiqRelation::CpLp {
-                        amt_origin: amt_b_units,
-                        amt_dest: amt_a_units,
-                        pool_id: discriminant_id.to_string(),
-                    }
-                };
-                Some(relation)
-            }
-            _ => None,
+    match curve_type {
+        CurveType::ConstantProduct => {
+            let Some(amt_a) = mu_dooot.total_underlying_amounts.first() else {
+                log::error!("MALFORMED CPLP DOOOT: {mu_dooot:?}");
+                return None;
+            };
+            let Some(amt_b) = mu_dooot.total_underlying_amounts.get(1) else {
+                log::error!("MALFORMED CPLP DOOOT: {mu_dooot:?}");
+                return None;
+            };
+            let Some(a_dec_factor) = Decimal::TEN.checked_powi(decimals_a as i64) else {
+                log::error!("Math overflowed for CPLP {mint_a} ({decimals_a}) {mu_dooot:?}");
+                return None;
+            };
+            let Some(b_dec_factor) = Decimal::TEN.checked_powi(decimals_b as i64) else {
+                log::error!("Math overflowed for CPLP {mint_b} ({decimals_b}) {mu_dooot:?}");
+                return None;
+            };
+            let amt_a_units = amt_a.checked_div(a_dec_factor)?;
+            let amt_b_units = amt_b.checked_div(b_dec_factor)?;
+            let relation = LiqRelation::CpLp {
+                amt_origin: amt_b_units,
+                amt_dest: amt_a_units,
+                pool_id: discriminant_id.to_string(),
+            };
+            Some(relation)
         }
-    } else {
-        let Some(ratio) = Decimal::from_f64(mu_dooot.mints_qty_per_one_parent[0]) else {
-            log::error!("Could not convert mints_qty_per_one_parent[0] to Decimal: {mu_dooot:?}");
-            return None;
-        };
-        let Some(decimal_factor) = Decimal::TEN.checked_powi(decimals_b as i64 - decimals_a as i64)
-        else {
-            log::error!("Math overflowed for Fixed {mint_b} ({decimals_b}) {mu_dooot:?}");
-            return None;
-        };
-
-        let Some(amt_per_parent) = ratio.checked_mul(decimal_factor) else {
-            log::error!("Math overflowed for Fixed {mint_b} ({decimals_b}) {mu_dooot:?}");
-            return None;
-        };
-
-        let relation = LiqRelation::Fixed { amt_per_parent };
-        Some(relation)
+        _ => None,
     }
 }
