@@ -20,7 +20,7 @@ use tokio::{
 };
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::{MintEdge, MintNode, WrappedMintPricingGraph},
+    ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -271,6 +271,32 @@ pub async fn get_edge_by_discriminant(
     None
 }
 
+/// Get edge from A -> B that matches the discriminant ID
+#[inline]
+pub async fn get_edge_by_discriminant_with_graph_locked(
+    ix_a: NodeIndex,
+    ix_b: NodeIndex,
+    graph: &MintPricingGraph,
+    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
+    discriminant_id: &str,
+) -> Option<EdgeIndex> {
+    log::trace!("Getting edge indicies read lock");
+    let indexed_edge = edge_indicies.read().await.get(discriminant_id).cloned()?;
+    log::trace!("Got edge indicies read lock");
+
+    for i_edge in indexed_edge.iter().flatten() {
+        let Some((src, target)) = graph.edge_endpoints(*i_edge) else {
+            continue;
+        };
+
+        if src == ix_a && target == ix_b {
+            return Some(*i_edge);
+        }
+    }
+
+    None
+}
+
 #[inline]
 pub async fn add_or_update_two_way_relation_edge(
     ix_a: NodeIndex,
@@ -344,8 +370,28 @@ pub async fn add_or_update_two_way_relation_edge(
                 log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
                 log::trace!("Got graph write lock");
-                let new_ix = g_write.add_edge(ix_b, ix_a, new_edge);
-                let new_ix_rev = g_write.add_edge(ix_a, ix_b, new_edge_rev);
+                // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
+                // The last check was too optimistic, and we could have raced with another thread
+                let edge = get_edge_by_discriminant_with_graph_locked(
+                    ix_b,
+                    ix_a,
+                    &g_write,
+                    edge_indicies.clone(),
+                    discriminant_id,
+                )
+                .await;
+                let edge_rev = get_edge_by_discriminant_with_graph_locked(
+                    ix_a,
+                    ix_b,
+                    &g_write,
+                    edge_indicies.clone(),
+                    discriminant_id,
+                )
+                .await;
+
+                let new_ix = edge.unwrap_or_else(|| g_write.add_edge(ix_b, ix_a, new_edge));
+                let new_ix_rev =
+                    edge_rev.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge_rev));
 
                 (new_ix, new_ix_rev)
             };
@@ -434,6 +480,18 @@ where
                 log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
                 log::trace!("Got graph write lock");
+
+                // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
+                // The last check was too optimistic, and we could have raced with another thread
+                let edge = get_edge_by_discriminant_with_graph_locked(
+                    ix_b,
+                    ix_a,
+                    &g_write,
+                    edge_indicies.clone(),
+                    discriminant_id,
+                )
+                .await;
+
                 let new_edge = MintEdge {
                     id: discriminant_id.to_string(),
                     dirty: true,
@@ -441,7 +499,7 @@ where
                     inner_relation: RwLock::new(update_with),
                 };
 
-                g_write.add_edge(ix_a, ix_b, new_edge)
+                edge.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge))
             };
 
             {
