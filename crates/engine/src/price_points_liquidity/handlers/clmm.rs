@@ -151,8 +151,8 @@ pub async fn handle_clmm(
     };
 
     let (a_balance, b_balance) = {
-        log::trace!("Getting token balance cache read lock");
         let (a_bal_cache_op, b_bal_cache_op) = {
+            log::trace!("Getting token balance cache read lock");
             let tbc_read = token_balance_cache.read().await;
             log::trace!("Got token balance cache read lock");
             (
@@ -379,12 +379,17 @@ pub async fn handle_clmm(
 
         match (relation, relation_rev) {
             (Some(relation), Some(relation_rev)) => {
+                log::trace!("Getting graph read lock");
                 let g_read = graph.read().await;
+                log::trace!("Got graph read lock");
                 let weight = g_read.edge_weight(relation).unwrap();
                 let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
                 {
+                    log::trace!("Getting inner relation write lock");
                     let mut w_write = weight.inner_relation.write().await;
+                    log::trace!("Got inner relation write lock");
+
                     let LiqRelation::Clmm {
                         ref mut amt_origin,
                         ref mut amt_dest,
@@ -446,7 +451,9 @@ pub async fn handle_clmm(
                 }
 
                 {
+                    log::trace!("Getting inner relation write lock");
                     let mut w_rev_write = weight_rev.inner_relation.write().await;
+                    log::trace!("Got inner relation write lock");
 
                     let LiqRelation::Clmm {
                         amt_origin: ref mut amt_origin_rev,
