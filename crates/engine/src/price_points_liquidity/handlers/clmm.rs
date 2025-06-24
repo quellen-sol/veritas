@@ -19,7 +19,7 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
+        add_or_update_two_way_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
         get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
@@ -300,43 +300,24 @@ pub async fn handle_clmm(
             }
         };
 
-        let new_edge_rev = add_or_update_relation_edge(
+        let new_edges_res = add_or_update_two_way_relation_edge(
             mint_a_ix,
             mint_b_ix,
             edge_indicies.clone(),
             graph.clone(),
+            new_relation,
             new_relation_rev,
             pool_pubkey,
             time,
         )
         .await;
 
-        let _new_edge_rev = match new_edge_rev {
-            Ok(ix) => ix,
+        match new_edges_res {
+            Ok(_) => {}
             Err(e) => {
-                log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                return;
+                log::error!("Error adding or updating two way edge for CLMM {pool_pubkey}: {e}");
             }
-        };
-
-        let new_edge = add_or_update_relation_edge(
-            mint_b_ix,
-            mint_a_ix,
-            edge_indicies.clone(),
-            graph.clone(),
-            new_relation,
-            pool_pubkey,
-            time,
-        )
-        .await;
-
-        let _new_edge = match new_edge {
-            Ok(ix) => ix,
-            Err(e) => {
-                log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                return;
-            }
-        };
+        }
 
         // drop(g_write);
         // drop(ei_write);
@@ -590,46 +571,26 @@ pub async fn handle_clmm(
                     }
                 };
 
-                let new_edge_rev = add_or_update_relation_edge(
+                let new_edges_res = add_or_update_two_way_relation_edge(
                     mint_a_ix,
                     mint_b_ix,
                     edge_indicies.clone(),
                     graph.clone(),
+                    new_relation,
                     new_relation_rev,
                     pool_pubkey,
                     time,
                 )
                 .await;
 
-                let _new_edge_rev = match new_edge_rev {
-                    Ok(ix) => ix,
+                match new_edges_res {
+                    Ok(_) => {}
                     Err(e) => {
-                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                        return;
+                        log::error!(
+                            "Error adding or updating two way edge for CLMM {pool_pubkey}: {e}"
+                        );
                     }
-                };
-
-                let new_edge = add_or_update_relation_edge(
-                    mint_b_ix,
-                    mint_a_ix,
-                    edge_indicies.clone(),
-                    graph.clone(),
-                    new_relation,
-                    pool_pubkey,
-                    time,
-                )
-                .await;
-
-                let _new_edge = match new_edge {
-                    Ok(ix) => ix,
-                    Err(e) => {
-                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                        return;
-                    }
-                };
-
-                // drop(g_write);
-                // drop(ei_write);
+                }
 
                 // log::trace!("Sending update to calculator");
                 // send_update_to_calculator(
@@ -646,7 +607,8 @@ pub async fn handle_clmm(
                 // .await;
             }
             _ => {
-                log::error!("UNREACHABLE - Both relations should have been set! LOGIC BUG!!!");
+                // Likely race condition, so just return
+                // log::error!("UNREACHABLE - Both relations should have been set! LOGIC BUG!!!");
             }
         }
     }

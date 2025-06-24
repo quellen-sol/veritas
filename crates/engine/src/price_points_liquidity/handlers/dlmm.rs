@@ -20,7 +20,7 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
+        add_or_update_two_way_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
         get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
@@ -206,46 +206,24 @@ pub async fn handle_dlmm(
             return;
         };
 
-        let new_edge_rev = add_or_update_relation_edge(
+        let new_edges_res = add_or_update_two_way_relation_edge(
             x_ix,
             y_ix,
             edge_indicies.clone(),
             graph.clone(),
+            new_relation,
             new_relation_rev,
             pool_pubkey,
             *time,
         )
         .await;
 
-        let _new_edge_rev = match new_edge_rev {
-            Ok(ix) => ix,
+        match new_edges_res {
+            Ok(_) => {}
             Err(e) => {
-                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
-                return;
+                log::error!("Error adding or updating two way edge for DLMM {pool_pubkey}: {e}");
             }
-        };
-
-        let new_edge = add_or_update_relation_edge(
-            y_ix,
-            x_ix,
-            edge_indicies.clone(),
-            graph.clone(),
-            new_relation,
-            pool_pubkey,
-            *time,
-        )
-        .await;
-
-        let _new_edge = match new_edge {
-            Ok(ix) => ix,
-            Err(e) => {
-                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
-                return;
-            }
-        };
-
-        // drop(g_write);
-        // drop(ei_write);
+        }
 
         // log::trace!("Sending update to calculator");
         // send_update_to_calculator(
@@ -320,44 +298,26 @@ pub async fn handle_dlmm(
                 pool_id: pool_pubkey.to_string(),
             };
 
-            let _new_ix_rev = match add_or_update_relation_edge(
+            let new_edges_res = add_or_update_two_way_relation_edge(
                 x_ix,
                 y_ix,
                 edge_indicies.clone(),
                 graph.clone(),
+                new_relation,
                 new_relation_rev,
                 pool_pubkey,
                 *time,
             )
-            .await
-            {
-                Ok(i) => i,
-                Err(e) => {
-                    log::error!("Error adding edge {e}");
-                    return;
-                }
-            };
+            .await;
 
-            let _new_ix = match add_or_update_relation_edge(
-                y_ix,
-                x_ix,
-                edge_indicies.clone(),
-                graph.clone(),
-                new_relation,
-                pool_pubkey,
-                *time,
-            )
-            .await
-            {
-                Ok(i) => i,
+            match new_edges_res {
+                Ok(_) => {}
                 Err(e) => {
-                    log::error!("Error adding reverse edge {e}");
-                    return;
+                    log::error!(
+                        "Error adding or updating two way edge for DLMM {pool_pubkey}: {e}"
+                    );
                 }
-            };
-
-            // drop(g_write);
-            // drop(ei_write);
+            }
 
             // log::trace!("Sending update to calculator");
             // send_update_to_calculator(
