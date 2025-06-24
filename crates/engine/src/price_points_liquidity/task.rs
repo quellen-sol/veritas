@@ -273,16 +273,14 @@ pub async fn get_edge_by_discriminant(
 
 /// Get edge from A -> B that matches the discriminant ID
 #[inline]
-pub async fn get_edge_by_discriminant_with_graph_locked(
+pub async fn get_edge_by_discriminant_with_locks(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     graph: &MintPricingGraph,
-    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
+    edge_indicies: &EdgeIndiciesMap,
     discriminant_id: &str,
 ) -> Option<EdgeIndex> {
-    log::trace!("Getting edge indicies read lock");
-    let indexed_edge = edge_indicies.read().await.get(discriminant_id).cloned()?;
-    log::trace!("Got edge indicies read lock");
+    let indexed_edge = edge_indicies.get(discriminant_id)?;
 
     for i_edge in indexed_edge.iter().flatten() {
         let Some((src, target)) = graph.edge_endpoints(*i_edge) else {
@@ -370,21 +368,24 @@ pub async fn add_or_update_two_way_relation_edge(
                 log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
                 log::trace!("Got graph write lock");
+                log::trace!("Getting edge indicies write lock");
+                let mut ei_write = edge_indicies.write().await;
+                log::trace!("Got edge indicies write lock");
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
-                let edge = get_edge_by_discriminant_with_graph_locked(
+                let edge = get_edge_by_discriminant_with_locks(
                     ix_b,
                     ix_a,
                     &g_write,
-                    edge_indicies.clone(),
+                    &ei_write,
                     discriminant_id,
                 )
                 .await;
-                let edge_rev = get_edge_by_discriminant_with_graph_locked(
+                let edge_rev = get_edge_by_discriminant_with_locks(
                     ix_a,
                     ix_b,
                     &g_write,
-                    edge_indicies.clone(),
+                    &ei_write,
                     discriminant_id,
                 )
                 .await;
@@ -393,16 +394,11 @@ pub async fn add_or_update_two_way_relation_edge(
                 let new_ix_rev =
                     edge_rev.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge_rev));
 
-                (new_ix, new_ix_rev)
-            };
-
-            {
-                log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
-                log::trace!("Got edge indicies write lock");
                 update_edge_index(&mut ei_write, discriminant_id, new_ix)?;
                 update_edge_index(&mut ei_write, discriminant_id, new_ix_rev)?;
-            }
+
+                (new_ix, new_ix_rev)
+            };
 
             Ok((new_ix, new_ix_rev))
         }
@@ -477,17 +473,20 @@ where
         }
         None => {
             let new_ix = {
+                log::trace!("Getting edge indicies write lock");
+                let mut ei_write = edge_indicies.write().await;
+                log::trace!("Got edge indicies write lock");
                 log::trace!("Getting graph write lock");
                 let mut g_write = graph.write().await;
                 log::trace!("Got graph write lock");
 
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
-                let edge = get_edge_by_discriminant_with_graph_locked(
+                let edge = get_edge_by_discriminant_with_locks(
                     ix_b,
                     ix_a,
                     &g_write,
-                    edge_indicies.clone(),
+                    &ei_write,
                     discriminant_id,
                 )
                 .await;
@@ -499,15 +498,12 @@ where
                     inner_relation: RwLock::new(update_with),
                 };
 
-                edge.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge))
-            };
+                let new_ix = edge.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge));
 
-            {
-                log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
-                log::trace!("Got edge indicies write lock");
                 update_edge_index(&mut ei_write, discriminant_id, new_ix)?;
-            }
+
+                new_ix
+            };
 
             Ok(new_ix)
         }
