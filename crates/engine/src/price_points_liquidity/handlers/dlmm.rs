@@ -20,8 +20,8 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
+        get_two_way_edges_by_discriminant, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
 
@@ -139,43 +139,24 @@ pub async fn handle_dlmm(
         }
     };
 
-    let (mut mint_x_ix, mut mint_y_ix) = {
-        log::trace!("Getting mint indicies read lock");
-        let mi_read = mint_indicies.read().await;
-        log::trace!("Got mint indicies read lock");
-        let mint_x_ix = mi_read.get(mint_x).cloned();
-        let mint_y_ix = mi_read.get(mint_y).cloned();
-
-        (mint_x_ix, mint_y_ix)
+    let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
+        log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+        return;
     };
 
-    // Do we need to add these to graph?
-    let add_mint_x = mint_x_ix.is_none();
-    let add_mint_y = mint_y_ix.is_none();
+    let Some(y_balance_units) = y_balance.checked_div(y_factor) else {
+        log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
+        return;
+    };
 
-    if add_mint_x || add_mint_y {
-        if add_mint_x {
-            mint_x_ix = get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone())
-                .await
-                .into();
-        }
+    let (mint_x_ix, add_mint_x) =
+        get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone()).await;
+    let (mint_y_ix, add_mint_y) =
+        get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone()).await;
 
-        if add_mint_y {
-            mint_y_ix = get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone())
-                .await
-                .into();
-        }
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
 
-        let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
-            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-            return;
-        };
-
-        let Some(y_balance_units) = y_balance.checked_div(y_factor) else {
-            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-            return;
-        };
-
+    if add_mint_x || add_mint_y || edges.is_none() {
         let mut bins_by_account = HashMap::new();
         bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
 
@@ -201,268 +182,107 @@ pub async fn handle_dlmm(
             pool_id: pool_pubkey.to_string(),
         };
 
-        let (Some(x_ix), Some(y_ix)) = (mint_x_ix, mint_y_ix) else {
-            log::error!("UNREACHABLE - Both indicies should have been set just now");
-            return;
-        };
-
-        let new_edge_rev = add_or_update_relation_edge(
-            x_ix,
-            y_ix,
+        let new_edges_res = add_or_update_two_way_relation_edge(
+            mint_x_ix,
+            mint_y_ix,
             edge_indicies.clone(),
             graph.clone(),
+            new_relation,
             new_relation_rev,
             pool_pubkey,
             *time,
         )
         .await;
 
-        let _new_edge_rev = match new_edge_rev {
-            Ok(ix) => ix,
+        match new_edges_res {
+            Ok(_) => {}
             Err(e) => {
-                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
-                return;
+                log::error!("Error adding or updating two way edge for DLMM {pool_pubkey}: {e}");
             }
-        };
-
-        let new_edge = add_or_update_relation_edge(
-            y_ix,
-            x_ix,
-            edge_indicies.clone(),
-            graph.clone(),
-            new_relation,
-            pool_pubkey,
-            *time,
-        )
-        .await;
-
-        let _new_edge = match new_edge {
-            Ok(ix) => ix,
-            Err(e) => {
-                log::error!("Error adding or updating edge for DLMM {pool_pubkey}: {e}");
-                return;
-            }
-        };
-
-        // drop(g_write);
-        // drop(ei_write);
-
-        // log::trace!("Sending update to calculator");
-        // send_update_to_calculator(
-        //     CalculatorUpdate::NewTokenRatio(y_ix, new_edge_rev),
-        //     &calculator_sender,
-        //     &bootstrap_in_progress,
-        // )
-        // .await;
-        // send_update_to_calculator(
-        //     CalculatorUpdate::NewTokenRatio(x_ix, new_edge),
-        //     &calculator_sender,
-        //     &bootstrap_in_progress,
-        // )
-        // .await;
-    } else {
-        // Only need to update the relation in the edge
-        let (Some(x_ix), Some(y_ix)) = (mint_x_ix, mint_y_ix) else {
-            log::error!("UNREACHABLE - Both indicies should have been set already. Checked above");
-            return;
-        };
-
-        let relation_rev = get_edge_by_discriminant(
-            x_ix,
-            y_ix,
-            graph.clone(),
-            edge_indicies.clone(),
-            pool_pubkey,
-        )
-        .await;
-        let relation = get_edge_by_discriminant(
-            y_ix,
-            x_ix,
-            graph.clone(),
-            edge_indicies.clone(),
-            pool_pubkey,
-        )
-        .await;
-
-        let Some(x_balance_units) = x_balance.checked_div(x_factor) else {
-            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-            return;
-        };
-
-        let Some(y_balance_units) = y_balance.checked_div(y_factor) else {
-            log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-            return;
-        };
-
-        if relation_rev.is_none() && relation.is_none() {
-            let mut bins_by_account = HashMap::new();
-            bins_by_account.insert(*part_index, parts.iter().map(|p| p.into()).collect());
-
-            let new_relation_rev = LiqRelation::Dlmm {
-                amt_origin: x_balance_units,
-                amt_dest: y_balance_units,
-                active_bin_account: None,
-                bins_by_account: bins_by_account.clone(),
-                is_reverse: true,
-                decimals_x,
-                decimals_y,
-                pool_id: pool_pubkey.to_string(),
-            };
-
-            let new_relation = LiqRelation::Dlmm {
-                amt_origin: y_balance_units,
-                amt_dest: x_balance_units,
-                active_bin_account: None,
-                bins_by_account,
-                is_reverse: false,
-                decimals_x,
-                decimals_y,
-                pool_id: pool_pubkey.to_string(),
-            };
-
-            let _new_ix_rev = match add_or_update_relation_edge(
-                x_ix,
-                y_ix,
-                edge_indicies.clone(),
-                graph.clone(),
-                new_relation_rev,
-                pool_pubkey,
-                *time,
-            )
-            .await
-            {
-                Ok(i) => i,
-                Err(e) => {
-                    log::error!("Error adding edge {e}");
-                    return;
-                }
-            };
-
-            let _new_ix = match add_or_update_relation_edge(
-                y_ix,
-                x_ix,
-                edge_indicies.clone(),
-                graph.clone(),
-                new_relation,
-                pool_pubkey,
-                *time,
-            )
-            .await
-            {
-                Ok(i) => i,
-                Err(e) => {
-                    log::error!("Error adding reverse edge {e}");
-                    return;
-                }
-            };
-
-            // drop(g_write);
-            // drop(ei_write);
-
-            // log::trace!("Sending update to calculator");
-            // send_update_to_calculator(
-            //     CalculatorUpdate::NewTokenRatio(y_ix, new_ix_rev),
-            //     &calculator_sender,
-            //     &bootstrap_in_progress,
-            // )
-            // .await;
-            // send_update_to_calculator(
-            //     CalculatorUpdate::NewTokenRatio(x_ix, new_ix),
-            //     &calculator_sender,
-            //     &bootstrap_in_progress,
-            // )
-            // .await;
-        } else if relation_rev.is_some() && relation.is_some() {
-            let Some(amt_x_units) = x_balance.checked_div(x_factor) else {
-                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-                return;
-            };
-
-            let Some(amt_y_units) = y_balance.checked_div(y_factor) else {
-                log::warn!("Math overflowed for DLMM {pool_pubkey} - {mint_x} and {mint_y}");
-                return;
-            };
-
-            let edge = relation.unwrap();
-            let edge_rev = relation_rev.unwrap();
-
-            let new_bins_by_account: Vec<DlmmBinParsed> = parts.iter().map(|p| p.into()).collect();
-
-            // Is the active bin in this binarray?
-            let active_bin_opt = parts
-                .iter()
-                .enumerate()
-                .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
-
-            log::trace!("Getting graph read lock");
-            let g_read = graph.read().await;
-            log::trace!("Got graph read lock");
-
-            {
-                let weight = g_read.edge_weight(edge).unwrap();
-                log::trace!("Getting weight write lock");
-                let mut w_write = weight.inner_relation.write().await;
-                log::trace!("Got weight write lock");
-                let LiqRelation::Dlmm {
-                    ref mut amt_origin,
-                    ref mut amt_dest,
-                    ref mut active_bin_account,
-                    ref mut bins_by_account,
-                    ..
-                } = *w_write
-                else {
-                    log::error!(
-                        "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
-                        pool_pubkey
-                    );
-                    return;
-                };
-
-                *amt_origin = amt_y_units;
-                *amt_dest = amt_x_units;
-
-                if let Some((ix, _)) = active_bin_opt.as_ref() {
-                    active_bin_account.replace((*part_index, *ix));
-                }
-
-                bins_by_account.insert(*part_index, new_bins_by_account.clone());
-            }
-
-            {
-                let weight_rev = g_read.edge_weight(edge_rev).unwrap();
-
-                log::trace!("Getting weight rev write lock");
-                let mut w_rev_write = weight_rev.inner_relation.write().await;
-                log::trace!("Got weight rev write lock");
-                let LiqRelation::Dlmm {
-                    amt_origin: ref mut amt_origin_rev,
-                    amt_dest: ref mut amt_dest_rev,
-                    active_bin_account: ref mut active_bin_rev,
-                    bins_by_account: ref mut bins_by_account_rev,
-                    ..
-                } = *w_rev_write
-                else {
-                    log::error!(
-                        "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
-                        pool_pubkey
-                    );
-                    return;
-                };
-
-                *amt_origin_rev = amt_x_units;
-                *amt_dest_rev = amt_y_units;
-
-                bins_by_account_rev.insert(*part_index, new_bins_by_account);
-
-                if let Some((ix, _)) = active_bin_opt.as_ref() {
-                    active_bin_rev.replace((*part_index, *ix));
-                }
-            }
-
-            log::debug!("handle_dlmm took {:?}", now.elapsed());
-        } else {
-            log::error!("UNREACHABLE - BOTH DLMM RELATIONS SHOULD BE SET! LOGIC BUG!!!");
-            return;
         }
+    } else {
+        let Some(edge) = edges.as_ref().and_then(|v| v.normal) else {
+            log::error!("UNREACHABLE - Relation was already checked above");
+            return;
+        };
+        let Some(edge_rev) = edges.as_ref().and_then(|v| v.reverse) else {
+            log::error!("UNREACHABLE - Reverse relation was already checked above");
+            return;
+        };
+
+        let new_bins_by_account: Vec<DlmmBinParsed> = parts.iter().map(|p| p.into()).collect();
+
+        // Is the active bin in this binarray?
+        let active_bin_opt = parts
+            .iter()
+            .enumerate()
+            .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
+
+        log::trace!("Getting graph read lock");
+        let g_read = graph.read().await;
+        log::trace!("Got graph read lock");
+
+        {
+            let weight = g_read.edge_weight(edge).unwrap();
+            log::trace!("Getting weight write lock");
+            let mut w_write = weight.inner_relation.write().await;
+            log::trace!("Got weight write lock");
+            let LiqRelation::Dlmm {
+                ref mut amt_origin,
+                ref mut amt_dest,
+                ref mut active_bin_account,
+                ref mut bins_by_account,
+                ..
+            } = *w_write
+            else {
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
+                return;
+            };
+
+            *amt_origin = y_balance_units;
+            *amt_dest = x_balance_units;
+
+            if let Some((ix, _)) = active_bin_opt.as_ref() {
+                active_bin_account.replace((*part_index, *ix));
+            }
+
+            bins_by_account.insert(*part_index, new_bins_by_account.clone());
+        }
+
+        {
+            let weight_rev = g_read.edge_weight(edge_rev).unwrap();
+
+            log::trace!("Getting weight rev write lock");
+            let mut w_rev_write = weight_rev.inner_relation.write().await;
+            log::trace!("Got weight rev write lock");
+            let LiqRelation::Dlmm {
+                amt_origin: ref mut amt_origin_rev,
+                amt_dest: ref mut amt_dest_rev,
+                active_bin_account: ref mut active_bin_rev,
+                bins_by_account: ref mut bins_by_account_rev,
+                ..
+            } = *w_rev_write
+            else {
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
+                return;
+            };
+
+            *amt_origin_rev = x_balance_units;
+            *amt_dest_rev = y_balance_units;
+
+            bins_by_account_rev.insert(*part_index, new_bins_by_account);
+
+            if let Some((ix, _)) = active_bin_opt.as_ref() {
+                active_bin_rev.replace((*part_index, *ix));
+            }
+        }
+
+        log::debug!("handle_dlmm took {:?}", now.elapsed());
     }
 }

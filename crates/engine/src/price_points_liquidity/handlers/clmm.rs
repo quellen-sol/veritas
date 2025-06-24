@@ -19,8 +19,8 @@ use veritas_sdk::{
 use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
-        add_or_update_relation_edge, get_edge_by_discriminant, get_or_add_mint_ix,
-        get_or_dispatch_decimals, EdgeIndiciesMap, MintIndiciesMap,
+        add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
+        get_two_way_edges_by_discriminant, EdgeIndiciesMap, MintIndiciesMap,
     },
 };
 
@@ -195,38 +195,14 @@ pub async fn handle_clmm(
         return;
     };
 
-    let (mut mint_a_ix, mut mint_b_ix) = {
-        log::trace!("Getting mint indicies read lock");
-        let mi_read = mint_indicies.read().await;
-        log::trace!("Got mint indicies read lock");
-        let mint_a_ix = mi_read.get(mint_a).cloned();
-        let mint_b_ix = mi_read.get(mint_b).cloned();
+    let (mint_a_ix, add_mint_a) =
+        get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone()).await;
+    let (mint_b_ix, add_mint_b) =
+        get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone()).await;
 
-        (mint_a_ix, mint_b_ix)
-    };
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
 
-    // Do we need to add these to graph?
-    let add_mint_a = mint_a_ix.is_none();
-    let add_mint_b = mint_b_ix.is_none();
-
-    if add_mint_a || add_mint_b {
-        if add_mint_a {
-            mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone())
-                .await
-                .into();
-        }
-
-        if add_mint_b {
-            mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone())
-                .await
-                .into();
-        }
-
-        let (Some(mint_a_ix), Some(mint_b_ix)) = (mint_a_ix, mint_b_ix) else {
-            log::error!("UNREACHABLE - Both indicies should have been set just now");
-            return;
-        };
-
+    if add_mint_a || add_mint_b || edges.is_none() {
         let (new_relation, new_relation_rev) = match params {
             UpdateRelationCbParams::ClmmGlobal {
                 current_price,
@@ -300,353 +276,167 @@ pub async fn handle_clmm(
             }
         };
 
-        let new_edge_rev = add_or_update_relation_edge(
+        let new_edges_res = add_or_update_two_way_relation_edge(
             mint_a_ix,
             mint_b_ix,
             edge_indicies.clone(),
             graph.clone(),
+            new_relation,
             new_relation_rev,
             pool_pubkey,
             time,
         )
         .await;
 
-        let _new_edge_rev = match new_edge_rev {
-            Ok(ix) => ix,
+        match new_edges_res {
+            Ok(_) => {}
             Err(e) => {
-                log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                return;
+                log::error!("Error adding or updating two way edge for CLMM {pool_pubkey}: {e}");
             }
-        };
-
-        let new_edge = add_or_update_relation_edge(
-            mint_b_ix,
-            mint_a_ix,
-            edge_indicies.clone(),
-            graph.clone(),
-            new_relation,
-            pool_pubkey,
-            time,
-        )
-        .await;
-
-        let _new_edge = match new_edge {
-            Ok(ix) => ix,
-            Err(e) => {
-                log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
-                return;
-            }
-        };
-
-        // drop(g_write);
-        // drop(ei_write);
-
-        // log::trace!("Sending update to calculator");
-        // send_update_to_calculator(
-        //     CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
-        //     &calculator_sender,
-        //     &bootstrap_in_progress,
-        // )
-        // .await;
-        // send_update_to_calculator(
-        //     CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
-        //     &calculator_sender,
-        //     &bootstrap_in_progress,
-        // )
-        // .await;
+        }
     } else {
-        let (Some(mint_a_ix), Some(mint_b_ix)) = (mint_a_ix, mint_b_ix) else {
-            log::error!("UNREACHABLE - Both indicies should have been set already. Checked above");
+        let Some(relation) = edges.as_ref().and_then(|v| v.normal) else {
+            log::error!("UNREACHABLE - Relation was already checked above");
+            return;
+        };
+        let Some(relation_rev) = edges.as_ref().and_then(|v| v.reverse) else {
+            log::error!("UNREACHABLE - Reverse relation was already checked above");
             return;
         };
 
-        let relation_rev = get_edge_by_discriminant(
-            mint_a_ix,
-            mint_b_ix,
-            graph.clone(),
-            edge_indicies.clone(),
-            pool_pubkey,
-        )
-        .await;
-        let relation = get_edge_by_discriminant(
-            mint_b_ix,
-            mint_a_ix,
-            graph.clone(),
-            edge_indicies.clone(),
-            pool_pubkey,
-        )
-        .await;
+        log::trace!("Getting graph read lock");
+        let g_read = graph.read().await;
+        log::trace!("Got graph read lock");
+        let weight = g_read.edge_weight(relation).unwrap();
+        let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
-        match (relation, relation_rev) {
-            (Some(relation), Some(relation_rev)) => {
-                log::trace!("Getting graph read lock");
-                let g_read = graph.read().await;
-                log::trace!("Got graph read lock");
-                let weight = g_read.edge_weight(relation).unwrap();
-                let weight_rev = g_read.edge_weight(relation_rev).unwrap();
+        {
+            log::trace!("Getting inner relation write lock");
+            let mut w_write = weight.inner_relation.write().await;
+            log::trace!("Got inner relation write lock");
 
-                {
-                    log::trace!("Getting inner relation write lock");
-                    let mut w_write = weight.inner_relation.write().await;
-                    log::trace!("Got inner relation write lock");
+            let LiqRelation::Clmm {
+                ref mut amt_origin,
+                ref mut amt_dest,
+                ref mut current_price_x64,
+                ref mut ticks_by_account,
+                ref mut current_tick_index,
+                ref mut tick_spacing,
+                ..
+            } = *w_write
+            else {
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
+                return;
+            };
 
-                    let LiqRelation::Clmm {
-                        ref mut amt_origin,
-                        ref mut amt_dest,
-                        ref mut current_price_x64,
-                        ref mut ticks_by_account,
-                        ref mut current_tick_index,
-                        ref mut tick_spacing,
-                        ..
-                    } = *w_write
-                    else {
-                        log::error!(
-                            "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
-                            pool_pubkey
-                        );
+            *amt_origin = b_balance_units;
+            *amt_dest = a_balance_units;
+
+            match params {
+                UpdateRelationCbParams::ClmmGlobal {
+                    current_price,
+                    current_tick_index: tick_idx_dooot,
+                    tick_spacing: spacing_dooot,
+                    ..
+                } => {
+                    let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
+                        log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
                         return;
                     };
 
-                    *amt_origin = b_balance_units;
-                    *amt_dest = a_balance_units;
-
-                    match params {
-                        UpdateRelationCbParams::ClmmGlobal {
-                            current_price,
-                            current_tick_index: tick_idx_dooot,
-                            tick_spacing: spacing_dooot,
-                            ..
-                        } => {
-                            let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
-                                log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
-                                return;
-                            };
-
-                            current_price_x64.replace(curr_price_parsed);
-                            current_tick_index.replace(tick_idx_dooot);
-                            tick_spacing.replace(spacing_dooot);
-                        }
-                        UpdateRelationCbParams::ClmmTickGlobal {
-                            start_tick_index,
-                            ticks,
-                            ..
-                        } => {
-                            let Some(tick_spacing) = tick_spacing else {
-                                // Can't calculate tick indicies without tick spacing
-                                return;
-                            };
-
-                            let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
-
-                            for (i, tick) in ticks_parsed {
-                                let Ok(tick): Result<ClmmTickParsed> = tick else {
-                                    continue;
-                                };
-
-                                let this_idx = start_tick_index + (*tick_spacing * i as i32);
-                                ticks_by_account.insert(this_idx, tick.clone());
-                            }
-                        }
-                    }
+                    current_price_x64.replace(curr_price_parsed);
+                    current_tick_index.replace(tick_idx_dooot);
+                    tick_spacing.replace(spacing_dooot);
                 }
-
-                {
-                    log::trace!("Getting inner relation write lock");
-                    let mut w_rev_write = weight_rev.inner_relation.write().await;
-                    log::trace!("Got inner relation write lock");
-
-                    let LiqRelation::Clmm {
-                        amt_origin: ref mut amt_origin_rev,
-                        amt_dest: ref mut amt_dest_rev,
-                        current_price_x64: ref mut current_price_x64_rev,
-                        ticks_by_account: ref mut ticks_by_account_rev,
-                        current_tick_index: ref mut current_tick_index_rev,
-                        tick_spacing: ref mut tick_spacing_rev,
-                        ..
-                    } = *w_rev_write
-                    else {
-                        log::error!(
-                            "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
-                            pool_pubkey
-                        );
+                UpdateRelationCbParams::ClmmTickGlobal {
+                    start_tick_index,
+                    ticks,
+                    ..
+                } => {
+                    let Some(tick_spacing) = tick_spacing else {
+                        // Can't calculate tick indicies without tick spacing
                         return;
                     };
 
-                    *amt_origin_rev = a_balance_units;
-                    *amt_dest_rev = b_balance_units;
+                    let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
 
-                    match params {
-                        UpdateRelationCbParams::ClmmGlobal {
-                            current_price,
-                            current_tick_index: tick_idx_dooot,
-                            tick_spacing: spacing_dooot,
-                            ..
-                        } => {
-                            let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
-                                log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
-                                return;
-                            };
+                    for (i, tick) in ticks_parsed {
+                        let Ok(tick): Result<ClmmTickParsed> = tick else {
+                            continue;
+                        };
 
-                            current_price_x64_rev.replace(curr_price_parsed);
-                            current_tick_index_rev.replace(tick_idx_dooot);
-                            tick_spacing_rev.replace(spacing_dooot);
-                        }
-                        UpdateRelationCbParams::ClmmTickGlobal {
-                            start_tick_index,
-                            ticks,
-                            ..
-                        } => {
-                            let Some(tick_spacing) = tick_spacing_rev else {
-                                // Can't calculate tick indicies without tick spacing
-                                return;
-                            };
-
-                            let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
-
-                            for (i, tick) in ticks_parsed {
-                                let Ok(tick): Result<ClmmTickParsed> = tick else {
-                                    continue;
-                                };
-
-                                let this_idx = start_tick_index + (*tick_spacing * i as i32);
-                                ticks_by_account_rev.insert(this_idx, tick);
-                            }
-                        }
+                        let this_idx = start_tick_index + (*tick_spacing * i as i32);
+                        ticks_by_account.insert(this_idx, tick.clone());
                     }
                 }
             }
-            (None, None) => {
-                // We need to add the relation to the graph, but mints exist
-                let (new_relation, new_relation_rev) = match params {
-                    UpdateRelationCbParams::ClmmGlobal {
-                        current_price,
-                        current_tick_index,
-                        tick_spacing,
-                        ..
-                    } => {
-                        let Ok(current_price_x64) = current_price.parse() else {
-                            log::warn!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
-                            return;
-                        };
+        }
 
-                        let new_relation = LiqRelation::Clmm {
-                            amt_origin: b_balance_units,
-                            amt_dest: a_balance_units,
-                            current_price_x64: Some(current_price_x64),
-                            current_tick_index: Some(current_tick_index),
-                            tick_spacing: Some(tick_spacing),
-                            decimals_a,
-                            decimals_b,
-                            is_reverse: false,
-                            pool_id: pool_pubkey.to_string(),
-                            ticks_by_account: HashMap::new(),
-                        };
+        {
+            log::trace!("Getting inner relation write lock");
+            let mut w_rev_write = weight_rev.inner_relation.write().await;
+            log::trace!("Got inner relation write lock");
 
-                        let new_relation_rev = LiqRelation::Clmm {
-                            amt_origin: a_balance_units,
-                            amt_dest: b_balance_units,
-                            current_price_x64: Some(current_price_x64),
-                            current_tick_index: Some(current_tick_index),
-                            tick_spacing: Some(tick_spacing),
-                            decimals_a,
-                            decimals_b,
-                            is_reverse: true,
-                            pool_id: pool_pubkey.to_string(),
-                            ticks_by_account: HashMap::new(),
-                        };
+            let LiqRelation::Clmm {
+                amt_origin: ref mut amt_origin_rev,
+                amt_dest: ref mut amt_dest_rev,
+                current_price_x64: ref mut current_price_x64_rev,
+                ticks_by_account: ref mut ticks_by_account_rev,
+                current_tick_index: ref mut current_tick_index_rev,
+                tick_spacing: ref mut tick_spacing_rev,
+                ..
+            } = *w_rev_write
+            else {
+                log::error!(
+                    "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
+                    pool_pubkey
+                );
+                return;
+            };
 
-                        (new_relation, new_relation_rev)
-                    }
-                    UpdateRelationCbParams::ClmmTickGlobal { .. } => {
-                        let ticks_by_account = HashMap::new();
+            *amt_origin_rev = a_balance_units;
+            *amt_dest_rev = b_balance_units;
 
-                        let new_relation = LiqRelation::Clmm {
-                            amt_origin: b_balance_units,
-                            amt_dest: a_balance_units,
-                            current_price_x64: None,
-                            current_tick_index: None,
-                            tick_spacing: None,
-                            decimals_a,
-                            decimals_b,
-                            is_reverse: false,
-                            pool_id: pool_pubkey.to_string(),
-                            ticks_by_account: ticks_by_account.clone(),
-                        };
-
-                        let new_relation_rev = LiqRelation::Clmm {
-                            amt_origin: a_balance_units,
-                            amt_dest: b_balance_units,
-                            current_price_x64: None,
-                            current_tick_index: None,
-                            tick_spacing: None,
-                            decimals_a,
-                            decimals_b,
-                            is_reverse: true,
-                            pool_id: pool_pubkey.to_string(),
-                            ticks_by_account,
-                        };
-
-                        (new_relation, new_relation_rev)
-                    }
-                };
-
-                let new_edge_rev = add_or_update_relation_edge(
-                    mint_a_ix,
-                    mint_b_ix,
-                    edge_indicies.clone(),
-                    graph.clone(),
-                    new_relation_rev,
-                    pool_pubkey,
-                    time,
-                )
-                .await;
-
-                let _new_edge_rev = match new_edge_rev {
-                    Ok(ix) => ix,
-                    Err(e) => {
-                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
+            match params {
+                UpdateRelationCbParams::ClmmGlobal {
+                    current_price,
+                    current_tick_index: tick_idx_dooot,
+                    tick_spacing: spacing_dooot,
+                    ..
+                } => {
+                    let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
+                        log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
                         return;
-                    }
-                };
+                    };
 
-                let new_edge = add_or_update_relation_edge(
-                    mint_b_ix,
-                    mint_a_ix,
-                    edge_indicies.clone(),
-                    graph.clone(),
-                    new_relation,
-                    pool_pubkey,
-                    time,
-                )
-                .await;
-
-                let _new_edge = match new_edge {
-                    Ok(ix) => ix,
-                    Err(e) => {
-                        log::error!("Error adding or updating edge for CLMM {pool_pubkey}: {e}");
+                    current_price_x64_rev.replace(curr_price_parsed);
+                    current_tick_index_rev.replace(tick_idx_dooot);
+                    tick_spacing_rev.replace(spacing_dooot);
+                }
+                UpdateRelationCbParams::ClmmTickGlobal {
+                    start_tick_index,
+                    ticks,
+                    ..
+                } => {
+                    let Some(tick_spacing) = tick_spacing_rev else {
+                        // Can't calculate tick indicies without tick spacing
                         return;
+                    };
+
+                    let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
+
+                    for (i, tick) in ticks_parsed {
+                        let Ok(tick): Result<ClmmTickParsed> = tick else {
+                            continue;
+                        };
+
+                        let this_idx = start_tick_index + (*tick_spacing * i as i32);
+                        ticks_by_account_rev.insert(this_idx, tick);
                     }
-                };
-
-                // drop(g_write);
-                // drop(ei_write);
-
-                // log::trace!("Sending update to calculator");
-                // send_update_to_calculator(
-                //     CalculatorUpdate::NewTokenRatio(mint_a_ix, new_edge_rev),
-                //     &calculator_sender,
-                //     &bootstrap_in_progress,
-                // )
-                // .await;
-                // send_update_to_calculator(
-                //     CalculatorUpdate::NewTokenRatio(mint_b_ix, new_edge),
-                //     &calculator_sender,
-                //     &bootstrap_in_progress,
-                // )
-                // .await;
-            }
-            _ => {
-                log::error!("UNREACHABLE - Both relations should have been set! LOGIC BUG!!!");
+                }
             }
         }
     }
@@ -658,7 +448,9 @@ mod tests {
     use step_ingestooor_sdk::dooot::{ClmmGlobalDooot, CurveType};
     use veritas_sdk::utils::lp_cache::LiquidityPool;
 
-    use crate::price_points_liquidity::handlers::utils::build_test_handler_state;
+    use crate::price_points_liquidity::{
+        handlers::utils::build_test_handler_state, task::get_edge_by_discriminant,
+    };
 
     use super::*;
 
@@ -728,27 +520,9 @@ mod tests {
         )
         .await;
 
-        let mi_read = state.mint_indicies.read().await;
-
-        let mint_a_ix = mi_read.get(mint_a).unwrap();
-        let mint_b_ix = mi_read.get(mint_b).unwrap();
-
-        let relation = get_edge_by_discriminant(
-            *mint_a_ix,
-            *mint_b_ix,
-            state.graph.clone(),
-            state.edge_indicies.clone(),
-            pool_id,
-        )
-        .await;
-        let relation_rev = get_edge_by_discriminant(
-            *mint_b_ix,
-            *mint_a_ix,
-            state.graph.clone(),
-            state.edge_indicies.clone(),
-            pool_id,
-        )
-        .await;
+        let relation = get_edge_by_discriminant(false, state.edge_indicies.clone(), pool_id).await;
+        let relation_rev =
+            get_edge_by_discriminant(true, state.edge_indicies.clone(), pool_id).await;
 
         assert!(relation.is_some());
         assert!(relation_rev.is_some());
