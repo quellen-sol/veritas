@@ -195,46 +195,7 @@ pub async fn handle_mint_underlyings(
                     return;
                 };
 
-                let mut e_write = edge.inner_relation.write().await;
-
                 if is_pool {
-                    let Some(edge_ix_opposite) = get_edge_by_discriminant(
-                        ix_b,
-                        ix_a,
-                        graph.clone(),
-                        edge_indicies.clone(),
-                        parent_mint,
-                    )
-                    .await
-                    else {
-                        log::error!("UNREACHABLE - Opp edge should exist for {mu_dooot:?}");
-                        return;
-                    };
-                    let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
-                        log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
-                        return;
-                    };
-                    let mut e_opp_write = edge_opp.inner_relation.write().await;
-                    let LiqRelation::CpLp {
-                        amt_origin: ref mut amt_origin_dooot,
-                        amt_dest: ref mut amt_dest_dooot,
-                        ..
-                    } = *e_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                        return;
-                    };
-
-                    let LiqRelation::CpLp {
-                        amt_origin: ref mut amt_origin_dooot_opp,
-                        amt_dest: ref mut amt_dest_dooot_opp,
-                        ..
-                    } = *e_opp_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                        return;
-                    };
-
                     let Some(relation) = build_mu_relation(
                         &mu_dooot,
                         lp_cache,
@@ -264,20 +225,56 @@ pub async fn handle_mint_underlyings(
                         }
                     };
 
-                    *amt_origin_dooot = amt_origin;
-                    *amt_dest_dooot = amt_dest;
+                    {
+                        let mut e_write = edge.inner_relation.write().await;
 
-                    *amt_origin_dooot_opp = amt_dest;
-                    *amt_dest_dooot_opp = amt_origin;
+                        let LiqRelation::CpLp {
+                            amt_origin: ref mut amt_origin_dooot,
+                            amt_dest: ref mut amt_dest_dooot,
+                            ..
+                        } = *e_write
+                        else {
+                            log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                            return;
+                        };
+
+                        *amt_origin_dooot = amt_origin;
+                        *amt_dest_dooot = amt_dest;
+                    }
+
+                    {
+                        let Some(edge_ix_opposite) = get_edge_by_discriminant(
+                            ix_b,
+                            ix_a,
+                            graph.clone(),
+                            edge_indicies.clone(),
+                            parent_mint,
+                        )
+                        .await
+                        else {
+                            log::error!("UNREACHABLE - Opp edge should exist for {mu_dooot:?}");
+                            return;
+                        };
+                        let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
+                            log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
+                            return;
+                        };
+                        let mut e_opp_write = edge_opp.inner_relation.write().await;
+
+                        let LiqRelation::CpLp {
+                            amt_origin: ref mut amt_origin_dooot_opp,
+                            amt_dest: ref mut amt_dest_dooot_opp,
+                            ..
+                        } = *e_opp_write
+                        else {
+                            log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                            return;
+                        };
+
+                        *amt_origin_dooot_opp = amt_dest;
+                        *amt_dest_dooot_opp = amt_origin;
+                    }
                 } else {
-                    let LiqRelation::Fixed {
-                        amt_per_parent: ref mut amt_per_parent_dooot,
-                    } = *e_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
-                        return;
-                    };
-
                     let Some(relation) = build_mu_relation(
                         &mu_dooot,
                         lp_cache,
@@ -303,12 +300,21 @@ pub async fn handle_mint_underlyings(
                         }
                     };
 
+                    let mut e_write = edge.inner_relation.write().await;
+
+                    let LiqRelation::Fixed {
+                        amt_per_parent: ref mut amt_per_parent_dooot,
+                    } = *e_write
+                    else {
+                        log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
+                        return;
+                    };
+
                     *amt_per_parent_dooot = amt_per_parent;
                 }
             }
             None => {
                 // Need to create new ones
-
                 let Some(new_relation) = build_mu_relation(
                     &mu_dooot,
                     lp_cache.clone(),
@@ -409,15 +415,12 @@ async fn build_mu_relation(
     is_reverse: bool,
 ) -> Option<LiqRelation> {
     if is_pool {
-        let curve_type = {
-            let lp = lp_cache.read().await.get(discriminant_id).cloned();
-            let Some(lp) = lp else {
-                // log::warn!("LP mint missing from cache: {mu_dooot:?}");
-                return None;
-            };
-
-            lp.curve_type
-        };
+        let curve_type = lp_cache
+            .read()
+            .await
+            .get(discriminant_id)
+            .cloned()?
+            .curve_type;
 
         match curve_type {
             CurveType::ConstantProduct => {

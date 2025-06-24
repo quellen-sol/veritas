@@ -152,10 +152,14 @@ pub async fn handle_clmm(
 
     let (a_balance, b_balance) = {
         log::trace!("Getting token balance cache read lock");
-        let tbc_read = token_balance_cache.read().await;
-        log::trace!("Got token balance cache read lock");
-        let a_bal_cache_op = tbc_read.get(vault_a).cloned();
-        let b_bal_cache_op = tbc_read.get(vault_b).cloned();
+        let (a_bal_cache_op, b_bal_cache_op) = {
+            let tbc_read = token_balance_cache.read().await;
+            log::trace!("Got token balance cache read lock");
+            (
+                tbc_read.get(vault_a).cloned(),
+                tbc_read.get(vault_b).cloned(),
+            )
+        };
 
         if let (Some(a_bal_inner_val), Some(b_bal_inner_val)) = (a_bal_cache_op, b_bal_cache_op) {
             let (Some(a_vault_balance), Some(b_vault_balance)) = (a_bal_inner_val, b_bal_inner_val)
@@ -166,7 +170,6 @@ pub async fn handle_clmm(
             (a_vault_balance, b_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
-            drop(tbc_read);
             log::trace!("Getting token balance cache write lock");
             let mut tbc_write = token_balance_cache.write().await;
             log::trace!("Got token balance cache write lock");
@@ -380,87 +383,127 @@ pub async fn handle_clmm(
                 let weight = g_read.edge_weight(relation).unwrap();
                 let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
-                let mut w_write = weight.inner_relation.write().await;
-                let mut w_rev_write = weight_rev.inner_relation.write().await;
-
-                let LiqRelation::Clmm {
-                    ref mut amt_origin,
-                    ref mut amt_dest,
-                    ref mut current_price_x64,
-                    ref mut ticks_by_account,
-                    ref mut current_tick_index,
-                    ref mut tick_spacing,
-                    ..
-                } = *w_write
-                else {
-                    log::error!(
-                        "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
-                        pool_pubkey
-                    );
-                    return;
-                };
-
-                let LiqRelation::Clmm {
-                    amt_origin: ref mut amt_origin_rev,
-                    amt_dest: ref mut amt_dest_rev,
-                    current_price_x64: ref mut current_price_x64_rev,
-                    ticks_by_account: ref mut ticks_by_account_rev,
-                    current_tick_index: ref mut current_tick_index_rev,
-                    tick_spacing: ref mut tick_spacing_rev,
-                    ..
-                } = *w_rev_write
-                else {
-                    log::error!(
-                        "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
-                        pool_pubkey
-                    );
-                    return;
-                };
-
-                *amt_origin = b_balance_units;
-                *amt_dest = a_balance_units;
-                *amt_origin_rev = a_balance_units;
-                *amt_dest_rev = b_balance_units;
-
-                match params {
-                    UpdateRelationCbParams::ClmmGlobal {
-                        current_price,
-                        current_tick_index: tick_idx_dooot,
-                        tick_spacing: spacing_dooot,
+                {
+                    let mut w_write = weight.inner_relation.write().await;
+                    let LiqRelation::Clmm {
+                        ref mut amt_origin,
+                        ref mut amt_dest,
+                        ref mut current_price_x64,
+                        ref mut ticks_by_account,
+                        ref mut current_tick_index,
+                        ref mut tick_spacing,
                         ..
-                    } => {
-                        let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
-                            log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
-                            return;
-                        };
+                    } = *w_write
+                    else {
+                        log::error!(
+                            "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
+                            pool_pubkey
+                        );
+                        return;
+                    };
 
-                        current_price_x64.replace(curr_price_parsed);
-                        current_price_x64_rev.replace(curr_price_parsed);
-                        current_tick_index.replace(tick_idx_dooot);
-                        current_tick_index_rev.replace(tick_idx_dooot);
-                        tick_spacing.replace(spacing_dooot);
-                        tick_spacing_rev.replace(spacing_dooot);
-                    }
-                    UpdateRelationCbParams::ClmmTickGlobal {
-                        start_tick_index,
-                        ticks,
-                        ..
-                    } => {
-                        let Some(tick_spacing) = tick_spacing else {
-                            // Can't calculate tick indicies without tick spacing
-                            return;
-                        };
+                    *amt_origin = b_balance_units;
+                    *amt_dest = a_balance_units;
 
-                        let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
-
-                        for (i, tick) in ticks_parsed {
-                            let Ok(tick): Result<ClmmTickParsed> = tick else {
-                                continue;
+                    match params {
+                        UpdateRelationCbParams::ClmmGlobal {
+                            current_price,
+                            current_tick_index: tick_idx_dooot,
+                            tick_spacing: spacing_dooot,
+                            ..
+                        } => {
+                            let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
+                                log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
+                                return;
                             };
 
-                            let this_idx = start_tick_index + (*tick_spacing * i as i32);
-                            ticks_by_account.insert(this_idx, tick.clone());
-                            ticks_by_account_rev.insert(this_idx, tick);
+                            current_price_x64.replace(curr_price_parsed);
+                            current_tick_index.replace(tick_idx_dooot);
+                            tick_spacing.replace(spacing_dooot);
+                        }
+                        UpdateRelationCbParams::ClmmTickGlobal {
+                            start_tick_index,
+                            ticks,
+                            ..
+                        } => {
+                            let Some(tick_spacing) = tick_spacing else {
+                                // Can't calculate tick indicies without tick spacing
+                                return;
+                            };
+
+                            let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
+
+                            for (i, tick) in ticks_parsed {
+                                let Ok(tick): Result<ClmmTickParsed> = tick else {
+                                    continue;
+                                };
+
+                                let this_idx = start_tick_index + (*tick_spacing * i as i32);
+                                ticks_by_account.insert(this_idx, tick.clone());
+                            }
+                        }
+                    }
+                }
+
+                {
+                    let mut w_rev_write = weight_rev.inner_relation.write().await;
+
+                    let LiqRelation::Clmm {
+                        amt_origin: ref mut amt_origin_rev,
+                        amt_dest: ref mut amt_dest_rev,
+                        current_price_x64: ref mut current_price_x64_rev,
+                        ticks_by_account: ref mut ticks_by_account_rev,
+                        current_tick_index: ref mut current_tick_index_rev,
+                        tick_spacing: ref mut tick_spacing_rev,
+                        ..
+                    } = *w_rev_write
+                    else {
+                        log::error!(
+                            "UNREACHABLE - WEIGHT IS NOT A CLMM FOR DISCRIMINANT {}",
+                            pool_pubkey
+                        );
+                        return;
+                    };
+
+                    *amt_origin_rev = a_balance_units;
+                    *amt_dest_rev = b_balance_units;
+
+                    match params {
+                        UpdateRelationCbParams::ClmmGlobal {
+                            current_price,
+                            current_tick_index: tick_idx_dooot,
+                            tick_spacing: spacing_dooot,
+                            ..
+                        } => {
+                            let Ok(curr_price_parsed) = current_price.parse::<u128>() else {
+                                log::error!("Could not convert current price to u128 for CLMM {pool_pubkey} - {mint_a} and {mint_b}");
+                                return;
+                            };
+
+                            current_price_x64_rev.replace(curr_price_parsed);
+                            current_tick_index_rev.replace(tick_idx_dooot);
+                            tick_spacing_rev.replace(spacing_dooot);
+                        }
+                        UpdateRelationCbParams::ClmmTickGlobal {
+                            start_tick_index,
+                            ticks,
+                            ..
+                        } => {
+                            let Some(tick_spacing) = tick_spacing_rev else {
+                                // Can't calculate tick indicies without tick spacing
+                                return;
+                            };
+
+                            let ticks_parsed = ticks.iter().map(|tick| tick.try_into()).enumerate();
+
+                            for (i, tick) in ticks_parsed {
+                                let Ok(tick): Result<ClmmTickParsed> = tick else {
+                                    continue;
+                                };
+
+                                let this_idx = start_tick_index + (*tick_spacing * i as i32);
+                                ticks_by_account_rev.insert(this_idx, tick);
+                            }
                         }
                     }
                 }

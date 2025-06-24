@@ -106,10 +106,14 @@ pub async fn handle_dlmm(
 
     let (x_balance, y_balance) = {
         log::trace!("Getting token balance cache read lock");
-        let tbc_read = token_balance_cache.read().await;
-        log::trace!("Got token balance cache read lock");
-        let x_bal_cache_op = tbc_read.get(vault_x).cloned();
-        let y_bal_cache_op = tbc_read.get(vault_y).cloned();
+        let (x_bal_cache_op, y_bal_cache_op) = {
+            let tbc_read = token_balance_cache.read().await;
+            log::trace!("Got token balance cache read lock");
+            (
+                tbc_read.get(vault_x).cloned(),
+                tbc_read.get(vault_y).cloned(),
+            )
+        };
 
         if let (Some(x_bal_inner_val), Some(y_bal_inner_val)) = (x_bal_cache_op, y_bal_cache_op) {
             let (Some(x_vault_balance), Some(y_vault_balance)) = (x_bal_inner_val, y_bal_inner_val)
@@ -120,7 +124,6 @@ pub async fn handle_dlmm(
             (x_vault_balance, y_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
-            drop(tbc_read);
             log::trace!("Getting token balance cache write lock");
             let mut tbc_write = token_balance_cache.write().await;
             log::trace!("Got token balance cache write lock");
@@ -393,58 +396,66 @@ pub async fn handle_dlmm(
 
             let g_read = graph.read().await;
 
-            let weight = g_read.edge_weight(edge).unwrap();
-            let weight_rev = g_read.edge_weight(edge_rev).unwrap();
+            {
+                let weight = g_read.edge_weight(edge).unwrap();
+                log::trace!("Getting weight write lock");
+                let mut w_write = weight.inner_relation.write().await;
+                log::trace!("Got weight write lock");
+                let LiqRelation::Dlmm {
+                    ref mut amt_origin,
+                    ref mut amt_dest,
+                    ref mut active_bin_account,
+                    ref mut bins_by_account,
+                    ..
+                } = *w_write
+                else {
+                    log::error!(
+                        "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                        pool_pubkey
+                    );
+                    return;
+                };
 
-            log::trace!("Getting weight write lock");
-            let mut w_write = weight.inner_relation.write().await;
-            log::trace!("Got weight write lock");
-            let LiqRelation::Dlmm {
-                ref mut amt_origin,
-                ref mut amt_dest,
-                ref mut active_bin_account,
-                ref mut bins_by_account,
-                ..
-            } = *w_write
-            else {
-                log::error!(
-                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
-                    pool_pubkey
-                );
-                return;
-            };
+                *amt_origin = amt_y_units;
+                *amt_dest = amt_x_units;
 
-            *amt_origin = amt_y_units;
-            *amt_dest = amt_x_units;
+                if let Some((ix, _)) = active_bin_opt.as_ref() {
+                    active_bin_account.replace((*part_index, *ix));
+                }
 
-            log::trace!("Getting weight rev write lock");
-            let mut w_rev_write = weight_rev.inner_relation.write().await;
-            log::trace!("Got weight rev write lock");
-            let LiqRelation::Dlmm {
-                amt_origin: ref mut amt_origin_rev,
-                amt_dest: ref mut amt_dest_rev,
-                active_bin_account: ref mut active_bin_rev,
-                bins_by_account: ref mut bins_by_account_rev,
-                ..
-            } = *w_rev_write
-            else {
-                log::error!(
-                    "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
-                    pool_pubkey
-                );
-                return;
-            };
-
-            *amt_origin_rev = amt_x_units;
-            *amt_dest_rev = amt_y_units;
-
-            if let Some((ix, _)) = active_bin_opt {
-                active_bin_account.replace((*part_index, ix));
-                active_bin_rev.replace((*part_index, ix));
+                bins_by_account.insert(*part_index, new_bins_by_account.clone());
             }
 
-            bins_by_account.insert(*part_index, new_bins_by_account.clone());
-            bins_by_account_rev.insert(*part_index, new_bins_by_account);
+            {
+                let weight_rev = g_read.edge_weight(edge_rev).unwrap();
+
+                log::trace!("Getting weight rev write lock");
+                let mut w_rev_write = weight_rev.inner_relation.write().await;
+                log::trace!("Got weight rev write lock");
+                let LiqRelation::Dlmm {
+                    amt_origin: ref mut amt_origin_rev,
+                    amt_dest: ref mut amt_dest_rev,
+                    active_bin_account: ref mut active_bin_rev,
+                    bins_by_account: ref mut bins_by_account_rev,
+                    ..
+                } = *w_rev_write
+                else {
+                    log::error!(
+                        "UNREACHABLE - WEIGHT IS NOT A DLMM FOR DISCRIMINANT {}",
+                        pool_pubkey
+                    );
+                    return;
+                };
+
+                *amt_origin_rev = amt_x_units;
+                *amt_dest_rev = amt_y_units;
+
+                bins_by_account_rev.insert(*part_index, new_bins_by_account);
+
+                if let Some((ix, _)) = active_bin_opt.as_ref() {
+                    active_bin_rev.replace((*part_index, *ix));
+                }
+            }
 
             log::debug!("handle_dlmm took {:?}", now.elapsed());
         } else {
