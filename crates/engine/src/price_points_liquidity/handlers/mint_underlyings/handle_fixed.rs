@@ -49,24 +49,13 @@ pub async fn handle_fixed(
         (decimals_parent, decimals_underlying)
     };
 
-    let (mint_parent_ix, mint_underlying_ix) = {
-        let mi_read = mint_indicies.read().await;
-
-        let mint_parent_ix = mi_read.get(parent_mint).cloned();
-        let mint_underlying_ix = mi_read.get(underlying_mint).cloned();
-
-        (mint_parent_ix, mint_underlying_ix)
-    };
-
-    let mint_parent_ix = match mint_parent_ix {
-        Some(ix) => ix,
-        None => get_or_add_mint_ix(parent_mint, graph.clone(), mint_indicies.clone()).await,
-    };
-
-    let mint_underlying_ix = match mint_underlying_ix {
-        Some(ix) => ix,
-        None => get_or_add_mint_ix(underlying_mint, graph.clone(), mint_indicies.clone()).await,
-    };
+    let mint_parent_ix = get_or_add_mint_ix(parent_mint, graph.clone(), mint_indicies.clone())
+        .await
+        .0;
+    let mint_underlying_ix =
+        get_or_add_mint_ix(underlying_mint, graph.clone(), mint_indicies.clone())
+            .await
+            .0;
 
     let Some(decimal_factor) =
         Decimal::TEN.checked_powi(decimals_parent as i64 - decimals_underlying as i64)

@@ -206,38 +206,48 @@ pub fn get_or_dispatch_decimals(
     Some(decimals_x)
 }
 
+/// Get the mint index for a mint, or add it to the graph if it doesn't exist
+///
+/// Returns the mint index and a boolean indicating if the mint was added to the graph
 #[inline]
 pub async fn get_or_add_mint_ix(
     mint: &str,
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
-) -> NodeIndex {
+) -> (NodeIndex, bool) {
     log::trace!("Getting mint indicies read lock");
     let mint_index_op = mint_indicies.read().await.get(mint).cloned();
     log::trace!("Got mint indicies read lock");
 
     match mint_index_op {
-        Some(ix) => ix,
+        Some(ix) => (ix, false),
         None => {
-            let ix = {
-                log::trace!("Getting graph write lock");
-                let mut g_write = graph.write().await;
-                log::trace!("Got graph write lock");
-                g_write.add_node(MintNode {
-                    mint: mint.to_string(),
-                    usd_price: RwLock::new(None),
-                    cached_fixed_relation: RwLock::new(None),
-                })
-            };
+            log::trace!("Getting graph write lock");
+            let mut g_write = graph.write().await;
+            log::trace!("Got graph write lock");
+            log::trace!("Getting mint indicies write lock");
+            let mut mi_write = mint_indicies.write().await;
+            log::trace!("Got mint indicies write lock");
 
-            {
-                log::trace!("Getting mint indicies write lock");
-                let mut mi_write = mint_indicies.write().await;
-                log::trace!("Got mint indicies write lock");
-                mi_write.insert(mint.to_string(), ix);
-            }
+            // Check if the mint is already in the graph, since the above check is too optimistic
+            let (ix, created) = mi_write
+                .get(mint)
+                .cloned()
+                .map(|i| (i, false))
+                .unwrap_or_else(|| {
+                    (
+                        g_write.add_node(MintNode {
+                            mint: mint.to_string(),
+                            usd_price: RwLock::new(None),
+                            cached_fixed_relation: RwLock::new(None),
+                        }),
+                        true,
+                    )
+                });
 
-            ix
+            mi_write.insert(mint.to_string(), ix);
+
+            (ix, created)
         }
     }
 }
@@ -339,12 +349,6 @@ pub async fn add_or_update_two_way_relation_edge(
 
                 *relation = update_with;
                 *relation_rev = update_with_rev;
-            }
-
-            {
-                let mut ei_write = edge_indicies.write().await;
-                update_edge_index(&mut ei_write, discriminant_id, edge)?;
-                update_edge_index(&mut ei_write, discriminant_id, edge_rev)?;
             }
 
             Ok((edge, edge_rev))
@@ -460,13 +464,6 @@ where
                     log::trace!("Got inner relation write lock");
                     *relation = update_with;
                 }
-            }
-
-            {
-                log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
-                log::trace!("Got edge indicies write lock");
-                update_edge_index(&mut ei_write, discriminant_id, edge_ix)?;
             }
 
             Ok(edge_ix)

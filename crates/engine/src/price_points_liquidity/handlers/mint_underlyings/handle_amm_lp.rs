@@ -50,25 +50,12 @@ pub async fn handle_amm_lp(
         (decimals_a, decimals_b)
     };
 
-    let (mint_a_ix, mint_b_ix) = {
-        log::trace!("Getting mint indicies read lock");
-        let mi_read = mint_indicies.read().await;
-        log::trace!("Got mint indicies read lock");
-        let mint_a_ix = mi_read.get(mint_a).cloned();
-        let mint_b_ix = mi_read.get(mint_b).cloned();
-
-        (mint_a_ix, mint_b_ix)
-    };
-
-    let mint_a_ix = match mint_a_ix {
-        Some(ix) => ix,
-        None => get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone()).await,
-    };
-
-    let mint_b_ix = match mint_b_ix {
-        Some(ix) => ix,
-        None => get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone()).await,
-    };
+    let mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone())
+        .await
+        .0;
+    let mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone())
+        .await
+        .0;
 
     let Some(relation) = build_mu_relation(
         &mu_dooot,
