@@ -84,19 +84,16 @@ pub async fn handle_mint_underlyings(
     let add_mint_b = mint_b_ix.is_none();
 
     if add_mint_a || add_mint_b {
-        let mut g_write = graph.write().await;
-        {
-            log::trace!("Getting mint indicies write lock");
-            let mut mi_write = mint_indicies.write().await;
-            log::trace!("Got mint indicies write lock");
+        if add_mint_a {
+            mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
+        }
 
-            if add_mint_a {
-                mint_a_ix = get_or_add_mint_ix(mint_a, &mut g_write, &mut mi_write).into();
-            }
-
-            if add_mint_b {
-                mint_b_ix = get_or_add_mint_ix(mint_b, &mut g_write, &mut mi_write).into();
-            }
+        if add_mint_b {
+            mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone())
+                .await
+                .into();
         }
 
         let (Some(mint_a_ix), Some(mint_b_ix)) = (mint_a_ix, mint_b_ix) else {
@@ -121,13 +118,11 @@ pub async fn handle_mint_underlyings(
             return;
         };
 
-        let mut ei_write = edge_indicies.write().await;
-
         match add_or_update_relation_edge(
             mint_a_ix,
             mint_b_ix,
-            &mut ei_write,
-            &mut g_write,
+            edge_indicies.clone(),
+            graph.clone(),
             new_relation,
             parent_mint,
             *time,
@@ -161,8 +156,8 @@ pub async fn handle_mint_underlyings(
             match add_or_update_relation_edge(
                 mint_b_ix,
                 mint_a_ix,
-                &mut ei_write,
-                &mut g_write,
+                edge_indicies.clone(),
+                graph.clone(),
                 new_relation_opp,
                 parent_mint,
                 *time,
@@ -182,53 +177,25 @@ pub async fn handle_mint_underlyings(
             return;
         };
 
-        let g_read = graph.read().await;
-        let ei_read = edge_indicies.read().await;
-
-        let edge_ix = get_edge_by_discriminant(ix_a, ix_b, &g_read, &ei_read, parent_mint);
+        let edge_ix = get_edge_by_discriminant(
+            ix_a,
+            ix_b,
+            graph.clone(),
+            edge_indicies.clone(),
+            parent_mint,
+        )
+        .await;
 
         match edge_ix {
             Some(edge_ix) => {
                 // Just need to update them.
+                let g_read = graph.read().await;
                 let Some(edge) = g_read.edge_weight(edge_ix) else {
                     log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
                     return;
                 };
 
-                let mut e_write = edge.inner_relation.write().await;
-
                 if is_pool {
-                    let Some(edge_ix_opposite) =
-                        get_edge_by_discriminant(ix_b, ix_a, &g_read, &ei_read, parent_mint)
-                    else {
-                        log::error!("UNREACHABLE - Opp edge should exist for {mu_dooot:?}");
-                        return;
-                    };
-                    let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
-                        log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
-                        return;
-                    };
-                    let mut e_opp_write = edge_opp.inner_relation.write().await;
-                    let LiqRelation::CpLp {
-                        amt_origin: ref mut amt_origin_dooot,
-                        amt_dest: ref mut amt_dest_dooot,
-                        ..
-                    } = *e_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                        return;
-                    };
-
-                    let LiqRelation::CpLp {
-                        amt_origin: ref mut amt_origin_dooot_opp,
-                        amt_dest: ref mut amt_dest_dooot_opp,
-                        ..
-                    } = *e_opp_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
-                        return;
-                    };
-
                     let Some(relation) = build_mu_relation(
                         &mu_dooot,
                         lp_cache,
@@ -258,20 +225,56 @@ pub async fn handle_mint_underlyings(
                         }
                     };
 
-                    *amt_origin_dooot = amt_origin;
-                    *amt_dest_dooot = amt_dest;
+                    {
+                        let mut e_write = edge.inner_relation.write().await;
 
-                    *amt_origin_dooot_opp = amt_dest;
-                    *amt_dest_dooot_opp = amt_origin;
+                        let LiqRelation::CpLp {
+                            amt_origin: ref mut amt_origin_dooot,
+                            amt_dest: ref mut amt_dest_dooot,
+                            ..
+                        } = *e_write
+                        else {
+                            log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                            return;
+                        };
+
+                        *amt_origin_dooot = amt_origin;
+                        *amt_dest_dooot = amt_dest;
+                    }
+
+                    {
+                        let Some(edge_ix_opposite) = get_edge_by_discriminant(
+                            ix_b,
+                            ix_a,
+                            graph.clone(),
+                            edge_indicies.clone(),
+                            parent_mint,
+                        )
+                        .await
+                        else {
+                            log::error!("UNREACHABLE - Opp edge should exist for {mu_dooot:?}");
+                            return;
+                        };
+                        let Some(edge_opp) = g_read.edge_weight(edge_ix_opposite) else {
+                            log::error!("UNREACHABLE - Edge should exist for {mu_dooot:?}");
+                            return;
+                        };
+                        let mut e_opp_write = edge_opp.inner_relation.write().await;
+
+                        let LiqRelation::CpLp {
+                            amt_origin: ref mut amt_origin_dooot_opp,
+                            amt_dest: ref mut amt_dest_dooot_opp,
+                            ..
+                        } = *e_opp_write
+                        else {
+                            log::error!("UNREACHABLE - Edge should be a CP LP for {mu_dooot:?}");
+                            return;
+                        };
+
+                        *amt_origin_dooot_opp = amt_dest;
+                        *amt_dest_dooot_opp = amt_origin;
+                    }
                 } else {
-                    let LiqRelation::Fixed {
-                        amt_per_parent: ref mut amt_per_parent_dooot,
-                    } = *e_write
-                    else {
-                        log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
-                        return;
-                    };
-
                     let Some(relation) = build_mu_relation(
                         &mu_dooot,
                         lp_cache,
@@ -297,14 +300,21 @@ pub async fn handle_mint_underlyings(
                         }
                     };
 
+                    let mut e_write = edge.inner_relation.write().await;
+
+                    let LiqRelation::Fixed {
+                        amt_per_parent: ref mut amt_per_parent_dooot,
+                    } = *e_write
+                    else {
+                        log::error!("UNREACHABLE - Edge should be a Fixed for {mu_dooot:?}");
+                        return;
+                    };
+
                     *amt_per_parent_dooot = amt_per_parent;
                 }
             }
             None => {
-                drop(g_read);
-                drop(ei_read);
                 // Need to create new ones
-
                 let Some(new_relation) = build_mu_relation(
                     &mu_dooot,
                     lp_cache.clone(),
@@ -322,14 +332,11 @@ pub async fn handle_mint_underlyings(
                     return;
                 };
 
-                let mut g_write = graph.write().await;
-                let mut ei_write = edge_indicies.write().await;
-
                 match add_or_update_relation_edge(
                     ix_a,
                     ix_b,
-                    &mut ei_write,
-                    &mut g_write,
+                    edge_indicies.clone(),
+                    graph.clone(),
                     new_relation,
                     parent_mint,
                     *time,
@@ -364,8 +371,8 @@ pub async fn handle_mint_underlyings(
                     match add_or_update_relation_edge(
                         ix_b,
                         ix_a,
-                        &mut ei_write,
-                        &mut g_write,
+                        edge_indicies.clone(),
+                        graph.clone(),
                         new_relation_opp,
                         parent_mint,
                         *time,
@@ -408,15 +415,12 @@ async fn build_mu_relation(
     is_reverse: bool,
 ) -> Option<LiqRelation> {
     if is_pool {
-        let curve_type = {
-            let lp = lp_cache.read().await.get(discriminant_id).cloned();
-            let Some(lp) = lp else {
-                // log::warn!("LP mint missing from cache: {mu_dooot:?}");
-                return None;
-            };
-
-            lp.curve_type
-        };
+        let curve_type = lp_cache
+            .read()
+            .await
+            .get(discriminant_id)
+            .cloned()?
+            .curve_type;
 
         match curve_type {
             CurveType::ConstantProduct => {

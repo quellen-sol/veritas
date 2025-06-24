@@ -51,10 +51,7 @@ pub async fn handle_oracle_price_event(
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
-    let ix = {
-        let mint_indicies_read = mint_indicies.read().await;
-        mint_indicies_read.get(&feed_mint).cloned()
-    };
+    let ix = mint_indicies.read().await.get(&feed_mint).cloned();
 
     if let Some(ix) = ix {
         let update = CalculatorUpdate::OracleUSDPrice(ix, price);

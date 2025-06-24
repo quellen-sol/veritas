@@ -20,7 +20,7 @@ use tokio::{
 };
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::{MintEdge, MintNode, MintPricingGraph, WrappedMintPricingGraph},
+    ppl_graph::graph::{MintEdge, MintNode, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -207,20 +207,25 @@ pub fn get_or_dispatch_decimals(
 }
 
 #[inline]
-pub fn get_or_add_mint_ix(
+pub async fn get_or_add_mint_ix(
     mint: &str,
-    graph: &mut MintPricingGraph,
-    mint_indicies: &mut MintIndiciesMap,
+    graph: WrappedMintPricingGraph,
+    mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> NodeIndex {
-    let ix = match mint_indicies.get(mint).cloned() {
+    let ix = match mint_indicies.read().await.get(mint).cloned() {
         Some(ix) => ix,
         None => {
-            let ix = graph.add_node(MintNode {
-                mint: mint.to_string(),
-                usd_price: RwLock::new(None),
-            });
+            let ix = {
+                let mut g_write = graph.write().await;
+                g_write.add_node(MintNode {
+                    mint: mint.to_string(),
+                    usd_price: RwLock::new(None),
+                    cached_fixed_relation: RwLock::new(None),
+                })
+            };
 
-            mint_indicies.insert(mint.to_string(), ix);
+            let mut mi_write = mint_indicies.write().await;
+            mi_write.insert(mint.to_string(), ix);
 
             ix
         }
@@ -231,17 +236,18 @@ pub fn get_or_add_mint_ix(
 
 /// Get edge from A -> B that matches the discriminant ID
 #[inline]
-pub fn get_edge_by_discriminant(
+pub async fn get_edge_by_discriminant(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
-    graph: &MintPricingGraph,
-    edge_indicies: &EdgeIndiciesMap,
+    graph: WrappedMintPricingGraph,
+    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     discriminant_id: &str,
 ) -> Option<EdgeIndex> {
-    let indexed_edge = edge_indicies.get(discriminant_id)?;
+    let indexed_edge = edge_indicies.read().await.get(discriminant_id).cloned()?;
 
     for i_edge in indexed_edge.iter().flatten() {
-        let Some((src, target)) = graph.edge_endpoints(*i_edge) else {
+        let g_read = graph.read().await;
+        let Some((src, target)) = g_read.edge_endpoints(*i_edge) else {
             continue;
         };
 
@@ -259,52 +265,64 @@ pub fn get_edge_by_discriminant(
 pub async fn add_or_update_relation_edge(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
-    edge_indicies: &mut EdgeIndiciesMap,
-    graph: &mut MintPricingGraph,
+    edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
+    graph: WrappedMintPricingGraph,
     update_with: LiqRelation,
     discriminant_id: &str,
     time: NaiveDateTime,
 ) -> Result<EdgeIndex>
 where
 {
-    let edge = get_edge_by_discriminant(ix_a, ix_b, graph, edge_indicies, discriminant_id);
+    let edge = get_edge_by_discriminant(
+        ix_a,
+        ix_b,
+        graph.clone(),
+        edge_indicies.clone(),
+        discriminant_id,
+    )
+    .await;
 
     match edge {
         Some(edge_ix) => {
             // Edge already exists, update it
             // Guaranteed by being Some
-            let e_w = graph
-                .edge_weight_mut(edge_ix)
+            let g_read = graph.read().await;
+            let e_r = g_read
+                .edge_weight(edge_ix)
                 .context("UNREACHABLE - Edge index {edge_ix:?} should be present in graph!")?;
-            e_w.dirty = true;
 
             // Quick update of the last updated time
             {
-                let mut last_updated = e_w.last_updated.write().await;
+                let mut last_updated = e_r.last_updated.write().await;
                 *last_updated = time;
             }
 
             // Quick update of the relation
             {
-                let mut relation = e_w.inner_relation.write().await;
+                let mut relation = e_r.inner_relation.write().await;
                 *relation = update_with;
             }
 
-            update_edge_index(edge_indicies, discriminant_id, edge_ix)?;
+            let mut ei_write = edge_indicies.write().await;
+            update_edge_index(&mut ei_write, discriminant_id, edge_ix)?;
 
             Ok(edge_ix)
         }
         None => {
-            let new_edge = MintEdge {
-                id: discriminant_id.to_string(),
-                dirty: true,
-                last_updated: RwLock::new(time),
-                inner_relation: RwLock::new(update_with),
+            let new_ix = {
+                let mut g_write = graph.write().await;
+                let new_edge = MintEdge {
+                    id: discriminant_id.to_string(),
+                    dirty: true,
+                    last_updated: RwLock::new(time),
+                    inner_relation: RwLock::new(update_with),
+                };
+
+                g_write.add_edge(ix_a, ix_b, new_edge)
             };
 
-            let new_ix = graph.add_edge(ix_a, ix_b, new_edge);
-
-            update_edge_index(edge_indicies, discriminant_id, new_ix)?;
+            let mut ei_write = edge_indicies.write().await;
+            update_edge_index(&mut ei_write, discriminant_id, new_ix)?;
 
             Ok(new_ix)
         }
@@ -351,6 +369,7 @@ pub fn update_edge_index(
 mod tests {
     use chrono::Utc;
     use rust_decimal::Decimal;
+    use veritas_sdk::ppl_graph::graph::MintPricingGraph;
 
     use super::*;
 
@@ -385,18 +404,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn test_get_edge_by_discriminant() {
+    #[tokio::test]
+    async fn test_get_edge_by_discriminant() {
         let mut graph = MintPricingGraph::new();
         let mut edge_indicies = EdgeIndiciesMap::new();
 
         let ix_a = graph.add_node(MintNode {
             mint: "test_mint_a".to_string(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
         });
 
         let ix_edge = graph.add_edge(
@@ -427,8 +448,25 @@ mod tests {
 
         update_edge_index(&mut edge_indicies, "test_disc", ix_edge).unwrap();
         update_edge_index(&mut edge_indicies, "test_disc", ix_edge_2).unwrap();
-        let edge_1 = get_edge_by_discriminant(ix_a, ix_b, &graph, &edge_indicies, "test_disc");
-        let edge_2 = get_edge_by_discriminant(ix_b, ix_a, &graph, &edge_indicies, "test_disc");
+        let graph = Arc::new(RwLock::new(graph));
+        let edge_indicies = Arc::new(RwLock::new(edge_indicies));
+
+        let edge_1 = get_edge_by_discriminant(
+            ix_a,
+            ix_b,
+            graph.clone(),
+            edge_indicies.clone(),
+            "test_disc",
+        )
+        .await;
+        let edge_2 = get_edge_by_discriminant(
+            ix_b,
+            ix_a,
+            graph.clone(),
+            edge_indicies.clone(),
+            "test_disc",
+        )
+        .await;
 
         assert_eq!(edge_1, Some(ix_edge));
         assert_eq!(edge_2, Some(ix_edge_2));
