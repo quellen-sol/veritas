@@ -5,7 +5,6 @@ use axum::{
     http::StatusCode,
     Json,
 };
-use itertools::Itertools;
 use serde::Serialize;
 use veritas_sdk::utils::lp_cache::LiquidityPool;
 
