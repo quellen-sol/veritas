@@ -21,9 +21,9 @@ use veritas_sdk::{
 use crate::{
     axum::routes::{
         balance_cache::get_balance_cache_token, debug_node::debug_node_info,
-        decimal_cache::get_decimal_cache_token, force_recalc::force_recalc,
-        lp_cache::get_lp_cache_pool, stats::get_stats, toggle_calculation::toggle_calculation,
-        toggle_ingestion::toggle_ingestion,
+        decimal_cache::get_decimal_cache_token, diagnose::diagnose_node,
+        force_recalc::force_recalc, lp_cache::get_lp_cache_pool, stats::get_stats,
+        toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
     },
     price_points_liquidity::task::MintIndiciesMap,
 };
@@ -82,6 +82,7 @@ pub fn spawn_axum_server(
                 .route("/toggle-calculation", post(toggle_calculation))
                 .route("/stats", get(get_stats))
                 .route("/force-recalc", post(force_recalc))
+                .route("/diagnose-mint", get(diagnose_node))
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
