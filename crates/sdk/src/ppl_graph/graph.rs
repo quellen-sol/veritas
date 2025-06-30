@@ -1,6 +1,7 @@
 use std::{collections::HashMap, fmt::Debug};
 
 use chrono::NaiveDateTime;
+use petgraph::graph::EdgeIndex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
@@ -14,6 +15,9 @@ pub const EDGE_SIZE: usize = std::mem::size_of::<MintEdge>();
 pub struct MintNode {
     pub mint: String,
     pub usd_price: RwLock<Option<USDPriceWithSource>>,
+    /// If this node has a `Fixed` relation pointing to it (meaning it takes absolute precedence over other relations),
+    /// we cache the edge index here to avoid having to traverse the graph to find it
+    pub cached_fixed_relation: RwLock<Option<EdgeIndex>>,
     /// Relations that are not represented as edges in the graph, e.g., (BTC, ETH, USDC, USDT) -> CRT.
     ///
     /// Relations like these would require a hypertree, which is not supported by petgraph.

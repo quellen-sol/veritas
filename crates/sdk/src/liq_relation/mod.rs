@@ -208,4 +208,65 @@ impl LiqRelation {
             LiqRelation::IndexLike { .. } => Some(LiqAmount::Inf),
         }
     }
+
+    #[inline]
+    pub fn reversed(&self) -> Self {
+        match self {
+            LiqRelation::Clmm {
+                amt_origin,
+                amt_dest,
+                decimals_a,
+                decimals_b,
+                ticks_by_account,
+                current_price_x64,
+                current_tick_index,
+                tick_spacing,
+                is_reverse,
+                pool_id,
+            } => LiqRelation::Clmm {
+                amt_dest: *amt_origin,
+                amt_origin: *amt_dest,
+                decimals_a: *decimals_a,
+                decimals_b: *decimals_b,
+                current_price_x64: *current_price_x64,
+                current_tick_index: *current_tick_index,
+                ticks_by_account: ticks_by_account.clone(),
+                tick_spacing: *tick_spacing,
+                is_reverse: !*is_reverse,
+                pool_id: pool_id.clone(),
+            },
+            LiqRelation::CpLp {
+                amt_origin,
+                amt_dest,
+                pool_id,
+            } => LiqRelation::CpLp {
+                amt_dest: *amt_origin,
+                amt_origin: *amt_dest,
+                pool_id: pool_id.clone(),
+            },
+            LiqRelation::Fixed { amt_per_parent } => LiqRelation::Fixed {
+                amt_per_parent: *amt_per_parent,
+            },
+            LiqRelation::Dlmm {
+                amt_origin,
+                amt_dest,
+                decimals_x,
+                decimals_y,
+                bins_by_account,
+                active_bin_account,
+                is_reverse,
+                pool_id,
+            } => LiqRelation::Dlmm {
+                amt_dest: *amt_origin,
+                amt_origin: *amt_dest,
+                decimals_x: *decimals_x,
+                decimals_y: *decimals_y,
+                bins_by_account: bins_by_account.clone(),
+                active_bin_account: *active_bin_account,
+                is_reverse: !*is_reverse,
+                pool_id: pool_id.clone(),
+            },
+            LiqRelation::IndexLike { .. } => self.clone(),
+        }
+    }
 }

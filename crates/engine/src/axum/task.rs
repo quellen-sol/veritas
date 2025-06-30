@@ -20,7 +20,7 @@ use veritas_sdk::{
 
 use crate::axum::routes::{
     balance_cache::get_balance_cache_token, debug_node::debug_node_info,
-    decimal_cache::get_decimal_cache_token, force_recalc::force_recalc,
+    decimal_cache::get_decimal_cache_token, diagnose::diagnose_node, force_recalc::force_recalc,
     lp_cache::get_lp_cache_pool, node_info::get_node_info, stats::get_stats,
     toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
 };
@@ -79,6 +79,7 @@ pub fn spawn_axum_server(
                 .route("/toggle-calculation", post(toggle_calculation))
                 .route("/stats", get(get_stats))
                 .route("/force-recalc", post(force_recalc))
+                .route("/diagnose-mint", get(diagnose_node))
                 .route("/node-info", get(get_node_info))
                 .with_state(state);
 

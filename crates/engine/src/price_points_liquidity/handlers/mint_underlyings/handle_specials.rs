@@ -7,7 +7,7 @@ use veritas_sdk::{
     utils::decimal_cache::DecimalCache,
 };
 
-use crate::price_points_liquidity::handlers::mint_underlyings::handle_carrot_dooot::handle_carrot_dooot;
+use crate::price_points_liquidity::handlers::mint_underlyings::handle_carrot_dooot;
 
 pub async fn handle_special_mint_underlyings(
     dooot: &MintUnderlyingsGlobalDooot,
@@ -16,6 +16,6 @@ pub async fn handle_special_mint_underlyings(
     decimal_cache: Arc<RwLock<DecimalCache>>,
 ) {
     if dooot.mint_pubkey.as_str() == "CRTx1JouZhzSU6XytsE42UQraoGqiHgxabocVfARTy2s" {
-        handle_carrot_dooot(dooot, graph, mint_indicies, decimal_cache).await;
+        handle_carrot_dooot::handle_carrot_dooot(dooot, graph, mint_indicies, decimal_cache).await;
     }
 }

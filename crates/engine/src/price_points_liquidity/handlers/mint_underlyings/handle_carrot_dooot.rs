@@ -44,8 +44,9 @@ pub async fn handle_carrot_dooot(
 
             let new_node = MintNode {
                 mint: mint_str.clone(),
-                non_vertex_relations: RwLock::new(HashMap::new()),
                 usd_price: RwLock::new(None),
+                cached_fixed_relation: RwLock::new(None),
+                non_vertex_relations: RwLock::new(HashMap::new()),
             };
 
             g_write.add_node(new_node)
@@ -159,6 +160,7 @@ pub async fn handle_carrot_dooot(
             let new_node = MintNode {
                 mint: pk.clone(),
                 usd_price: RwLock::new(None),
+                cached_fixed_relation: RwLock::new(None),
                 non_vertex_relations: RwLock::new(relation_map),
             };
 

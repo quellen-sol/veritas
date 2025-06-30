@@ -4,7 +4,11 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::collections::{HashSet, VecDeque};
 
-use petgraph::{graph::NodeIndex, Direction};
+use petgraph::{
+    graph::{EdgeIndex, NodeIndex},
+    visit::EdgeRef,
+    Direction,
+};
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::sync::mpsc::Sender;
 use veritas_sdk::{
@@ -110,6 +114,32 @@ pub async fn get_total_weighted_price(
 ) -> Option<Decimal> {
     let mut cm_weighted_price = Decimal::ZERO;
     let mut total_liq = Decimal::ZERO;
+    let cached_fixed_relation = {
+        let Some(this_node_weight) = graph.node_weight(this_node) else {
+            log::error!("UNREACHABLE - This node should always exist");
+            return None;
+        };
+        *this_node_weight.cached_fixed_relation.read().await
+    };
+
+    if let Some(cached_fixed_relation) = cached_fixed_relation {
+        let Some(origin) = graph.edge_endpoints(cached_fixed_relation).map(|(a, _)| a) else {
+            log::error!("UNREACHABLE - Cached fixed relation should always have an origin");
+            return None;
+        };
+
+        let origin_price = get_price_by_node_idx(graph, origin).await?;
+
+        let Some(edge_weight) = graph.edge_weight(cached_fixed_relation) else {
+            log::error!("UNREACHABLE - Cached fixed relation should always exist");
+            return None;
+        };
+
+        let relation = edge_weight.inner_relation.read().await;
+        let price = relation.get_price(origin_price, graph).await?;
+
+        return Some(price);
+    }
 
     // Check non-vertex relations first
     let Some(this_node_weight) = graph.node_weight(this_node) else {
@@ -159,7 +189,7 @@ pub async fn get_total_weighted_price(
             neighbor_mint
         };
         log::trace!("Getting single weighted price from neighbor {neighbor_mint}");
-        let Some((weighted, liq)) = get_single_wighted_price(
+        let Some((weighted, liq, fixed_edge_id)) = get_single_wighted_price(
             neighbor,
             this_node,
             graph,
@@ -172,6 +202,20 @@ pub async fn get_total_weighted_price(
             // Illiquid or price doesn't exist. Skip
             continue;
         };
+
+        // If the algo returned a fixed edge, we need to cache it for this node
+        // so that we don't have to traverse the graph to find it later
+        if let Some(edge_id) = fixed_edge_id {
+            let Some(this_node_weight) = graph.node_weight(this_node) else {
+                log::error!("UNREACHABLE - tried setting cache, this_node should always exist");
+                continue;
+            };
+
+            let mut this_node_weight_mut = this_node_weight.cached_fixed_relation.write().await;
+            if this_node_weight_mut.is_none() {
+                this_node_weight_mut.replace(edge_id);
+            }
+        }
 
         let liq = match liq {
             LiqAmount::Amount(amt) => amt,
@@ -196,7 +240,7 @@ pub async fn get_total_weighted_price(
 ///
 /// https://gist.github.com/quellen-sol/ae4cfcce79af1c72c596180e1dde60e1#master-formula
 ///
-/// # Returns (weighted_price, total_liquidity)
+/// # Returns (weighted_price, total_liquidity, edge_id if fixed)
 ///
 /// ## `total_liquidity` is denominated in **`token_a_units`**
 pub async fn get_single_wighted_price(
@@ -206,7 +250,7 @@ pub async fn get_single_wighted_price(
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
     neighbor_mint: &str,
-) -> Option<(Decimal, LiqAmount)> {
+) -> Option<(Decimal, LiqAmount, Option<EdgeIndex>)> {
     let price_a = get_price_by_node_idx(graph, a).await?;
 
     let edges_iter = graph.edges_connecting(a, b);
@@ -232,7 +276,11 @@ pub async fn get_single_wighted_price(
                 amt
             }
             LiqAmount::Inf => {
-                return Some((relation.get_price(price_a, graph).await?, LiqAmount::Inf))
+                return Some((
+                    relation.get_price(price_a, graph).await?,
+                    LiqAmount::Inf,
+                    Some(edge.id()),
+                ))
             }
         };
 
@@ -272,7 +320,7 @@ pub async fn get_single_wighted_price(
 
     let weighted_price = cm_weighted_price.checked_div(total_liq)?;
 
-    Some((weighted_price, LiqAmount::Amount(total_liq)))
+    Some((weighted_price, LiqAmount::Amount(total_liq), None))
 }
 
 #[cfg(test)]
@@ -301,18 +349,21 @@ mod tests {
         let step_node = MintNode {
             mint: "STEP".into(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let usdc_node = MintNode {
             mint: "USDC".into(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let illiquid_node = MintNode {
             mint: "DUMB".into(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
@@ -369,7 +420,7 @@ mod tests {
 
         let max_price_impact = Decimal::from_f64(0.25).unwrap();
 
-        let (weighted, liq) =
+        let (weighted, liq, _) =
             get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact, "USDC")
                 .await
                 .unwrap();
@@ -425,18 +476,21 @@ mod tests {
         let oracle_node = graph.add_node(MintNode {
             mint: oracle_token_mint.clone(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(oracle_price))),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_a = graph.add_node(MintNode {
             mint: "TOKEN_A".into(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_b = graph.add_node(MintNode {
             mint: "TOKEN_B".into(),
             usd_price: RwLock::new(None),
+            cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         });
 

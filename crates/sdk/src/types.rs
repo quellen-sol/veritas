@@ -13,4 +13,10 @@ pub type MintPricingGraph = Graph<MintNode, MintEdge, Directed, MintGraphNodeInd
 pub type WrappedMintPricingGraph = Arc<RwLock<MintPricingGraph>>;
 
 pub type MintIndiciesMap = HashMap<String, NodeIndex>;
-pub type EdgeIndiciesMap = HashMap<String, [Option<EdgeIndex>; 2]>; // Given one discriminant (market), we should only have max 2 relations (A -> B, and B -> A)
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EdgeIndexMapValue {
+    pub normal: Option<EdgeIndex>,
+    pub reverse: Option<EdgeIndex>,
+}
+pub type EdgeIndiciesMap = HashMap<String, EdgeIndexMapValue>; // Given one discriminant (market), we should only have max 2 relations (A -> B, and B -> A)
