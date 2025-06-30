@@ -4,13 +4,13 @@ use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
-    liq_relation::LiqRelation, ppl_graph::graph::MintPricingGraph,
+    liq_relation::LiqRelation,
+    types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
     utils::decimal_cache::DecimalCache,
 };
 
 use crate::price_points_liquidity::task::{
-    add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals, EdgeIndiciesMap,
-    MintIndiciesMap,
+    add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
 };
 
 pub async fn handle_fixed(

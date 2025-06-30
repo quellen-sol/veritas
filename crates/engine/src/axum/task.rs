@@ -12,20 +12,17 @@ use axum::{
 use rust_decimal::Decimal;
 use tokio::{sync::RwLock, task::JoinHandle};
 use veritas_sdk::{
-    ppl_graph::graph::WrappedMintPricingGraph,
+    types::{MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
 };
 
-use crate::{
-    axum::routes::{
-        balance_cache::get_balance_cache_token, debug_node::debug_node_info,
-        decimal_cache::get_decimal_cache_token, diagnose::diagnose_node,
-        force_recalc::force_recalc, lp_cache::get_lp_cache_pool, stats::get_stats,
-        toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
-    },
-    price_points_liquidity::task::MintIndiciesMap,
+use crate::axum::routes::{
+    balance_cache::get_balance_cache_token, debug_node::debug_node_info,
+    decimal_cache::get_decimal_cache_token, diagnose::diagnose_node, force_recalc::force_recalc,
+    lp_cache::get_lp_cache_pool, node_info::get_node_info, stats::get_stats,
+    toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
 };
 
 pub struct VeritasServerState {
@@ -83,6 +80,7 @@ pub fn spawn_axum_server(
                 .route("/stats", get(get_stats))
                 .route("/force-recalc", post(force_recalc))
                 .route("/diagnose-mint", get(diagnose_node))
+                .route("/node-info", get(get_node_info))
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();

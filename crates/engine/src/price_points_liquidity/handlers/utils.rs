@@ -12,16 +12,13 @@ use tokio::sync::{
     RwLock,
 };
 use veritas_sdk::{
-    ppl_graph::graph::WrappedMintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
 };
 
-use crate::{
-    calculator::task::CalculatorUpdate,
-    price_points_liquidity::task::{EdgeIndiciesMap, MintIndiciesMap},
-};
+use crate::calculator::task::CalculatorUpdate;
 
 #[inline]
 #[allow(clippy::unwrap_used)]
@@ -62,7 +59,7 @@ pub struct TestHandlerState {
 
 #[cfg(test)]
 pub fn build_test_handler_state() -> TestHandlerState {
-    use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+    use veritas_sdk::types::MintPricingGraph;
 
     let lp_cache = Arc::new(RwLock::new(LpCache::new()));
     let graph = Arc::new(RwLock::new(MintPricingGraph::new()));

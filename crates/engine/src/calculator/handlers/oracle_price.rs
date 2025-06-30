@@ -5,8 +5,7 @@ use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
-    constants::WSOL_MINT,
-    ppl_graph::graph::{MintPricingGraph, USDPriceWithSource},
+    constants::WSOL_MINT, ppl_graph::graph::USDPriceWithSource, types::MintPricingGraph,
     utils::checked_math::is_significant_change,
 };
 

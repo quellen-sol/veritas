@@ -12,13 +12,14 @@ use axum::task::spawn_axum_server;
 use calculator::task::{spawn_calculator_task, CalculatorUpdate};
 use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
-use price_points_liquidity::task::{spawn_price_points_liquidity_task, MintIndiciesMap};
+use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
-    ppl_graph::{bootstrap::bootstrap_graph, graph::MintPricingGraph},
+    ppl_graph::bootstrap::bootstrap_graph,
+    types::{MintIndiciesMap, MintPricingGraph},
     utils::{
         decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
         token_balance_cache::build_token_balance_cache,

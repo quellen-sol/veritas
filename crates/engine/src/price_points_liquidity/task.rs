@@ -20,7 +20,8 @@ use tokio::{
 };
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::{MintEdge, MintNode, WrappedMintPricingGraph},
+    ppl_graph::graph::{MintEdge, MintNode},
+    types::{EdgeIndexMapValue, EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -34,15 +35,6 @@ use crate::{
         token_balance::handle_token_balance,
     },
 };
-
-pub type MintIndiciesMap = HashMap<String, NodeIndex>;
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct EdgeIndexMapValue {
-    pub normal: Option<EdgeIndex>,
-    pub reverse: Option<EdgeIndex>,
-}
-pub type EdgeIndiciesMap = HashMap<String, EdgeIndexMapValue>; // Given one discriminant (market), we should only have max 2 relations (A -> B, and B -> A)
 
 pub fn spawn_price_points_liquidity_task(
     mut msg_rx: Receiver<Dooot>,
@@ -246,6 +238,7 @@ pub async fn get_or_add_mint_ix(
                             mint: mint.to_string(),
                             usd_price: RwLock::new(None),
                             cached_fixed_relation: RwLock::new(None),
+                            non_vertex_relations: RwLock::new(HashMap::new()),
                         }),
                         true,
                     )
@@ -566,7 +559,7 @@ pub fn update_edge_index(
 mod tests {
     use chrono::Utc;
     use rust_decimal::Decimal;
-    use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+    use veritas_sdk::types::MintPricingGraph;
 
     use super::*;
 
@@ -579,11 +572,13 @@ mod tests {
             mint: "test_mint_a".to_string(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let ix_edge_rev = graph.add_edge(
@@ -673,11 +668,13 @@ mod tests {
             mint: "test_mint_a".to_string(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let ix_edge = graph.add_edge(

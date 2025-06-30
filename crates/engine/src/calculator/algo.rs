@@ -12,11 +12,8 @@ use petgraph::{
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use tokio::sync::mpsc::Sender;
 use veritas_sdk::{
-    ppl_graph::{
-        graph::{MintPricingGraph, USDPriceWithSource},
-        structs::LiqAmount,
-        utils::get_price_by_node_idx,
-    },
+    ppl_graph::{graph::USDPriceWithSource, structs::LiqAmount, utils::get_price_by_node_idx},
+    types::MintPricingGraph,
     utils::checked_math::{clamp_to_scale, is_significant_change},
 };
 
@@ -139,9 +136,44 @@ pub async fn get_total_weighted_price(
         };
 
         let relation = edge_weight.inner_relation.read().await;
-        let price = relation.get_price(origin_price)?;
+        let price = relation.get_price(origin_price, graph).await?;
 
         return Some(price);
+    }
+
+    // Check non-vertex relations first
+    let Some(this_node_weight) = graph.node_weight(this_node) else {
+        log::error!("UNREACHABLE - This node should always exist");
+        return None;
+    };
+
+    {
+        let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+        for (_, relation) in non_vertex_relations.iter() {
+            let relation = relation.read().await;
+
+            // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
+            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
+            let derived_price = relation.get_price(Decimal::ZERO, graph).await;
+
+            match liquidity_amount {
+                Some(amt) => match amt {
+                    LiqAmount::Inf => {
+                        return derived_price.and_then(|p| clamp_to_scale(&p));
+                    }
+                    LiqAmount::Amount(liq) => {
+                        if let Some(price) = derived_price {
+                            cm_weighted_price =
+                                cm_weighted_price.checked_add(price.checked_mul(liq)?)?;
+                            total_liq = total_liq.checked_add(liq)?;
+                        } else {
+                            continue;
+                        }
+                    }
+                },
+                None => continue,
+            }
+        }
     }
 
     for neighbor in graph
@@ -245,7 +277,7 @@ pub async fn get_single_wighted_price(
             }
             LiqAmount::Inf => {
                 return Some((
-                    relation.get_price(price_a)?,
+                    relation.get_price(price_a, graph).await?,
                     LiqAmount::Inf,
                     Some(edge.id()),
                 ))
@@ -274,7 +306,7 @@ pub async fn get_single_wighted_price(
             }
         }
 
-        let Some(price_b_usd) = relation.get_price(price_a) else {
+        let Some(price_b_usd) = relation.get_price(price_a, graph).await else {
             continue;
         };
 
@@ -293,7 +325,7 @@ pub async fn get_single_wighted_price(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{HashMap, HashSet};
 
     use chrono::Utc;
     use petgraph::Graph;
@@ -302,9 +334,10 @@ mod tests {
     use veritas_sdk::{
         liq_relation::LiqRelation,
         ppl_graph::{
-            graph::{MintEdge, MintNode, MintPricingGraph, USDPriceWithSource},
+            graph::{MintEdge, MintNode, USDPriceWithSource},
             structs::LiqAmount,
         },
+        types::MintPricingGraph,
     };
 
     use crate::calculator::algo::{get_single_wighted_price, get_total_weighted_price};
@@ -317,18 +350,21 @@ mod tests {
             mint: "STEP".into(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let usdc_node = MintNode {
             mint: "USDC".into(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(Decimal::from(1)))),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let illiquid_node = MintNode {
             mint: "DUMB".into(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         };
 
         let mut graph = Graph::new();
@@ -441,18 +477,21 @@ mod tests {
             mint: oracle_token_mint.clone(),
             usd_price: RwLock::new(Some(USDPriceWithSource::Oracle(oracle_price))),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_a = graph.add_node(MintNode {
             mint: "TOKEN_A".into(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         let test_token_b = graph.add_node(MintNode {
             mint: "TOKEN_B".into(),
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
+            non_vertex_relations: RwLock::new(HashMap::new()),
         });
 
         // Link Oracle -> Token A and vice versa

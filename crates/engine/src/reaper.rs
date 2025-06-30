@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use clickhouse::Client;
-use veritas_sdk::ppl_graph::graph::WrappedMintPricingGraph;
+use veritas_sdk::types::WrappedMintPricingGraph;
 
 pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Client) {
     loop {
