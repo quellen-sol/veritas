@@ -8,10 +8,13 @@ pub async fn handle_mint_info(info: MintInfoDooot, decimal_cache: Arc<RwLock<Dec
     let MintInfoDooot { mint, decimals, .. } = info;
 
     if let Some(decimals) = decimals {
-        let dc_read = decimal_cache.read().await;
-        if dc_read.get(&mint).is_none() {
-            drop(dc_read);
+        log::trace!("Getting decimal cache read lock");
+        let token_exists = decimal_cache.read().await.get(&mint).is_some();
+        log::trace!("Got decimal cache read lock");
+        if !token_exists {
+            log::trace!("Getting decimal cache write lock");
             let mut dc_write = decimal_cache.write().await;
+            log::trace!("Got decimal cache write lock");
             dc_write.insert(mint, decimals as u8);
         };
     }

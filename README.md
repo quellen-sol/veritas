@@ -109,6 +109,36 @@ The engine crate provides several HTTP endpoints through an Axum server running 
         - Liquidity levels
         - Derived price
 
+  - `/diagnose-mint`: Get diagnostic information about a specific mint token
+
+    - Method: GET
+    - Query Parameters:
+      - `mint` (required): The mint address of the token to diagnose
+    - Example Request:
+      ```bash
+      curl "http://veritas.pre.step.local/diagnose-mint?mint=So11111111111111111111111111111111111111112"
+      ```
+    - Returns: JSON with diagnostic information about the mint:
+      ```json
+      {
+        "mint": "So11111111111111111111111111111111111111112",
+        "in_num_pools": 5,
+        "decimals": 9,
+        "pools": [
+          {
+            "pk": "pool_identifier",
+            "underlyings": [...],
+            "liquidity": {...}
+          }
+        ]
+      }
+      ```
+    - Response includes:
+      - Token mint address
+      - Number of liquidity pools the token is in
+      - Token decimal precision (if available)
+      - List of all liquidity pools containing this token with their details
+
   - `/lp-cache`: Query liquidity pool cache information
 
     - Method: GET

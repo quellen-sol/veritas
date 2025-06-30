@@ -16,15 +16,20 @@ pub async fn handle_lp_info(info: LPInfoDooot, lp_cache: Arc<RwLock<LpCache>>) {
         return;
     };
 
-    let l_read = lp_cache.read().await;
-    if l_read.contains_key(&lp_mint) {
-        return;
+    {
+        log::trace!("Getting lp cache read lock");
+        let l_read = lp_cache.read().await;
+        log::trace!("Got lp cache read lock");
+        if l_read.contains_key(&lp_mint) {
+            return;
+        }
     }
 
     // LP doesn't exist, drop the read and grab a write lock,
     // then insert the new LP
-    drop(l_read);
+    log::trace!("Getting lp cache write lock");
     let mut l_write = lp_cache.write().await;
+    log::trace!("Got lp cache write lock");
     l_write.insert(
         lp_mint,
         LiquidityPool {
