@@ -3,14 +3,16 @@ use std::sync::Arc;
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
-    ppl_graph::graph::MintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
-use crate::price_points_liquidity::task::{EdgeIndiciesMap, MintIndiciesMap};
+use crate::price_points_liquidity::handlers::mint_underlyings::handle_specials::handle_special_mint_underlyings;
 
 mod handle_amm_lp;
+mod handle_carrot_dooot;
 mod handle_fixed;
+mod handle_specials;
 
 #[allow(clippy::unwrap_used)]
 pub async fn handle_mint_underlyings(
@@ -51,6 +53,7 @@ pub async fn handle_mint_underlyings(
             .await;
         }
         _ => {
+            handle_special_mint_underlyings(&mu_dooot, graph, mint_indicies, decimal_cache).await;
             // We can't handle yet
         }
     }

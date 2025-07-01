@@ -4,7 +4,7 @@ use petgraph::graph::{EdgeIndex, NodeIndex};
 use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use tokio::sync::{mpsc::Sender, RwLock};
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::types::MintPricingGraph;
 
 use crate::calculator::algo::bfs_recalculate;
 

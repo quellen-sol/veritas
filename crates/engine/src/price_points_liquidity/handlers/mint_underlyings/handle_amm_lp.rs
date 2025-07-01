@@ -5,13 +5,12 @@ use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::LiqRelation,
-    ppl_graph::graph::MintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
 };
 
 use crate::price_points_liquidity::task::{
     add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
-    EdgeIndiciesMap, MintIndiciesMap,
 };
 
 pub async fn handle_amm_lp(

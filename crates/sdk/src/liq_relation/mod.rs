@@ -2,8 +2,9 @@ use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    liq_relation::relations::clmm::get_clmm_liq_levels_dumb,
+    liq_relation::relations::{clmm::get_clmm_liq_levels_dumb, index_like::get_index_like_price},
     ppl_graph::structs::{LiqAmount, LiqLevels},
+    types::{MintGraphNodeIndexType, MintPricingGraph},
 };
 
 use relations::{
@@ -15,8 +16,16 @@ use relations::{
 
 pub mod relations;
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct IndexPart {
+    pub mint: String,
+    pub node_idx: MintGraphNodeIndexType,
+    pub decimals: u8,
+    pub ratio: Decimal,
+}
+
 /// Each variant should contain minimum information to calculate price, liquidity, and liq levels
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "type")]
 pub enum LiqRelation {
     /// Constant Product LP
@@ -58,6 +67,12 @@ pub enum LiqRelation {
         is_reverse: bool,
         pool_id: String,
     },
+    /// Index-like relations, e.g., (BTC, ETH, USDC, USDT) -> CRT
+    IndexLike {
+        market_id: String,
+        decimals_parent: u8,
+        parts: Vec<IndexPart>,
+    },
     // /// CLOBs
     // Clob,
 }
@@ -65,7 +80,11 @@ pub enum LiqRelation {
 impl LiqRelation {
     /// Returns `None` if unable to calculate the price of this relation (through overflows, divs by 0, etc)
     #[inline]
-    pub fn get_price(&self, usd_price_origin: Decimal) -> Option<Decimal> {
+    pub async fn get_price(
+        &self,
+        usd_price_origin: Decimal,
+        graph: &MintPricingGraph,
+    ) -> Option<Decimal> {
         match self {
             LiqRelation::CpLp {
                 amt_origin,
@@ -103,6 +122,11 @@ impl LiqRelation {
                 *decimals_b,
                 *is_reverse,
             ),
+            LiqRelation::IndexLike {
+                parts,
+                market_id,
+                decimals_parent,
+            } => get_index_like_price(graph, market_id, parts, *decimals_parent).await,
         }
     }
 
@@ -153,6 +177,7 @@ impl LiqRelation {
             LiqRelation::Clmm { amt_origin, .. } => {
                 get_clmm_liq_levels_dumb(amt_origin, &tokens_per_sol)
             }
+            LiqRelation::IndexLike { .. } => Some(LiqLevels::ZERO),
         }
     }
 
@@ -180,6 +205,7 @@ impl LiqRelation {
                 amt_dest,
                 ..
             } => get_clmm_liquidity(amt_origin, amt_dest, price_source_usd, price_dest_usd),
+            LiqRelation::IndexLike { .. } => Some(LiqAmount::Inf),
         }
     }
 
@@ -240,6 +266,7 @@ impl LiqRelation {
                 is_reverse: !*is_reverse,
                 pool_id: pool_id.clone(),
             },
+            LiqRelation::IndexLike { .. } => self.clone(),
         }
     }
 }

@@ -7,7 +7,7 @@ use axum::{
 };
 use petgraph::Direction;
 use serde::{Deserialize, Serialize};
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::types::MintPricingGraph;
 
 use crate::axum::task::VeritasServerState;
 

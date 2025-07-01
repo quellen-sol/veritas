@@ -30,6 +30,7 @@ pub async fn debug_node_info(
     let only_incoming = option_is_valid(&params.get("only_incoming"));
     let only_outgoing = option_is_valid(&params.get("only_outgoing"));
     let only_acceptable = option_is_valid(&params.get("only_acceptable"));
+    let only_non_vertex = option_is_valid(&params.get("only_non_vertex"));
     let price_impact = params
         .get("custom_price_impact")
         .map(|v| Decimal::from_str(v))
@@ -50,7 +51,30 @@ pub async fn debug_node_info(
         mint: mint.clone(),
         calculated_price: this_price,
         neighbors: vec![],
+        non_vertex_relations: vec![],
     };
+
+    // All non-vertex edges
+    if !only_non_vertex {
+        let this_node_weight = g_read.node_weight(mint_ix).ok_or(StatusCode::NOT_FOUND)?;
+        let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+        for (_, relation) in non_vertex_relations.iter() {
+            let relation = relation.read().await.clone();
+
+            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
+            let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
+            let derived_price = relation.get_price(Decimal::ZERO, &g_read).await;
+
+            let relation_with_liq = RelationWithLiq {
+                relation,
+                liquidity_amount,
+                liquidity_levels,
+                derived_price,
+            };
+
+            node_info.non_vertex_relations.push(relation_with_liq);
+        }
+    }
 
     for neighbor in g_read.neighbors_undirected(mint_ix).unique() {
         let Some(neigh_weight) = g_read.node_weight(neighbor) else {
@@ -71,14 +95,16 @@ pub async fn debug_node_info(
             for edge in g_read.edges_connecting(mint_ix, neighbor) {
                 let e_weight = edge.weight();
                 let relation = e_weight.inner_relation.read().await.clone();
-                let calc_res = this_price.map(|p| {
+                let calc_res = if let Some(p) = this_price {
                     let this_tokens_per_sol = sol_price.and_then(|s| s.checked_div(p));
                     let liq = relation.get_liquidity(p, Decimal::ZERO);
                     let levels = this_tokens_per_sol.and_then(|tps| relation.get_liq_levels(tps));
-                    let derived = relation.get_price(p);
+                    let derived = relation.get_price(p, &g_read).await;
 
-                    (liq, levels, derived)
-                });
+                    Some((liq, levels, derived))
+                } else {
+                    None
+                };
 
                 let mut relation_with_liq = RelationWithLiq {
                     relation,
@@ -114,7 +140,11 @@ pub async fn debug_node_info(
                 let price_neighbor = get_price_by_node_idx(&g_read, neighbor).await;
                 let liquidity_amount =
                     price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
-                let derived_price = price_neighbor.and_then(|p| relation.get_price(p));
+                let derived_price = if let Some(p) = price_neighbor {
+                    relation.get_price(p, &g_read).await
+                } else {
+                    None
+                };
                 let liquidity_levels = price_neighbor.and_then(|p| {
                     let sol_price = sol_price?;
                     let tokens_per_sol = sol_price.checked_div(p)?;

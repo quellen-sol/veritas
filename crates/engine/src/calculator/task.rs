@@ -18,7 +18,7 @@ use tokio::{
     },
     task::JoinHandle,
 };
-use veritas_sdk::ppl_graph::graph::MintPricingGraph;
+use veritas_sdk::types::MintPricingGraph;
 
 use crate::calculator::handlers::oracle_price::handle_oracle_price_update;
 

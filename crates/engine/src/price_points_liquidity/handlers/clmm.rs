@@ -10,7 +10,7 @@ use step_ingestooor_sdk::dooot::{ClmmTick, Dooot, LPInfoUnderlyingMintVault};
 use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::{relations::clmm::ClmmTickParsed, LiqRelation},
-    ppl_graph::graph::WrappedMintPricingGraph,
+    types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
         decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
     },
@@ -20,7 +20,7 @@ use crate::{
     calculator::task::CalculatorUpdate,
     price_points_liquidity::task::{
         add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
-        get_two_way_edges_by_discriminant, EdgeIndiciesMap, MintIndiciesMap,
+        get_two_way_edges_by_discriminant,
     },
 };
 

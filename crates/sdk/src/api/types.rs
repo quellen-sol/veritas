@@ -8,6 +8,7 @@ use crate::ppl_graph::structs::{LiqAmount, LiqLevels};
 pub struct NodeInfo {
     pub mint: String,
     pub calculated_price: Option<Decimal>,
+    pub non_vertex_relations: Vec<RelationWithLiq>,
     pub neighbors: Vec<NodeRelationInfo>,
 }
 
