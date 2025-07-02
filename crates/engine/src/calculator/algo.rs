@@ -2,7 +2,10 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use itertools::Itertools;
 use rust_decimal::Decimal;
-use std::{collections::{HashSet, VecDeque}, time::Instant};
+use std::{
+    collections::{HashSet, VecDeque},
+    time::Instant,
+};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
