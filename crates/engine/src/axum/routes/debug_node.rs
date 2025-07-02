@@ -46,11 +46,11 @@ pub async fn debug_node_info(
         mi_read.get(mint).cloned().ok_or(StatusCode::NOT_FOUND)?
     };
 
-    let g_read = state.graph.read().expect("Graph read lock poisoned");
     let sol_price = *state
         .sol_price_index
         .read()
         .expect("Sol price index read lock poisoned");
+    let g_read = state.graph.read().expect("Graph read lock poisoned");
     let this_price = get_price_by_node_idx(&g_read, mint_ix);
 
     let mut node_info = NodeInfo {
