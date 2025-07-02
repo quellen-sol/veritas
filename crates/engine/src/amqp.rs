@@ -1,7 +1,10 @@
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    mpsc::{Receiver, SyncSender},
-    Arc,
+use std::{
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        mpsc::{Receiver, SyncSender},
+        Arc,
+    },
+    thread::JoinHandle,
 };
 
 use anyhow::{Context, Result};
@@ -15,7 +18,7 @@ use lapin::{
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::task::JoinHandle;
+use veritas_sdk::utils::r#async::spawn_task_as_thread;
 pub struct AMQPManager {
     channel: Channel,
     dooot_exchange: String,
@@ -84,7 +87,7 @@ impl AMQPManager {
             .await?;
 
         log::info!("Spawning AMQP consumer");
-        let handle = tokio::spawn(
+        let handle = spawn_task_as_thread(
             #[allow(clippy::unwrap_used)]
             async move {
                 while let Some(delivery) = consumer.next().await {
@@ -158,7 +161,7 @@ impl AMQPManager {
         let channel = self.channel.clone();
         let dooot_exchange = self.dooot_exchange.clone();
 
-        tokio::spawn(
+        spawn_task_as_thread(
             #[allow(clippy::unwrap_used)]
             async move {
                 while let Ok(dooot) = dooot_rx.recv() {

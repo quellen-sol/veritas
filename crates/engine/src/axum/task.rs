@@ -1,6 +1,7 @@
 use std::{
     collections::HashSet,
     sync::{atomic::AtomicBool, Arc, RwLock},
+    thread::JoinHandle,
 };
 
 use axum::{
@@ -10,11 +11,11 @@ use axum::{
     Router,
 };
 use rust_decimal::Decimal;
-use tokio::task::JoinHandle;
 use veritas_sdk::{
     types::{MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
-        decimal_cache::DecimalCache, lp_cache::LpCache, token_balance_cache::TokenBalanceCache,
+        decimal_cache::DecimalCache, lp_cache::LpCache, r#async::spawn_task_as_thread,
+        token_balance_cache::TokenBalanceCache,
     },
 };
 
@@ -52,7 +53,7 @@ pub fn spawn_axum_server(
     paused_calculation: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
 ) -> JoinHandle<()> {
-    tokio::spawn(
+    spawn_task_as_thread(
         #[allow(clippy::unwrap_used)]
         async move {
             let state = Arc::new(VeritasServerState {

@@ -5,13 +5,13 @@ use std::{
         mpsc::Receiver,
         Arc, RwLock,
     },
+    thread::JoinHandle,
     time::Duration,
 };
 
 use clickhouse::{query::RowCursor, Row};
 use serde::Deserialize;
-use tokio::task::JoinHandle;
-use veritas_sdk::utils::decimal_cache::DecimalCache;
+use veritas_sdk::utils::{decimal_cache::DecimalCache, r#async::spawn_task_as_thread};
 
 #[derive(Deserialize, Row)]
 pub struct DecimalResult {
@@ -38,7 +38,7 @@ pub fn spawn_ch_cache_updator_tasks(
 
     // Receiver task
     let receiver_request_lock = requests_lock.clone();
-    let receiver_task = tokio::spawn(async move {
+    let receiver_task = spawn_task_as_thread(async move {
         while let Ok(mint) = req_rx.recv() {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
                 // Do not process graph updates while bootstrapping,
@@ -62,7 +62,7 @@ pub fn spawn_ch_cache_updator_tasks(
 
     // Query task
     let query_request_lock = requests_lock.clone();
-    let query_task = tokio::spawn(async move {
+    let query_task = spawn_task_as_thread(async move {
         loop {
             let recv_fut = wake_channel_rx.recv();
 
