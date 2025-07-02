@@ -21,7 +21,7 @@ use veritas_sdk::{
     types::{MintIndiciesMap, MintPricingGraph},
     utils::{
         decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
-        token_balance_cache::build_token_balance_cache,
+        r#async::spawn_task_as_thread, token_balance_cache::build_token_balance_cache,
     },
 };
 
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
 
     log::info!("Created Clickhouse client");
 
-    let reaper_task = tokio::spawn(reaper::reaper_task(
+    let reaper_task = spawn_task_as_thread(reaper::reaper_task(
         mint_price_graph.clone(),
         clickhouse_client.clone(),
     ));
@@ -301,33 +301,15 @@ async fn main() -> Result<()> {
         .spawn_amqp_listener(amqp_dooot_tx, paused_ingestion.clone())
         .await?;
 
-    // Only reaper, amqp, axum, dooot_publisher, ch_cache_updator_receiver_task, ch_cache_updator_query_task are async tasks
-    // The rest are sync threads
-
-    tokio::select! {
-        e = amqp_task => {
-            log::warn!("AMQP task exited: {:?}", e);
-        }
-        e = ch_cache_updator_receiver_task => {
-            log::warn!("CH cache updator receiver task exited: {:?}", e);
-        }
-        e = ch_cache_updator_query_task => {
-            log::warn!("CH cache updator query task exited: {:?}", e);
-        }
-        e = dooot_publisher_task => {
-            log::warn!("Dooot publisher task exited: {:?}", e);
-        }
-        e = axum_server_task => {
-            log::warn!("Axum server task exited: {:?}", e);
-        }
-        e = reaper_task => {
-            log::warn!("Reaper task exited: {:?}", e);
-        }
-    }
-
     // TODO: Add a graceful shutdown & waiting of all tasks
     calculator_task.join().unwrap();
     ppl_task.join().unwrap();
+    ch_cache_updator_receiver_task.join().unwrap();
+    ch_cache_updator_query_task.join().unwrap();
+    amqp_task.join().unwrap();
+    dooot_publisher_task.join().unwrap();
+    axum_server_task.join().unwrap();
+    reaper_task.join().unwrap();
 
     log::warn!("Shutting down...");
 
