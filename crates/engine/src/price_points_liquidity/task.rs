@@ -75,7 +75,7 @@ pub fn spawn_price_points_liquidity_task(
                 let price_sender = price_sender.clone();
                 let token_balance_cache = token_balance_cache.clone();
 
-                tokio::spawn(async move {
+                thread::spawn(move || {
                     match dooot {
                         Dooot::MintUnderlyingsGlobal(mu_dooot) => {
                             handle_mint_underlyings(
