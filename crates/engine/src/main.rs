@@ -235,7 +235,6 @@ async fn main() -> Result<()> {
         calculator_receiver,
         mint_price_graph.clone(),
         publish_dooot_tx.clone(),
-        args.max_calculator_subtasks,
         bootstrap_in_progress.clone(),
         oracle_mint_set,
         sol_price_index,
