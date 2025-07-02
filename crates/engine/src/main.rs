@@ -265,7 +265,7 @@ async fn main() -> Result<()> {
         mint_indicies.clone(),
         publish_dooot_tx.clone(),
         token_balance_cache.clone(),
-    )?;
+    );
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
@@ -300,21 +300,18 @@ async fn main() -> Result<()> {
         .spawn_amqp_listener(amqp_dooot_tx, paused_ingestion.clone())
         .await?;
 
+    // Only reaper, amqp, axum, dooot_publisher, ch_cache_updator_receiver_task, ch_cache_updator_query_task are async tasks
+    // The rest are sync threads
+
     tokio::select! {
         e = amqp_task => {
             log::warn!("AMQP task exited: {:?}", e);
-        }
-        e = ppl_task => {
-            log::warn!("PPL task exited: {:?}", e);
         }
         e = ch_cache_updator_receiver_task => {
             log::warn!("CH cache updator receiver task exited: {:?}", e);
         }
         e = ch_cache_updator_query_task => {
             log::warn!("CH cache updator query task exited: {:?}", e);
-        }
-        e = calculator_task => {
-            log::warn!("Calculator update task exited: {:?}", e);
         }
         e = dooot_publisher_task => {
             log::warn!("Dooot publisher task exited: {:?}", e);
@@ -326,6 +323,10 @@ async fn main() -> Result<()> {
             log::warn!("Reaper task exited: {:?}", e);
         }
     }
+
+    // TODO: Add a graceful shutdown & waiting of all tasks
+    calculator_task.join().unwrap();
+    ppl_task.join().unwrap();
 
     log::warn!("Shutting down...");
 

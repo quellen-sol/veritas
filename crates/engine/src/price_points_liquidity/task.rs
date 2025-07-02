@@ -5,6 +5,7 @@ use std::{
         mpsc::{Receiver, SyncSender},
         Arc, RwLock,
     },
+    thread::{self, JoinHandle},
     time::Duration,
 };
 
@@ -12,7 +13,6 @@ use anyhow::{bail, Context, Result};
 use chrono::NaiveDateTime;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::task::JoinHandle;
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::{MintEdge, MintNode},
@@ -44,20 +44,20 @@ pub fn spawn_price_points_liquidity_task(
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     price_sender: SyncSender<Dooot>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-) -> Result<JoinHandle<()>> {
+) -> JoinHandle<()> {
     log::info!("Spawning price points liquidity task (PPL)");
 
     let edge_indicies = Arc::new(RwLock::new(EdgeIndiciesMap::new()));
 
-    let task = tokio::spawn(
+    thread::spawn(
         #[allow(clippy::unwrap_used)]
-        async move {
+        move || {
             let counter = Arc::new(AtomicU8::new(0));
 
             while let Ok(dooot) = msg_rx.recv() {
                 while counter.load(Ordering::Relaxed) >= max_ppl_subtasks {
                     // Wait for the other subtasks to finish
-                    tokio::time::sleep(Duration::from_millis(1)).await;
+                    std::thread::sleep(Duration::from_millis(1));
                 }
 
                 counter.fetch_add(1, Ordering::Relaxed);
@@ -170,9 +170,7 @@ pub fn spawn_price_points_liquidity_task(
 
             log::warn!("Price points liquidity task (PPL) shutting down. Channel closed.");
         },
-    );
-
-    Ok(task)
+    )
 }
 
 /// Returns the decimals for a mint, or None if the decimals are not in the cache
