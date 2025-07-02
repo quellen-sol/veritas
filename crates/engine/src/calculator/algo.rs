@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use itertools::Itertools;
 use rust_decimal::Decimal;
-use std::collections::{HashSet, VecDeque};
+use std::{collections::{HashSet, VecDeque}, time::Instant};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
@@ -27,6 +27,7 @@ pub fn bfs_recalculate(
     max_price_impact: &Decimal,
     update_nodes: bool,
 ) -> Result<()> {
+    let now = Instant::now();
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
@@ -56,8 +57,6 @@ pub fn bfs_recalculate(
                 log::trace!("Failed to calculate price for {mint}");
                 continue;
             };
-
-            log::debug!("Calculated price of {mint}: {new_price}");
 
             if update_nodes {
                 log::trace!("Getting price write lock for price calc");
@@ -105,6 +104,7 @@ pub fn bfs_recalculate(
         }
     }
 
+    log::debug!("BFS Recalc Took {:?}", now.elapsed());
     Ok(())
 }
 
