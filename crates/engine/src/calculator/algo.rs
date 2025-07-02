@@ -107,7 +107,7 @@ pub fn bfs_recalculate(
         }
     }
 
-    log::debug!("BFS Recalc Took {:?}", now.elapsed());
+    log::info!("BFS Recalc Took {:?}", now.elapsed());
     Ok(())
 }
 
