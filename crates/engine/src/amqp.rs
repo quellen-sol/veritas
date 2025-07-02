@@ -1,5 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
+    mpsc::{Receiver, SyncSender},
     Arc,
 };
 
@@ -14,10 +15,7 @@ use lapin::{
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::{
-    sync::mpsc::{Receiver, Sender},
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 pub struct AMQPManager {
     channel: Channel,
     dooot_exchange: String,
@@ -69,7 +67,7 @@ impl AMQPManager {
 
     pub async fn spawn_amqp_listener(
         &self,
-        msg_tx: Sender<Dooot>,
+        msg_tx: SyncSender<Dooot>,
         paused_ingestion: Arc<AtomicBool>,
     ) -> Result<JoinHandle<()>> {
         self.set_prefetch().await?;
@@ -131,7 +129,7 @@ impl AMQPManager {
                                                 | Dooot::ClmmGlobal(_)
                                                 | Dooot::ClmmTickGlobal(_)
                                         ) {
-                                            msg_tx.send(dooot).await.unwrap();
+                                            msg_tx.send(dooot).unwrap();
                                         }
                                     }
                                     delivery.ack(BasicAckOptions::default()).await.unwrap();
@@ -155,7 +153,7 @@ impl AMQPManager {
         Ok(handle)
     }
 
-    pub async fn spawn_dooot_publisher(&self, mut dooot_tx: Receiver<Dooot>) -> JoinHandle<()> {
+    pub async fn spawn_dooot_publisher(&self, dooot_rx: Receiver<Dooot>) -> JoinHandle<()> {
         let db_writes = self.db_writes;
         let channel = self.channel.clone();
         let dooot_exchange = self.dooot_exchange.clone();
@@ -163,7 +161,7 @@ impl AMQPManager {
         tokio::spawn(
             #[allow(clippy::unwrap_used)]
             async move {
-                while let Some(dooot) = dooot_tx.recv().await {
+                while let Ok(dooot) = dooot_rx.recv() {
                     if !db_writes {
                         continue;
                     }

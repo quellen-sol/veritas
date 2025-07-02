@@ -1,8 +1,10 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
-use tokio::sync::RwLock;
 use veritas_sdk::{
     liq_relation::{IndexPart, LiqRelation},
     ppl_graph::graph::MintNode,
@@ -10,7 +12,7 @@ use veritas_sdk::{
     utils::decimal_cache::DecimalCache,
 };
 
-pub async fn handle_carrot_dooot(
+pub fn handle_carrot_dooot(
     dooot: &MintUnderlyingsGlobalDooot,
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
@@ -20,7 +22,9 @@ pub async fn handle_carrot_dooot(
     let pk = &dooot.mint_pubkey;
 
     let (crt_node_ix, mut mints_ixs) = {
-        let mi_read = mint_indicies.read().await;
+        let mi_read = mint_indicies
+            .read()
+            .expect("Mint indicies read lock poisoned");
         let crt_ix = mi_read.get(pk).cloned();
         let mints_ixs = dooot
             .mints
@@ -40,7 +44,7 @@ pub async fn handle_carrot_dooot(
         let mint_str = dooot.mints[i].clone();
 
         let new_ix = {
-            let mut g_write = graph.write().await;
+            let mut g_write = graph.write().expect("Graph write lock poisoned");
 
             let new_node = MintNode {
                 mint: mint_str.clone(),
@@ -54,12 +58,16 @@ pub async fn handle_carrot_dooot(
 
         mint_ix.replace(new_ix);
 
-        let mut mi_write = mint_indicies.write().await;
+        let mut mi_write = mint_indicies
+            .write()
+            .expect("Mint indicies write lock poisoned");
         mi_write.insert(mint_str, new_ix);
     }
 
-    let build_parts = async || {
-        let dc_read = decimal_cache.read().await;
+    let build_parts = || {
+        let dc_read = decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
         let mut new_parts = Vec::with_capacity(dooot.mints.capacity());
         for (i, mint_ix) in mints_ixs.clone().into_iter().enumerate() {
             let Some(ix) = mint_ix else {
@@ -89,11 +97,13 @@ pub async fn handle_carrot_dooot(
         Some(new_parts)
     };
 
-    let build_relation = async || {
-        let parts = build_parts().await?;
+    let build_relation = || {
+        let parts = build_parts()?;
 
         let decimals_crt = {
-            let dc_read = decimal_cache.read().await;
+            let dc_read = decimal_cache
+                .read()
+                .expect("Decimal cache read lock poisoned");
             let d = dc_read.get(pk)?;
 
             *d
@@ -110,22 +120,25 @@ pub async fn handle_carrot_dooot(
 
     match crt_node_ix {
         Some(ix) => {
-            let g_read = graph.read().await;
+            let g_read = graph.read().expect("Graph read lock poisoned");
             let Some(node_weight) = g_read.node_weight(ix) else {
                 log::error!("UNREACHABLE - Node should exist");
                 return;
             };
 
-            let crt_relations_read = node_weight.non_vertex_relations.read().await;
+            let crt_relations_read = node_weight
+                .non_vertex_relations
+                .read()
+                .expect("Non vertex relations read lock poisoned");
             let crt_market = crt_relations_read.get(pk);
 
             match crt_market {
                 Some(market) => {
                     // Update relation
-                    let mut m_write = market.write().await;
+                    let mut m_write = market.write().expect("Market write lock poisoned");
                     match *m_write {
                         LiqRelation::IndexLike { ref mut parts, .. } => {
-                            let Some(new_parts) = build_parts().await else {
+                            let Some(new_parts) = build_parts() else {
                                 return;
                             };
                             *parts = new_parts;
@@ -137,12 +150,15 @@ pub async fn handle_carrot_dooot(
                 }
                 None => {
                     // Add new relation
-                    let Some(relation) = build_relation().await else {
+                    let Some(relation) = build_relation() else {
                         return;
                     };
 
                     drop(crt_relations_read);
-                    let mut map_write = node_weight.non_vertex_relations.write().await;
+                    let mut map_write = node_weight
+                        .non_vertex_relations
+                        .write()
+                        .expect("Non vertex relations write lock poisoned");
 
                     map_write.insert(pk.clone(), RwLock::new(relation));
                 }
@@ -150,7 +166,7 @@ pub async fn handle_carrot_dooot(
         }
         None => {
             // Add new node and relation
-            let Some(relation) = build_relation().await else {
+            let Some(relation) = build_relation() else {
                 return;
             };
 
@@ -165,11 +181,13 @@ pub async fn handle_carrot_dooot(
             };
 
             let new_ix = {
-                let mut g_write = graph.write().await;
+                let mut g_write = graph.write().expect("Graph write lock poisoned");
                 g_write.add_node(new_node)
             };
 
-            let mut mi_write = mint_indicies.write().await;
+            let mut mi_write = mint_indicies
+                .write()
+                .expect("Mint indicies write lock poisoned");
             mi_write.insert(pk.clone(), new_ix);
         }
     }

@@ -7,7 +7,6 @@ use axum::{extract::State, http::StatusCode, Json};
 use rust_decimal::Decimal;
 use serde::Deserialize;
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::sync::mpsc;
 use veritas_sdk::constants::WSOL_MINT;
 
 use crate::{axum::task::VeritasServerState, calculator::algo::bfs_recalculate};
@@ -28,18 +27,21 @@ pub async fn force_recalc(
         .and_then(|p| p.start_mint.clone())
         .unwrap_or(WSOL_MINT.to_string());
 
-    let g_read = state.graph.read().await;
+    let g_read = state.graph.read().expect("Graph read lock poisoned");
 
     let sol_ix = *state
         .mint_indicies
         .read()
-        .await
+        .expect("Mint indicies read lock poisoned")
         .get(&start_mint)
         .ok_or(StatusCode::NOT_FOUND)?;
-    let sol_price_index = *state.sol_price_index.read().await;
+    let sol_price_index = *state
+        .sol_price_index
+        .read()
+        .expect("Sol price index read lock poisoned");
 
     let node_count = g_read.node_count();
-    let (price_tx, mut price_rx) = mpsc::channel(node_count);
+    let (price_tx, price_rx) = std::sync::mpsc::sync_channel::<Dooot>(node_count);
 
     let mut visited_nodes = HashSet::new();
     bfs_recalculate(
@@ -52,12 +54,11 @@ pub async fn force_recalc(
         &state.max_price_impact,
         update_nodes,
     )
-    .await
     .inspect_err(|e| log::error!("Error during force recalc: {:?}", e))
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
-    let mut updated_nodes = HashMap::with_capacity(price_rx.len());
-    while let Some(Dooot::TokenPriceGlobal(price)) = price_rx.recv().await {
+    let mut updated_nodes = HashMap::new();
+    while let Ok(Dooot::TokenPriceGlobal(price)) = price_rx.recv() {
         updated_nodes.insert(price.mint, price.price_usd);
     }
 

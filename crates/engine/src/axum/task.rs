@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, Arc, RwLock},
 };
 
 use axum::{
@@ -10,7 +10,7 @@ use axum::{
     Router,
 };
 use rust_decimal::Decimal;
-use tokio::{sync::RwLock, task::JoinHandle};
+use tokio::task::JoinHandle;
 use veritas_sdk::{
     types::{MintIndiciesMap, WrappedMintPricingGraph},
     utils::{

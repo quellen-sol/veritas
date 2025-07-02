@@ -40,7 +40,7 @@ pub async fn get_stats(
     };
     let ingesting = !state.paused_ingestion.load(Ordering::Relaxed);
     let calculating = !state.paused_calculation.load(Ordering::Relaxed);
-    let g_read = state.graph.read().await;
+    let g_read = state.graph.read().expect("Graph read lock poisoned");
     let node_count = g_read.node_count();
     let edge_count = g_read.edge_count();
     let top_dominators =

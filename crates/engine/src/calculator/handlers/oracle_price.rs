@@ -1,9 +1,12 @@
-use std::{collections::HashSet, sync::Arc};
+use std::{
+    collections::HashSet,
+    sync::{Arc, RwLock},
+};
 
 use petgraph::graph::NodeIndex;
 use rust_decimal::Decimal;
+use std::sync::mpsc::SyncSender;
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     constants::WSOL_MINT, ppl_graph::graph::USDPriceWithSource, types::MintPricingGraph,
     utils::checked_math::is_significant_change,
@@ -11,17 +14,17 @@ use veritas_sdk::{
 
 use crate::calculator::algo::bfs_recalculate;
 
-pub async fn handle_oracle_price_update(
+pub fn handle_oracle_price_update(
     graph: Arc<RwLock<MintPricingGraph>>,
     token: NodeIndex,
     new_price: Decimal,
-    dooot_tx: Sender<Dooot>,
+    dooot_tx: SyncSender<Dooot>,
     oracle_mint_set: &HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: &Decimal,
 ) {
     log::trace!("Getting graph read lock for OracleUSDPrice update");
-    let g_read = graph.read().await;
+    let g_read = graph.read().expect("Graph read lock poisoned");
     log::trace!("Got graph read lock for OracleUSDPrice update");
     let mut visited = HashSet::with_capacity(g_read.node_count());
 
@@ -32,7 +35,10 @@ pub async fn handle_oracle_price_update(
 
     {
         log::trace!("Getting price write lock for OracleUSDPrice update");
-        let mut p_write = node_weight.usd_price.write().await;
+        let mut p_write = node_weight
+            .usd_price
+            .write()
+            .expect("Price write lock poisoned");
         log::trace!("Got price write lock for OracleUSDPrice update");
         let old_price = p_write.as_ref().map(|p| p.extract_price());
         if let Some(old_price) = old_price {
@@ -47,12 +53,12 @@ pub async fn handle_oracle_price_update(
     }
 
     let sol_index_price = if node_weight.mint == WSOL_MINT {
-        let mut sol_index_write = sol_index.write().await;
+        let mut sol_index_write = sol_index.write().expect("Sol index write lock poisoned");
         sol_index_write.replace(new_price);
 
         Some(new_price)
     } else {
-        *sol_index.read().await
+        *sol_index.read().expect("Sol index read lock poisoned")
     };
 
     log::trace!("Starting BFS recalculation for OracleUSDPrice update");
@@ -65,8 +71,7 @@ pub async fn handle_oracle_price_update(
         &sol_index_price,
         max_price_impact,
         true,
-    )
-    .await;
+    );
 
     match recalc_result {
         Ok(_) => {

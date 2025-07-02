@@ -7,7 +7,7 @@ use crate::{
     liq_relation::IndexPart, ppl_graph::utils::get_price_by_node_idx, types::MintPricingGraph,
 };
 
-pub async fn get_carrot_price(
+pub fn get_carrot_price(
     graph: &MintPricingGraph,
     decimals_parent: u8,
     parts: &[IndexPart],
@@ -16,8 +16,7 @@ pub async fn get_carrot_price(
 
     for part in parts {
         // As of writing, this is a safe cast
-        let usd_price =
-            get_price_by_node_idx(graph, NodeIndex::new(part.node_idx as usize)).await?;
+        let usd_price = get_price_by_node_idx(graph, NodeIndex::new(part.node_idx as usize))?;
 
         let decimal_factor = Decimal::TEN.checked_powi((part.decimals as i64).neg())?;
         cm_sum += part

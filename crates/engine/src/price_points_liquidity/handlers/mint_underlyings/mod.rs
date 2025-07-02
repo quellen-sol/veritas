@@ -1,7 +1,6 @@
-use std::sync::Arc;
+use std::sync::{mpsc::SyncSender, Arc, RwLock};
 
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
     utils::{decimal_cache::DecimalCache, lp_cache::LpCache},
@@ -15,12 +14,12 @@ mod handle_fixed;
 mod handle_specials;
 
 #[allow(clippy::unwrap_used)]
-pub async fn handle_mint_underlyings(
+pub fn handle_mint_underlyings(
     mu_dooot: MintUnderlyingsGlobalDooot,
     lp_cache: Arc<RwLock<LpCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    cache_updator_sender: Sender<String>,
+    cache_updator_sender: SyncSender<String>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
 ) {
@@ -36,8 +35,7 @@ pub async fn handle_mint_underlyings(
                 cache_updator_sender,
                 mint_indicies,
                 edge_indicies,
-            )
-            .await;
+            );
         }
         2 => {
             // LP
@@ -49,11 +47,10 @@ pub async fn handle_mint_underlyings(
                 cache_updator_sender,
                 mint_indicies,
                 edge_indicies,
-            )
-            .await;
+            );
         }
         _ => {
-            handle_special_mint_underlyings(&mu_dooot, graph, mint_indicies, decimal_cache).await;
+            handle_special_mint_underlyings(&mu_dooot, graph, mint_indicies, decimal_cache);
             // We can't handle yet
         }
     }
