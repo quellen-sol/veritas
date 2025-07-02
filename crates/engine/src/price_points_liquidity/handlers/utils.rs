@@ -2,15 +2,12 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc::{Receiver, SyncSender},
+        Arc, RwLock,
     },
 };
 
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::sync::{
-    mpsc::{Receiver, Sender},
-    RwLock,
-};
 use veritas_sdk::{
     types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
@@ -22,9 +19,9 @@ use crate::calculator::task::CalculatorUpdate;
 
 #[inline]
 #[allow(clippy::unwrap_used)]
-pub async fn send_update_to_calculator(
+pub fn send_update_to_calculator(
     update: CalculatorUpdate,
-    calculator_sender: &Sender<CalculatorUpdate>,
+    calculator_sender: &SyncSender<CalculatorUpdate>,
     bootstrap_in_progress: &AtomicBool,
 ) {
     if bootstrap_in_progress.load(Ordering::Relaxed) {
@@ -33,7 +30,6 @@ pub async fn send_update_to_calculator(
 
     calculator_sender
         .send(update)
-        .await
         .inspect_err(|e| log::error!("Error sending CalculatorUpdate: {e}"))
         .unwrap();
 }
@@ -43,17 +39,17 @@ pub async fn send_update_to_calculator(
 pub struct TestHandlerState {
     pub lp_cache: Arc<RwLock<LpCache>>,
     pub graph: WrappedMintPricingGraph,
-    pub calculator_sender: Sender<CalculatorUpdate>,
+    pub calculator_sender: SyncSender<CalculatorUpdate>,
     pub calculator_receiver: Receiver<CalculatorUpdate>,
     pub decimal_cache: Arc<RwLock<DecimalCache>>,
     pub oracle_feed_map: Arc<RwLock<HashMap<String, String>>>,
     pub mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     pub edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     pub receiver_arc: Receiver<String>,
-    pub sender_arc: Sender<String>,
+    pub sender_arc: SyncSender<String>,
     pub bootstrap_in_progress: Arc<AtomicBool>,
     pub token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    pub price_sender: Sender<Dooot>,
+    pub price_sender: SyncSender<Dooot>,
     pub price_receiver: Receiver<Dooot>,
 }
 
@@ -63,15 +59,16 @@ pub fn build_test_handler_state() -> TestHandlerState {
 
     let lp_cache = Arc::new(RwLock::new(LpCache::new()));
     let graph = Arc::new(RwLock::new(MintPricingGraph::new()));
-    let (calculator_sender, calculator_receiver) = tokio::sync::mpsc::channel(10);
+    let (calculator_sender, calculator_receiver) =
+        std::sync::mpsc::sync_channel::<CalculatorUpdate>(10);
     let decimal_cache = Arc::new(RwLock::new(DecimalCache::new()));
     let oracle_feed_map = Arc::new(RwLock::new(HashMap::new()));
     let mint_indicies = Arc::new(RwLock::new(MintIndiciesMap::new()));
     let edge_indicies = Arc::new(RwLock::new(EdgeIndiciesMap::new()));
-    let (sender_arc, receiver_arc) = tokio::sync::mpsc::channel(10);
+    let (sender_arc, receiver_arc) = std::sync::mpsc::sync_channel::<String>(10);
     let bootstrap_in_progress = Arc::new(AtomicBool::new(false));
     let token_balance_cache = Arc::new(RwLock::new(TokenBalanceCache::new()));
-    let (price_sender, price_receiver) = tokio::sync::mpsc::channel(10);
+    let (price_sender, price_receiver) = std::sync::mpsc::sync_channel::<Dooot>(10);
 
     TestHandlerState {
         lp_cache,

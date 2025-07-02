@@ -1,10 +1,12 @@
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::HashMap,
+    sync::{Arc, RwLock},
+};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     Directed, Graph,
 };
-use tokio::sync::RwLock;
 
 use crate::ppl_graph::graph::{MintEdge, MintNode};
 

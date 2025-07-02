@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -15,7 +15,6 @@ use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::bootstrap::bootstrap_graph,
@@ -219,13 +218,13 @@ async fn main() -> Result<()> {
         args.dooot_publisher_buffer_size
     );
     let (amqp_dooot_tx, amqp_dooot_rx) =
-        tokio::sync::mpsc::channel::<Dooot>(args.ppl_dooot_buffer_size);
+        std::sync::mpsc::sync_channel::<Dooot>(args.ppl_dooot_buffer_size);
     let (ch_cache_updator_req_tx, ch_cache_updator_req_rx) =
-        tokio::sync::mpsc::channel::<String>(args.cache_updator_buffer_size);
+        std::sync::mpsc::sync_channel::<String>(args.cache_updator_buffer_size);
     let (calculator_sender, calculator_receiver) =
-        tokio::sync::mpsc::channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
+        std::sync::mpsc::sync_channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
     let (publish_dooot_tx, publish_dooot_rx) =
-        tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
+        std::sync::mpsc::sync_channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
@@ -281,7 +280,7 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-        let g_read = mint_price_graph.read().await;
+        let g_read = mint_price_graph.read().expect("Graph read lock poisoned");
         let nodes = g_read.node_count();
         let edges = g_read.edge_count();
 

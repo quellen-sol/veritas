@@ -1,10 +1,9 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock},
 };
 
 use step_ingestooor_sdk::dooot::{Dooot, OraclePriceEventDooot, TokenPriceGlobalDooot};
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     constants::{EMPTY_PUBKEY, WSOL_MINT},
     types::MintIndiciesMap,
@@ -16,13 +15,13 @@ use crate::{
 };
 
 #[allow(clippy::unwrap_used)]
-pub async fn handle_oracle_price_event(
+pub fn handle_oracle_price_event(
     oracle_price: OraclePriceEventDooot,
     oracle_feed_map: Arc<HashMap<String, String>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
-    calculator_sender: Sender<CalculatorUpdate>,
+    calculator_sender: SyncSender<CalculatorUpdate>,
     bootstrap_in_progress: Arc<AtomicBool>,
-    price_sender: Sender<Dooot>,
+    price_sender: SyncSender<Dooot>,
 ) {
     let feed_id = &oracle_price.feed_account_pubkey;
     let Some(feed_mint) = oracle_feed_map.get(feed_id.as_str()).cloned() else {
@@ -37,7 +36,6 @@ pub async fn handle_oracle_price_event(
             price_usd: price,
             time: oracle_price.time,
         }))
-        .await
         .unwrap();
 
     if feed_mint == WSOL_MINT {
@@ -48,19 +46,22 @@ pub async fn handle_oracle_price_event(
                 price_usd: price,
                 time: oracle_price.time,
             }))
-            .await
             .unwrap();
     }
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
     log::trace!("Getting mint indicies read lock");
-    let ix = mint_indicies.read().await.get(&feed_mint).cloned();
+    let ix = mint_indicies
+        .read()
+        .expect("Mint indicies read lock poisoned")
+        .get(&feed_mint)
+        .cloned();
     log::trace!("Got mint indicies read lock");
 
     if let Some(ix) = ix {
         let update = CalculatorUpdate::OracleUSDPrice(ix, price);
-        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress).await;
+        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress);
     } else {
         log::warn!(
             "Mint {} not in graph, cannot send OracleUSDPrice update",

@@ -2,17 +2,15 @@ use anyhow::Result;
 use std::{
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc::Receiver,
+        Arc, RwLock,
     },
     time::Duration,
 };
 
 use clickhouse::{query::RowCursor, Row};
 use serde::Deserialize;
-use tokio::{
-    sync::{mpsc::Receiver, RwLock},
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 use veritas_sdk::utils::decimal_cache::DecimalCache;
 
 #[derive(Deserialize, Row)]
@@ -30,7 +28,7 @@ pub struct DecimalResult {
 pub fn spawn_ch_cache_updator_tasks(
     decimals_cache: Arc<RwLock<DecimalCache>>,
     clickhouse_client: clickhouse::Client,
-    mut req_rx: Receiver<String>,
+    req_rx: Receiver<String>,
     cache_updator_batch_size: usize,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) -> [JoinHandle<()>; 2] {
@@ -41,19 +39,22 @@ pub fn spawn_ch_cache_updator_tasks(
     // Receiver task
     let receiver_request_lock = requests_lock.clone();
     let receiver_task = tokio::spawn(async move {
-        while let Some(mint) = req_rx.recv().await {
+        while let Ok(mint) = req_rx.recv() {
             if bootstrap_in_progress.load(Ordering::Relaxed) {
                 // Do not process graph updates while bootstrapping,
                 // We already have all the decimals that are possible to have at this point
                 continue;
             }
 
-            let mut requests = receiver_request_lock.write().await;
-            requests.push(mint);
+            let amt_reqs = {
+                let mut requests = receiver_request_lock
+                    .write()
+                    .expect("Requests write lock poisoned");
+                requests.push(mint);
+                requests.len()
+            };
 
-            if requests.len() >= cache_updator_batch_size {
-                // Drop to avoid a potential deadlock
-                drop(requests);
+            if amt_reqs >= cache_updator_batch_size {
                 wake_channel_tx.send(()).await.unwrap();
             }
         }
@@ -73,7 +74,9 @@ pub fn spawn_ch_cache_updator_tasks(
                 Err(_) | Ok(Some(_)) => {
                     // Query the decimals
                     let mints = {
-                        let mut requests = query_request_lock.write().await;
+                        let mut requests = query_request_lock
+                            .write()
+                            .expect("Query request lock poisoned");
 
                         if requests.is_empty() {
                             // Don't perform the mem replacement
@@ -93,12 +96,13 @@ pub fn spawn_ch_cache_updator_tasks(
                                 continue;
                             };
 
-                            let mut dc_write = decimals_cache.write().await;
+                            let mut results = Vec::with_capacity(mints.len());
+
                             loop {
                                 match cursor.next().await {
                                     Ok(Some(item)) => {
                                         if let Some(decimals) = item.decimals {
-                                            dc_write.insert(item.mint_pk, decimals);
+                                            results.push((item.mint_pk.clone(), decimals));
                                         }
                                     }
                                     Err(e) => {
@@ -109,6 +113,14 @@ pub fn spawn_ch_cache_updator_tasks(
                                         break;
                                     }
                                 }
+                            }
+
+                            let mut dc_write = decimals_cache
+                                .write()
+                                .expect("Decimals cache write lock poisoned");
+
+                            for (mint, decimals) in results {
+                                dc_write.insert(mint, decimals);
                             }
                         }
                         Err(e) => {

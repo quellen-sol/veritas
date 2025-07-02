@@ -32,13 +32,16 @@ pub async fn diagnose_node(
     let mint = params.get("mint").ok_or(StatusCode::BAD_REQUEST)?;
 
     let decimals = {
-        let dc_read = state.decimal_cache.read().await;
+        let dc_read = state
+            .decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
         dc_read.get(mint).cloned()
     };
 
     // Pool stats
     let (in_num_pools, pools) = {
-        let lp_read = state.lp_cache.read().await;
+        let lp_read = state.lp_cache.read().expect("LP cache read lock poisoned");
         let mut pools = Vec::new();
         for (pk, pool) in lp_read.iter() {
             if pool.underlyings.iter().any(|un| un.mint == *mint) {

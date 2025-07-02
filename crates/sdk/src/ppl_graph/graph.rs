@@ -1,10 +1,9 @@
-use std::{collections::HashMap, fmt::Debug};
+use std::{collections::HashMap, fmt::Debug, sync::RwLock};
 
 use chrono::NaiveDateTime;
 use petgraph::graph::EdgeIndex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
-use tokio::sync::RwLock;
 
 use crate::liq_relation::LiqRelation;
 

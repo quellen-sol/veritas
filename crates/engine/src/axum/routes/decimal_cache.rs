@@ -20,7 +20,10 @@ pub async fn get_decimal_cache_token(
 ) -> Result<Json<DecimalCacheResponse>, StatusCode> {
     let token = params.get("mint").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let decimal_cache = state.decimal_cache.read().await;
+    let decimal_cache = state
+        .decimal_cache
+        .read()
+        .expect("Decimal cache read lock poisoned");
     let decimal = *decimal_cache.get(token).ok_or(StatusCode::NOT_FOUND)?;
 
     Ok(Json(DecimalCacheResponse { decimal }))

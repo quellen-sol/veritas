@@ -1,8 +1,7 @@
-use std::sync::Arc;
+use std::sync::{mpsc::SyncSender, Arc, RwLock};
 
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::LiqRelation,
     types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
@@ -13,11 +12,11 @@ use crate::price_points_liquidity::task::{
     add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
 };
 
-pub async fn handle_fixed(
+pub fn handle_fixed(
     mu_dooot: MintUnderlyingsGlobalDooot,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    cache_updator_sender: Sender<String>,
+    cache_updator_sender: SyncSender<String>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
 ) {
@@ -32,7 +31,9 @@ pub async fn handle_fixed(
     let underlying_mint = &mints[0];
 
     let (decimals_parent, decimals_underlying) = {
-        let dc_read = decimal_cache.read().await;
+        let dc_read = decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
 
         let Some(decimals_parent) =
             get_or_dispatch_decimals(&cache_updator_sender, &dc_read, parent_mint)
@@ -49,13 +50,9 @@ pub async fn handle_fixed(
         (decimals_parent, decimals_underlying)
     };
 
-    let mint_parent_ix = get_or_add_mint_ix(parent_mint, graph.clone(), mint_indicies.clone())
-        .await
-        .0;
+    let mint_parent_ix = get_or_add_mint_ix(parent_mint, graph.clone(), mint_indicies.clone()).0;
     let mint_underlying_ix =
-        get_or_add_mint_ix(underlying_mint, graph.clone(), mint_indicies.clone())
-            .await
-            .0;
+        get_or_add_mint_ix(underlying_mint, graph.clone(), mint_indicies.clone()).0;
 
     let Some(decimal_factor) =
         Decimal::TEN.checked_powi(decimals_parent as i64 - decimals_underlying as i64)
@@ -88,8 +85,7 @@ pub async fn handle_fixed(
         parent_mint,
         *time,
         false,
-    )
-    .await;
+    );
 
     match update_res {
         Ok(_) => {}

@@ -1,5 +1,6 @@
 use std::sync::{
     atomic::{AtomicBool, Ordering},
+    mpsc::SyncSender,
     Arc,
 };
 
@@ -12,7 +13,7 @@ use step_ingestooor_sdk::dooot::{
     ClmmGlobalDooot, ClmmTick, ClmmTickGlobalDooot, DLMMPart, DlmmGlobalDooot, Dooot, DoootTrait,
     MintUnderlyingsGlobalDooot,
 };
-use tokio::{sync::mpsc::Sender, time::Instant};
+use tokio::time::Instant;
 
 use crate::liq_relation::relations::clmm::ClmmTickParsed;
 
@@ -198,7 +199,7 @@ const CLMM_TICKS_DOOOTS_QUERY: &str = "
 
 pub async fn bootstrap_graph(
     clickhouse_client: clickhouse::Client,
-    dooot_tx: Sender<Dooot>,
+    dooot_tx: SyncSender<Dooot>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) -> Result<()> {
     log::info!("Bootstrapping the graph with current Clickhouse data...");
@@ -248,7 +249,7 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
     sql_query: &str,
     dooot_name: &str,
     clickhouse_client: clickhouse::Client,
-    dooot_tx: Sender<Dooot>,
+    dooot_tx: SyncSender<Dooot>,
 ) -> Result<()> {
     log::info!("Loading current {dooot_name} Dooots from Clickhouse...");
 
@@ -258,7 +259,7 @@ pub async fn load_and_send_dooots<'a, I: Deserialize<'a> + Row + Into<Dooot>, D:
     let mut now = Instant::now();
 
     while let Some(row) = cursor.next().await? {
-        dooot_tx.send(row.into()).await?;
+        dooot_tx.send(row.into())?;
         count += 1;
 
         if count % 10000 == 0 {

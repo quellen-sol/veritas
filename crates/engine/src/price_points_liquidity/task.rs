@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
-        Arc,
+        mpsc::{Receiver, SyncSender},
+        Arc, RwLock,
     },
     time::Duration,
 };
@@ -11,13 +12,7 @@ use anyhow::{bail, Context, Result};
 use chrono::NaiveDateTime;
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        RwLock,
-    },
-    task::JoinHandle,
-};
+use tokio::task::JoinHandle;
 use veritas_sdk::{
     liq_relation::LiqRelation,
     ppl_graph::graph::{MintEdge, MintNode},
@@ -37,17 +32,17 @@ use crate::{
 };
 
 pub fn spawn_price_points_liquidity_task(
-    mut msg_rx: Receiver<Dooot>,
+    msg_rx: Receiver<Dooot>,
     graph: WrappedMintPricingGraph,
-    calculator_sender: Sender<CalculatorUpdate>,
+    calculator_sender: SyncSender<CalculatorUpdate>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     lp_cache: Arc<RwLock<LpCache>>,
     oracle_feed_map: Arc<HashMap<String, String>>,
     max_ppl_subtasks: u8,
-    ch_cache_updator_req_tx: Sender<String>,
+    ch_cache_updator_req_tx: SyncSender<String>,
     bootstrap_in_progress: Arc<AtomicBool>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
-    price_sender: Sender<Dooot>,
+    price_sender: SyncSender<Dooot>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
 ) -> Result<JoinHandle<()>> {
     log::info!("Spawning price points liquidity task (PPL)");
@@ -59,7 +54,7 @@ pub fn spawn_price_points_liquidity_task(
         async move {
             let counter = Arc::new(AtomicU8::new(0));
 
-            while let Some(dooot) = msg_rx.recv().await {
+            while let Ok(dooot) = msg_rx.recv() {
                 while counter.load(Ordering::Relaxed) >= max_ppl_subtasks {
                     // Wait for the other subtasks to finish
                     tokio::time::sleep(Duration::from_millis(1)).await;
@@ -91,8 +86,7 @@ pub fn spawn_price_points_liquidity_task(
                                 sender_arc,
                                 mint_indicies,
                                 edge_indicies,
-                            )
-                            .await;
+                            );
                         }
                         Dooot::OraclePriceEvent(oracle_price) => {
                             handle_oracle_price_event(
@@ -102,14 +96,13 @@ pub fn spawn_price_points_liquidity_task(
                                 calculator_sender,
                                 bootstrap_in_progress,
                                 price_sender,
-                            )
-                            .await;
+                            );
                         }
                         Dooot::MintInfo(info) => {
-                            handle_mint_info(info, decimal_cache).await;
+                            handle_mint_info(info, decimal_cache);
                         }
                         Dooot::LPInfo(info) => {
-                            handle_lp_info(info, lp_cache).await;
+                            handle_lp_info(info, lp_cache);
                         }
                         Dooot::DlmmGlobal(dooot) => {
                             handle_dlmm(
@@ -123,11 +116,10 @@ pub fn spawn_price_points_liquidity_task(
                                 token_balance_cache,
                                 calculator_sender,
                                 bootstrap_in_progress,
-                            )
-                            .await;
+                            );
                         }
                         Dooot::TokenBalanceUser(balance) => {
-                            handle_token_balance(balance, token_balance_cache).await;
+                            handle_token_balance(balance, token_balance_cache);
                         }
                         Dooot::ClmmGlobal(_) | Dooot::ClmmTickGlobal(_) => {
                             handle_clmm(
@@ -141,8 +133,7 @@ pub fn spawn_price_points_liquidity_task(
                                 token_balance_cache,
                                 calculator_sender,
                                 bootstrap_in_progress,
-                            )
-                            .await;
+                            );
                         }
                         _ => {}
                     }
@@ -150,7 +141,7 @@ pub fn spawn_price_points_liquidity_task(
                     // Quick debug dump of the graph
                     #[cfg(feature = "debug-graph")]
                     {
-                        let g_read = graph.read().await;
+                        let g_read = graph.read().expect("Graph read lock poisoned");
 
                         use petgraph::dot::Dot;
                         use std::fs;
@@ -189,7 +180,7 @@ pub fn spawn_price_points_liquidity_task(
 /// If the decimals are not in the cache, it will dispatch a request to get the decimals
 #[inline]
 pub fn get_or_dispatch_decimals(
-    sender_arc: &Sender<String>,
+    sender_arc: &SyncSender<String>,
     dc_read: &HashMap<String, u8>,
     mint_x: &str,
 ) -> Option<u8> {
@@ -208,23 +199,29 @@ pub fn get_or_dispatch_decimals(
 ///
 /// Returns the mint index and a boolean indicating if the mint was added to the graph
 #[inline]
-pub async fn get_or_add_mint_ix(
+pub fn get_or_add_mint_ix(
     mint: &str,
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> (NodeIndex, bool) {
     log::trace!("Getting mint indicies read lock");
-    let mint_index_op = mint_indicies.read().await.get(mint).cloned();
+    let mint_index_op = mint_indicies
+        .read()
+        .expect("Mint indicies read lock poisoned")
+        .get(mint)
+        .cloned();
     log::trace!("Got mint indicies read lock");
 
     match mint_index_op {
         Some(ix) => (ix, false),
         None => {
             log::trace!("Getting mint indicies write lock");
-            let mut mi_write = mint_indicies.write().await;
+            let mut mi_write = mint_indicies
+                .write()
+                .expect("Mint indicies write lock poisoned");
             log::trace!("Got mint indicies write lock");
             log::trace!("Getting graph write lock");
-            let mut g_write = graph.write().await;
+            let mut g_write = graph.write().expect("Graph write lock poisoned");
             log::trace!("Got graph write lock");
 
             // Check if the mint is already in the graph, since the above check is too optimistic
@@ -253,12 +250,16 @@ pub async fn get_or_add_mint_ix(
 
 /// Get edge from A -> B that matches the discriminant ID
 #[inline]
-pub async fn get_edge_by_discriminant(
+pub fn get_edge_by_discriminant(
     is_reverse: bool,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     discriminant_id: &str,
 ) -> Option<EdgeIndex> {
-    let val = edge_indicies.read().await.get(discriminant_id).cloned()?;
+    let val = edge_indicies
+        .read()
+        .expect("Edge indicies read lock poisoned")
+        .get(discriminant_id)
+        .cloned()?;
     if is_reverse {
         val.reverse
     } else {
@@ -270,11 +271,15 @@ pub async fn get_edge_by_discriminant(
 ///
 /// Returns a tuple of the two edges, or None if the edges are not present
 #[inline]
-pub async fn get_two_way_edges_by_discriminant(
+pub fn get_two_way_edges_by_discriminant(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     discriminant_id: &str,
 ) -> Option<EdgeIndexMapValue> {
-    edge_indicies.read().await.get(discriminant_id).cloned()
+    edge_indicies
+        .read()
+        .expect("Edge indicies read lock poisoned")
+        .get(discriminant_id)
+        .cloned()
 }
 
 /// Get both edges for a discriminant ID
@@ -291,7 +296,7 @@ pub fn get_two_way_edges_by_discriminant_with_locks(
 
 /// Get edge from A -> B that matches the discriminant ID
 #[inline]
-pub async fn get_edge_by_discriminant_with_locks(
+pub fn get_edge_by_discriminant_with_locks(
     is_reverse: bool,
     edge_indicies: &EdgeIndiciesMap,
     discriminant_id: &str,
@@ -305,7 +310,7 @@ pub async fn get_edge_by_discriminant_with_locks(
 }
 
 #[inline]
-pub async fn add_or_update_two_way_relation_edge(
+pub fn add_or_update_two_way_relation_edge(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
@@ -316,14 +321,14 @@ pub async fn add_or_update_two_way_relation_edge(
     time: NaiveDateTime,
 ) -> Result<(EdgeIndex, EdgeIndex)> {
     let edge_index_map_value =
-        get_two_way_edges_by_discriminant(edge_indicies.clone(), discriminant_id).await;
+        get_two_way_edges_by_discriminant(edge_indicies.clone(), discriminant_id);
 
     match edge_index_map_value {
         Some(EdgeIndexMapValue {
             normal: Some(edge),
             reverse: Some(edge_rev),
         }) => {
-            let g_read = graph.read().await;
+            let g_read = graph.read().expect("Graph read lock poisoned");
             let e_r = g_read
                 .edge_weight(edge)
                 .context("UNREACHABLE - Edge index {edge:?} should be present in graph!")?;
@@ -332,8 +337,14 @@ pub async fn add_or_update_two_way_relation_edge(
                 .context("UNREACHABLE - Edge index {edge_rev:?} should be present in graph!")?;
 
             {
-                let mut relation = e_r.inner_relation.write().await;
-                let mut relation_rev = e_r_rev.inner_relation.write().await;
+                let mut relation = e_r
+                    .inner_relation
+                    .write()
+                    .expect("Inner relation write lock poisoned");
+                let mut relation_rev = e_r_rev
+                    .inner_relation
+                    .write()
+                    .expect("Inner relation write lock poisoned");
 
                 *relation = update_with;
                 *relation_rev = update_with_rev;
@@ -362,10 +373,12 @@ pub async fn add_or_update_two_way_relation_edge(
 
             let (new_ix, new_ix_rev) = {
                 log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
+                let mut ei_write = edge_indicies
+                    .write()
+                    .expect("Edge indicies write lock poisoned");
                 log::trace!("Got edge indicies write lock");
                 log::trace!("Getting graph write lock");
-                let mut g_write = graph.write().await;
+                let mut g_write = graph.write().expect("Graph write lock poisoned");
                 log::trace!("Got graph write lock");
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
@@ -388,42 +401,6 @@ pub async fn add_or_update_two_way_relation_edge(
             Ok((new_ix, new_ix_rev))
         }
         _ => {
-            // // One edge is missing, but somehow the other is present.
-            // // Fill in the missing edge
-            // let edge = match edge {
-            //     Some(edge) => edge,
-            //     None => {
-            //         add_or_update_relation_edge(
-            //             ix_b,
-            //             ix_a,
-            //             edge_indicies.clone(),
-            //             graph.clone(),
-            //             update_with,
-            //             discriminant_id,
-            //             time,
-            //         )
-            //         .await?
-            //     }
-            // };
-
-            // let edge_rev = match edge_rev {
-            //     Some(edge_rev) => edge_rev,
-            //     None => {
-            //         add_or_update_relation_edge(
-            //             ix_a,
-            //             ix_b,
-            //             edge_indicies.clone(),
-            //             graph.clone(),
-            //             update_with_rev,
-            //             discriminant_id,
-            //             time,
-            //         )
-            //         .await?
-            //     }
-            // };
-
-            // Ok((edge, edge_rev))
-
             bail!("UNREACHABLE - Both edges should have been set! Likely race condition!")
         }
     }
@@ -434,7 +411,7 @@ pub async fn add_or_update_two_way_relation_edge(
 /// Returns the edge idx that was updated
 #[inline]
 #[allow(clippy::unwrap_used)]
-pub async fn add_or_update_relation_edge(
+pub fn add_or_update_relation_edge(
     ix_a: NodeIndex,
     ix_b: NodeIndex,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
@@ -446,7 +423,7 @@ pub async fn add_or_update_relation_edge(
 ) -> Result<EdgeIndex>
 where
 {
-    let edge = get_edge_by_discriminant(is_reverse, edge_indicies.clone(), discriminant_id).await;
+    let edge = get_edge_by_discriminant(is_reverse, edge_indicies.clone(), discriminant_id);
 
     match edge {
         Some(edge_ix) => {
@@ -454,7 +431,7 @@ where
             // Guaranteed by being Some
             {
                 log::trace!("Getting graph read lock");
-                let g_read = graph.read().await;
+                let g_read = graph.read().expect("Graph read lock poisoned");
                 log::trace!("Got graph read lock");
                 let e_r = g_read
                     .edge_weight(edge_ix)
@@ -463,7 +440,10 @@ where
                 // Quick update of the last updated time
                 {
                     log::trace!("Getting last updated write lock");
-                    let mut last_updated = e_r.last_updated.write().await;
+                    let mut last_updated = e_r
+                        .last_updated
+                        .write()
+                        .expect("Last updated write lock poisoned");
                     log::trace!("Got last updated write lock");
                     *last_updated = time;
                 }
@@ -471,7 +451,10 @@ where
                 // Quick update of the relation
                 {
                     log::trace!("Getting inner relation write lock");
-                    let mut relation = e_r.inner_relation.write().await;
+                    let mut relation = e_r
+                        .inner_relation
+                        .write()
+                        .expect("Inner relation write lock poisoned");
                     log::trace!("Got inner relation write lock");
                     *relation = update_with;
                 }
@@ -482,17 +465,18 @@ where
         None => {
             let new_ix = {
                 log::trace!("Getting edge indicies write lock");
-                let mut ei_write = edge_indicies.write().await;
+                let mut ei_write = edge_indicies
+                    .write()
+                    .expect("Edge indicies write lock poisoned");
                 log::trace!("Got edge indicies write lock");
                 log::trace!("Getting graph write lock");
-                let mut g_write = graph.write().await;
+                let mut g_write = graph.write().expect("Graph write lock poisoned");
                 log::trace!("Got graph write lock");
 
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
                 let edge =
-                    get_edge_by_discriminant_with_locks(is_reverse, &ei_write, discriminant_id)
-                        .await;
+                    get_edge_by_discriminant_with_locks(is_reverse, &ei_write, discriminant_id);
 
                 let new_edge = MintEdge {
                     id: discriminant_id.to_string(),
@@ -612,8 +596,8 @@ mod tests {
 
         let edge_indicies = Arc::new(RwLock::new(edge_indicies));
 
-        let edge = get_edge_by_discriminant(false, edge_indicies.clone(), "test_disc").await;
-        let edge_rev = get_edge_by_discriminant(true, edge_indicies.clone(), "test_disc").await;
+        let edge = get_edge_by_discriminant(false, edge_indicies.clone(), "test_disc");
+        let edge_rev = get_edge_by_discriminant(true, edge_indicies.clone(), "test_disc");
 
         assert_eq!(edge, Some(ix_edge));
         assert_eq!(edge_rev, Some(ix_edge_rev));
@@ -707,8 +691,8 @@ mod tests {
         update_edge_index(&mut edge_indicies, "test_disc", ix_edge_2, true).unwrap();
         let edge_indicies = Arc::new(RwLock::new(edge_indicies));
 
-        let edge_1 = get_edge_by_discriminant(false, edge_indicies.clone(), "test_disc").await;
-        let edge_2 = get_edge_by_discriminant(true, edge_indicies.clone(), "test_disc").await;
+        let edge_1 = get_edge_by_discriminant(false, edge_indicies.clone(), "test_disc");
+        let edge_2 = get_edge_by_discriminant(true, edge_indicies.clone(), "test_disc");
 
         assert_eq!(edge_1, Some(ix_edge));
         assert_eq!(edge_2, Some(ix_edge_2));
