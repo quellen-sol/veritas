@@ -101,6 +101,7 @@ pub struct ClickhouseArgs {
     pub clickhouse_database: String,
 }
 
+#[allow(clippy::unwrap_used)]
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
