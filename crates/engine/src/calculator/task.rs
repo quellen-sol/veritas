@@ -2,10 +2,9 @@
 use std::{
     collections::HashSet,
     sync::{
-        atomic::{AtomicBool, AtomicU8, Ordering},
+        atomic::{AtomicBool, Ordering},
         Arc,
     },
-    time::Duration,
 };
 
 use petgraph::graph::{EdgeIndex, NodeIndex};
@@ -34,21 +33,16 @@ pub fn spawn_calculator_task(
     mut calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
     dooot_tx: Sender<Dooot>,
-    max_calculator_subtasks: u8,
     bootstrap_in_progress: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: Decimal,
     paused_calculation: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
-    log::info!("Spawning Calculator tasks...");
+    log::info!("Spawning Calculator task...");
 
     // Spawn a task to accept token updates
     tokio::spawn(async move {
-        let counter = Arc::new(AtomicU8::new(0));
-        let oracle_mint_set = Arc::new(oracle_mint_set);
-        let max_price_impact = &max_price_impact;
-
         while let Some(update) = calculator_receiver.recv().await {
             if bootstrap_in_progress.load(Ordering::Relaxed)
                 || paused_calculation.load(Ordering::Relaxed)
@@ -58,52 +52,37 @@ pub fn spawn_calculator_task(
                 continue;
             }
 
-            while counter.load(Ordering::Relaxed) >= max_calculator_subtasks {
-                // Wait for a task to become available
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
-
-            counter.fetch_add(1, Ordering::Relaxed);
-
-            // Make clones for the task
+            // Make clones for the fn call
             let graph = graph.clone();
             let dooot_tx = dooot_tx.clone();
-            let counter = counter.clone();
-            let oracle_mint_set = oracle_mint_set.clone();
             let sol_index = sol_index.clone();
-            let max_price_impact = *max_price_impact;
 
-            log::trace!("Spawning task for token update");
-            tokio::spawn(async move {
-                match update {
-                    CalculatorUpdate::OracleUSDPrice(token, new_price) => {
-                        handle_oracle_price_update(
-                            graph,
-                            token,
-                            new_price,
-                            dooot_tx,
-                            &oracle_mint_set,
-                            sol_index,
-                            &max_price_impact,
-                        )
-                        .await;
-                    }
-                    CalculatorUpdate::_NewTokenRatio(_token, _updated_edge) => {
-                        // handle_token_relation_update(
-                        //     graph,
-                        //     token,
-                        //     updated_edge,
-                        //     dooot_tx,
-                        //     &oracle_mint_set,
-                        //     sol_index,
-                        //     &max_price_impact,
-                        // )
-                        // .await;
-                    }
+            match update {
+                CalculatorUpdate::OracleUSDPrice(token, new_price) => {
+                    handle_oracle_price_update(
+                        graph,
+                        token,
+                        new_price,
+                        dooot_tx,
+                        &oracle_mint_set,
+                        sol_index,
+                        &max_price_impact,
+                    )
+                    .await;
                 }
-
-                counter.fetch_sub(1, Ordering::Relaxed);
-            });
+                CalculatorUpdate::_NewTokenRatio(_token, _updated_edge) => {
+                    // handle_token_relation_update(
+                    //     graph,
+                    //     token,
+                    //     updated_edge,
+                    //     dooot_tx,
+                    //     &oracle_mint_set,
+                    //     sol_index,
+                    //     &max_price_impact,
+                    // )
+                    // .await;
+                }
+            }
         }
 
         log::warn!("Calculator task finished");
