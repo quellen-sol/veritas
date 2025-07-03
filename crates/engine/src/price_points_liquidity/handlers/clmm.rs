@@ -95,9 +95,8 @@ pub fn handle_clmm(
     let time = params.extract_time();
 
     let pool_info = {
-        log::trace!("Getting lp cache read lock");
         let lc_read = lp_cache.read().expect("LP cache read lock poisoned");
-        log::trace!("Got lp cache read lock");
+
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
             // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
@@ -126,11 +125,9 @@ pub fn handle_clmm(
     } = underlyings_b;
 
     let (decimals_a, decimals_b) = {
-        log::trace!("Getting decimal cache read lock");
         let dc_read = decimal_cache
             .read()
             .expect("Decimal cache read lock poisoned");
-        log::trace!("Got decimal cache read lock");
 
         let Some(decimals_a) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_a) else {
             return;
@@ -153,11 +150,10 @@ pub fn handle_clmm(
 
     let (a_balance, b_balance) = {
         let (a_bal_cache_op, b_bal_cache_op) = {
-            log::trace!("Getting token balance cache read lock");
             let tbc_read = token_balance_cache
                 .read()
                 .expect("Token balance cache read lock poisoned");
-            log::trace!("Got token balance cache read lock");
+
             (
                 tbc_read.get(vault_a).cloned(),
                 tbc_read.get(vault_b).cloned(),
@@ -173,11 +169,10 @@ pub fn handle_clmm(
             (a_vault_balance, b_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
-            log::trace!("Getting token balance cache write lock");
+
             let mut tbc_write = token_balance_cache
                 .write()
                 .expect("Token balance cache write lock poisoned");
-            log::trace!("Got token balance cache write lock");
 
             if a_bal_cache_op.is_none() {
                 tbc_write.insert(vault_a.clone(), None);
@@ -306,19 +301,16 @@ pub fn handle_clmm(
             return;
         };
 
-        log::trace!("Getting graph read lock");
         let g_read = graph.read().expect("Graph read lock poisoned");
-        log::trace!("Got graph read lock");
+
         let weight = g_read.edge_weight(relation).unwrap();
         let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
         {
-            log::trace!("Getting inner relation write lock");
             let mut w_write = weight
                 .inner_relation
                 .write()
                 .expect("Inner relation write lock poisoned");
-            log::trace!("Got inner relation write lock");
 
             let LiqRelation::Clmm {
                 ref mut amt_origin,
@@ -381,12 +373,10 @@ pub fn handle_clmm(
         }
 
         {
-            log::trace!("Getting inner relation write lock");
             let mut w_rev_write = weight_rev
                 .inner_relation
                 .write()
                 .expect("Inner relation write lock poisoned");
-            log::trace!("Got inner relation write lock");
 
             let LiqRelation::Clmm {
                 amt_origin: ref mut amt_origin_rev,

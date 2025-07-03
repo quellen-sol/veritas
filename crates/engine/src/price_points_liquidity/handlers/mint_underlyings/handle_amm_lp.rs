@@ -32,11 +32,9 @@ pub fn handle_amm_lp(
     let mint_b = &mints[1];
 
     let (decimals_a, decimals_b) = {
-        log::trace!("Getting decimal cache read lock");
         let dc_read = decimal_cache
             .read()
             .expect("Decimal cache read lock poisoned");
-        log::trace!("Got decimal cache read lock");
 
         let Some(decimals_a) = get_or_dispatch_decimals(&cache_updator_sender, &dc_read, mint_a)
         else {
@@ -93,14 +91,12 @@ fn build_mu_relation(
     decimals_a: u8,
     decimals_b: u8,
 ) -> Option<LiqRelation> {
-    log::trace!("Getting lp cache read lock");
     let curve_type = lp_cache
         .read()
         .expect("LP cache read lock poisoned")
         .get(discriminant_id)
         .cloned()?
         .curve_type;
-    log::trace!("Got lp cache read lock");
 
     match curve_type {
         CurveType::ConstantProduct => {

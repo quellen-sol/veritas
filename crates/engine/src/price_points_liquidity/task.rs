@@ -202,25 +202,20 @@ pub fn get_or_add_mint_ix(
     graph: WrappedMintPricingGraph,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
 ) -> (NodeIndex, bool) {
-    log::trace!("Getting mint indicies read lock");
     let mint_index_op = mint_indicies
         .read()
         .expect("Mint indicies read lock poisoned")
         .get(mint)
         .cloned();
-    log::trace!("Got mint indicies read lock");
 
     match mint_index_op {
         Some(ix) => (ix, false),
         None => {
-            log::trace!("Getting mint indicies write lock");
             let mut mi_write = mint_indicies
                 .write()
                 .expect("Mint indicies write lock poisoned");
-            log::trace!("Got mint indicies write lock");
-            log::trace!("Getting graph write lock");
+
             let mut g_write = graph.write().expect("Graph write lock poisoned");
-            log::trace!("Got graph write lock");
 
             // Check if the mint is already in the graph, since the above check is too optimistic
             let (ix, created) = mi_write
@@ -370,14 +365,12 @@ pub fn add_or_update_two_way_relation_edge(
             };
 
             let (new_ix, new_ix_rev) = {
-                log::trace!("Getting edge indicies write lock");
                 let mut ei_write = edge_indicies
                     .write()
                     .expect("Edge indicies write lock poisoned");
-                log::trace!("Got edge indicies write lock");
-                log::trace!("Getting graph write lock");
+
                 let mut g_write = graph.write().expect("Graph write lock poisoned");
-                log::trace!("Got graph write lock");
+
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread
                 let edge_index_map_value =
@@ -428,32 +421,29 @@ where
             // Edge already exists, update it
             // Guaranteed by being Some
             {
-                log::trace!("Getting graph read lock");
                 let g_read = graph.read().expect("Graph read lock poisoned");
-                log::trace!("Got graph read lock");
+
                 let e_r = g_read
                     .edge_weight(edge_ix)
                     .context("UNREACHABLE - Edge index {edge_ix:?} should be present in graph!")?;
 
                 // Quick update of the last updated time
                 {
-                    log::trace!("Getting last updated write lock");
                     let mut last_updated = e_r
                         .last_updated
                         .write()
                         .expect("Last updated write lock poisoned");
-                    log::trace!("Got last updated write lock");
+
                     *last_updated = time;
                 }
 
                 // Quick update of the relation
                 {
-                    log::trace!("Getting inner relation write lock");
                     let mut relation = e_r
                         .inner_relation
                         .write()
                         .expect("Inner relation write lock poisoned");
-                    log::trace!("Got inner relation write lock");
+
                     *relation = update_with;
                 }
             }
@@ -462,14 +452,11 @@ where
         }
         None => {
             let new_ix = {
-                log::trace!("Getting edge indicies write lock");
                 let mut ei_write = edge_indicies
                     .write()
                     .expect("Edge indicies write lock poisoned");
-                log::trace!("Got edge indicies write lock");
-                log::trace!("Getting graph write lock");
+
                 let mut g_write = graph.write().expect("Graph write lock poisoned");
-                log::trace!("Got graph write lock");
 
                 // Now that we have graph exclusively locked, let's double check once more that we don't have an edge already
                 // The last check was too optimistic, and we could have raced with another thread

@@ -19,9 +19,8 @@ pub async fn _handle_token_relation_update(
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: &Decimal,
 ) {
-    log::trace!("Getting graph read lock for NewTokenRatio update");
     let g_read = graph.read().expect("Graph read lock poisoned");
-    log::trace!("Got graph read lock for NewTokenRatio update");
+
     let mut visited = HashSet::with_capacity(g_read.node_count());
 
     let Some((src, _)) = g_read.edge_endpoints(updated_edge) else {
@@ -33,7 +32,6 @@ pub async fn _handle_token_relation_update(
 
     let sol_index = sol_index.read().expect("Sol index read lock poisoned");
 
-    log::trace!("Starting BFS recalculation for NewTokenRatio update");
     let recalc_result = bfs_recalculate(
         &g_read,
         token,
@@ -46,9 +44,7 @@ pub async fn _handle_token_relation_update(
     );
 
     match recalc_result {
-        Ok(_) => {
-            log::trace!("Finished BFS recalculation for NewTokenRatio update");
-        }
+        Ok(_) => {}
         Err(e) => {
             log::error!("Error during BFS recalculation for NewTokenRatio update: {e}");
         }
