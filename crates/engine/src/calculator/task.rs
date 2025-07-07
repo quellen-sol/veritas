@@ -3,20 +3,15 @@ use std::{
     collections::HashSet,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        mpsc::{Receiver, SyncSender},
+        Arc, RwLock,
     },
+    thread::{self, JoinHandle},
 };
 
 use petgraph::graph::{EdgeIndex, NodeIndex};
 use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::{
-    sync::{
-        mpsc::{Receiver, Sender},
-        RwLock,
-    },
-    task::JoinHandle,
-};
 use veritas_sdk::types::MintPricingGraph;
 
 use crate::calculator::handlers::oracle_price::handle_oracle_price_update;
@@ -30,9 +25,9 @@ pub enum CalculatorUpdate {
 }
 
 pub fn spawn_calculator_task(
-    mut calculator_receiver: Receiver<CalculatorUpdate>,
+    calculator_receiver: Receiver<CalculatorUpdate>,
     graph: Arc<RwLock<MintPricingGraph>>,
-    dooot_tx: Sender<Dooot>,
+    dooot_tx: SyncSender<Dooot>,
     bootstrap_in_progress: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
@@ -42,8 +37,8 @@ pub fn spawn_calculator_task(
     log::info!("Spawning Calculator task...");
 
     // Spawn a task to accept token updates
-    tokio::spawn(async move {
-        while let Some(update) = calculator_receiver.recv().await {
+    thread::spawn(move || {
+        while let Ok(update) = calculator_receiver.recv() {
             if bootstrap_in_progress.load(Ordering::Relaxed)
                 || paused_calculation.load(Ordering::Relaxed)
             {
@@ -67,8 +62,7 @@ pub fn spawn_calculator_task(
                         &oracle_mint_set,
                         sol_index,
                         &max_price_impact,
-                    )
-                    .await;
+                    );
                 }
                 CalculatorUpdate::_NewTokenRatio(_token, _updated_edge) => {
                     // handle_token_relation_update(

@@ -2,7 +2,7 @@ use std::{
     collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, RwLock,
     },
 };
 
@@ -15,14 +15,13 @@ use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::dooot::Dooot;
-use tokio::sync::RwLock;
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::bootstrap::bootstrap_graph,
     types::{MintIndiciesMap, MintPricingGraph},
     utils::{
         decimal_cache::build_decimal_cache, lp_cache::build_lp_cache,
-        token_balance_cache::build_token_balance_cache,
+        r#async::spawn_task_as_thread, token_balance_cache::build_token_balance_cache,
     },
 };
 
@@ -102,6 +101,7 @@ pub struct ClickhouseArgs {
     pub clickhouse_database: String,
 }
 
+#[allow(clippy::unwrap_used)]
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -137,7 +137,7 @@ async fn main() -> Result<()> {
 
     log::info!("Created Clickhouse client");
 
-    let reaper_task = tokio::spawn(reaper::reaper_task(
+    let reaper_task = spawn_task_as_thread(reaper::reaper_task(
         mint_price_graph.clone(),
         clickhouse_client.clone(),
     ));
@@ -219,13 +219,13 @@ async fn main() -> Result<()> {
         args.dooot_publisher_buffer_size
     );
     let (amqp_dooot_tx, amqp_dooot_rx) =
-        tokio::sync::mpsc::channel::<Dooot>(args.ppl_dooot_buffer_size);
+        std::sync::mpsc::sync_channel::<Dooot>(args.ppl_dooot_buffer_size);
     let (ch_cache_updator_req_tx, ch_cache_updator_req_rx) =
-        tokio::sync::mpsc::channel::<String>(args.cache_updator_buffer_size);
+        std::sync::mpsc::sync_channel::<String>(args.cache_updator_buffer_size);
     let (calculator_sender, calculator_receiver) =
-        tokio::sync::mpsc::channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
+        std::sync::mpsc::sync_channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
     let (publish_dooot_tx, publish_dooot_rx) =
-        tokio::sync::mpsc::channel::<Dooot>(args.dooot_publisher_buffer_size);
+        std::sync::mpsc::sync_channel::<Dooot>(args.dooot_publisher_buffer_size);
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
@@ -266,7 +266,7 @@ async fn main() -> Result<()> {
         mint_indicies.clone(),
         publish_dooot_tx.clone(),
         token_balance_cache.clone(),
-    )?;
+    );
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
@@ -281,7 +281,7 @@ async fn main() -> Result<()> {
         )
         .await?;
 
-        let g_read = mint_price_graph.read().await;
+        let g_read = mint_price_graph.read().expect("Graph read lock poisoned");
         let nodes = g_read.node_count();
         let edges = g_read.edge_count();
 
@@ -301,32 +301,15 @@ async fn main() -> Result<()> {
         .spawn_amqp_listener(amqp_dooot_tx, paused_ingestion.clone())
         .await?;
 
-    tokio::select! {
-        e = amqp_task => {
-            log::warn!("AMQP task exited: {:?}", e);
-        }
-        e = ppl_task => {
-            log::warn!("PPL task exited: {:?}", e);
-        }
-        e = ch_cache_updator_receiver_task => {
-            log::warn!("CH cache updator receiver task exited: {:?}", e);
-        }
-        e = ch_cache_updator_query_task => {
-            log::warn!("CH cache updator query task exited: {:?}", e);
-        }
-        e = calculator_task => {
-            log::warn!("Calculator update task exited: {:?}", e);
-        }
-        e = dooot_publisher_task => {
-            log::warn!("Dooot publisher task exited: {:?}", e);
-        }
-        e = axum_server_task => {
-            log::warn!("Axum server task exited: {:?}", e);
-        }
-        e = reaper_task => {
-            log::warn!("Reaper task exited: {:?}", e);
-        }
-    }
+    // TODO: Add a graceful shutdown & waiting of all tasks
+    calculator_task.join().unwrap();
+    ppl_task.join().unwrap();
+    ch_cache_updator_receiver_task.join().unwrap();
+    ch_cache_updator_query_task.join().unwrap();
+    amqp_task.join().unwrap();
+    dooot_publisher_task.join().unwrap();
+    axum_server_task.join().unwrap();
+    reaper_task.join().unwrap();
 
     log::warn!("Shutting down...");
 

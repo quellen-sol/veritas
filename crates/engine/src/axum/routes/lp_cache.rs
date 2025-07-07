@@ -15,7 +15,7 @@ pub async fn get_lp_cache_pool(
 ) -> Result<Json<LiquidityPool>, StatusCode> {
     let pool = params.get("pool").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let lp_cache = state.lp_cache.read().await;
+    let lp_cache = state.lp_cache.read().expect("LP cache read lock poisoned");
     let pool = lp_cache.get(pool).ok_or(StatusCode::NOT_FOUND)?.clone();
 
     Ok(Json(pool))

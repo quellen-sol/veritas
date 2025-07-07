@@ -80,7 +80,7 @@ pub enum LiqRelation {
 impl LiqRelation {
     /// Returns `None` if unable to calculate the price of this relation (through overflows, divs by 0, etc)
     #[inline]
-    pub async fn get_price(
+    pub fn get_price(
         &self,
         usd_price_origin: Decimal,
         graph: &MintPricingGraph,
@@ -126,7 +126,7 @@ impl LiqRelation {
                 parts,
                 market_id,
                 decimals_parent,
-            } => get_index_like_price(graph, market_id, parts, *decimals_parent).await,
+            } => get_index_like_price(graph, market_id, parts, *decimals_parent),
         }
     }
 

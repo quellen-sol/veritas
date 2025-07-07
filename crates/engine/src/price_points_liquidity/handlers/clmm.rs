@@ -1,13 +1,12 @@
 use anyhow::Result;
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock},
 };
 
 use chrono::NaiveDateTime;
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{ClmmTick, Dooot, LPInfoUnderlyingMintVault};
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::{relations::clmm::ClmmTickParsed, LiqRelation},
     types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
@@ -76,16 +75,16 @@ impl<'a> UpdateRelationCbParams<'a> {
 }
 
 #[allow(clippy::unwrap_used)]
-pub async fn handle_clmm(
+pub fn handle_clmm(
     dooot: Dooot,
     graph: WrappedMintPricingGraph,
     lp_cache: Arc<RwLock<LpCache>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
-    sender_arc: Sender<String>,
+    sender_arc: SyncSender<String>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    _calculator_sender: Sender<CalculatorUpdate>,
+    _calculator_sender: SyncSender<CalculatorUpdate>,
     _bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let Some(params) = UpdateRelationCbParams::extract_clmm_params(&dooot) else {
@@ -96,9 +95,8 @@ pub async fn handle_clmm(
     let time = params.extract_time();
 
     let pool_info = {
-        log::trace!("Getting lp cache read lock");
-        let lc_read = lp_cache.read().await;
-        log::trace!("Got lp cache read lock");
+        let lc_read = lp_cache.read().expect("LP cache read lock poisoned");
+
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
             // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
@@ -127,9 +125,9 @@ pub async fn handle_clmm(
     } = underlyings_b;
 
     let (decimals_a, decimals_b) = {
-        log::trace!("Getting decimal cache read lock");
-        let dc_read = decimal_cache.read().await;
-        log::trace!("Got decimal cache read lock");
+        let dc_read = decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
 
         let Some(decimals_a) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_a) else {
             return;
@@ -152,9 +150,10 @@ pub async fn handle_clmm(
 
     let (a_balance, b_balance) = {
         let (a_bal_cache_op, b_bal_cache_op) = {
-            log::trace!("Getting token balance cache read lock");
-            let tbc_read = token_balance_cache.read().await;
-            log::trace!("Got token balance cache read lock");
+            let tbc_read = token_balance_cache
+                .read()
+                .expect("Token balance cache read lock poisoned");
+
             (
                 tbc_read.get(vault_a).cloned(),
                 tbc_read.get(vault_b).cloned(),
@@ -170,9 +169,10 @@ pub async fn handle_clmm(
             (a_vault_balance, b_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
-            log::trace!("Getting token balance cache write lock");
-            let mut tbc_write = token_balance_cache.write().await;
-            log::trace!("Got token balance cache write lock");
+
+            let mut tbc_write = token_balance_cache
+                .write()
+                .expect("Token balance cache write lock poisoned");
 
             if a_bal_cache_op.is_none() {
                 tbc_write.insert(vault_a.clone(), None);
@@ -195,12 +195,10 @@ pub async fn handle_clmm(
         return;
     };
 
-    let (mint_a_ix, add_mint_a) =
-        get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone()).await;
-    let (mint_b_ix, add_mint_b) =
-        get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone()).await;
+    let (mint_a_ix, add_mint_a) = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone());
+    let (mint_b_ix, add_mint_b) = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone());
 
-    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey);
 
     if add_mint_a || add_mint_b || edges.is_none() {
         let (new_relation, new_relation_rev) = match params {
@@ -285,8 +283,7 @@ pub async fn handle_clmm(
             new_relation_rev,
             pool_pubkey,
             time,
-        )
-        .await;
+        );
 
         match new_edges_res {
             Ok(_) => {}
@@ -304,16 +301,16 @@ pub async fn handle_clmm(
             return;
         };
 
-        log::trace!("Getting graph read lock");
-        let g_read = graph.read().await;
-        log::trace!("Got graph read lock");
+        let g_read = graph.read().expect("Graph read lock poisoned");
+
         let weight = g_read.edge_weight(relation).unwrap();
         let weight_rev = g_read.edge_weight(relation_rev).unwrap();
 
         {
-            log::trace!("Getting inner relation write lock");
-            let mut w_write = weight.inner_relation.write().await;
-            log::trace!("Got inner relation write lock");
+            let mut w_write = weight
+                .inner_relation
+                .write()
+                .expect("Inner relation write lock poisoned");
 
             let LiqRelation::Clmm {
                 ref mut amt_origin,
@@ -376,9 +373,10 @@ pub async fn handle_clmm(
         }
 
         {
-            log::trace!("Getting inner relation write lock");
-            let mut w_rev_write = weight_rev.inner_relation.write().await;
-            log::trace!("Got inner relation write lock");
+            let mut w_rev_write = weight_rev
+                .inner_relation
+                .write()
+                .expect("Inner relation write lock poisoned");
 
             let LiqRelation::Clmm {
                 amt_origin: ref mut amt_origin_rev,
@@ -475,26 +473,38 @@ mod tests {
                 },
             ],
         };
-        state.lp_cache.write().await.insert(pool_id.to_string(), lp);
+        state
+            .lp_cache
+            .write()
+            .expect("LP cache write lock poisoned")
+            .insert(pool_id.to_string(), lp);
 
-        state.token_balance_cache.write().await.insert(
-            "6j9UtMmzmWuLu45XXmdUXN3NJBdiicxxoBEex8jUs3j6".to_string(),
-            Some(9086579393165u64.into()),
-        );
-        state.token_balance_cache.write().await.insert(
-            "5Sokmb48nt8aH8TnnkrAcVea4SdRqGU3qTxhRFvTHJyn".to_string(),
-            Some(10945387511691u64.into()),
-        );
+        state
+            .token_balance_cache
+            .write()
+            .expect("Token balance cache write lock poisoned")
+            .insert(
+                "6j9UtMmzmWuLu45XXmdUXN3NJBdiicxxoBEex8jUs3j6".to_string(),
+                Some(9086579393165u64.into()),
+            );
+        state
+            .token_balance_cache
+            .write()
+            .expect("Token balance cache write lock poisoned")
+            .insert(
+                "5Sokmb48nt8aH8TnnkrAcVea4SdRqGU3qTxhRFvTHJyn".to_string(),
+                Some(10945387511691u64.into()),
+            );
 
         state
             .decimal_cache
             .write()
-            .await
+            .expect("Decimal cache write lock poisoned")
             .insert(mint_a.to_string(), 6);
         state
             .decimal_cache
             .write()
-            .await
+            .expect("Decimal cache write lock poisoned")
             .insert(mint_b.to_string(), 6);
 
         let dooot = Dooot::ClmmGlobal(ClmmGlobalDooot {
@@ -517,12 +527,10 @@ mod tests {
             state.token_balance_cache,
             state.calculator_sender,
             state.bootstrap_in_progress,
-        )
-        .await;
+        );
 
-        let relation = get_edge_by_discriminant(false, state.edge_indicies.clone(), pool_id).await;
-        let relation_rev =
-            get_edge_by_discriminant(true, state.edge_indicies.clone(), pool_id).await;
+        let relation = get_edge_by_discriminant(false, state.edge_indicies.clone(), pool_id);
+        let relation_rev = get_edge_by_discriminant(true, state.edge_indicies.clone(), pool_id);
 
         assert!(relation.is_some());
         assert!(relation_rev.is_some());

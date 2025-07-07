@@ -2,34 +2,39 @@ use anyhow::{anyhow, Result};
 use chrono::Utc;
 use itertools::Itertools;
 use rust_decimal::Decimal;
-use std::collections::{HashSet, VecDeque};
+use std::{
+    collections::{HashSet, VecDeque},
+    time::Instant,
+};
 
 use petgraph::{
     graph::{EdgeIndex, NodeIndex},
     visit::EdgeRef,
     Direction,
 };
+use std::sync::mpsc::SyncSender;
 use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
-use tokio::sync::mpsc::Sender;
 use veritas_sdk::{
     ppl_graph::{graph::USDPriceWithSource, structs::LiqAmount, utils::get_price_by_node_idx},
     types::MintPricingGraph,
     utils::checked_math::{clamp_to_scale, is_significant_change},
 };
 
-pub async fn bfs_recalculate(
+pub fn bfs_recalculate(
     graph: &MintPricingGraph,
     start: NodeIndex,
     visited_nodes: &mut HashSet<NodeIndex>,
-    dooot_tx: Sender<Dooot>,
+    dooot_tx: SyncSender<Dooot>,
     oracle_mint_set: &HashSet<String>,
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
     update_nodes: bool,
 ) -> Result<()> {
+    let now = Instant::now();
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
+    let mut price_updates = Vec::with_capacity(graph.node_count());
 
     while !queue.is_empty() {
         let Some(node) = queue.pop_front() else {
@@ -49,44 +54,13 @@ pub async fn bfs_recalculate(
 
         // Don't calc this token if it's an oracle
         if !is_oracle {
-            log::trace!("Getting total weighted price for {mint}");
             let Some(new_price) =
-                get_total_weighted_price(graph, node, sol_index, max_price_impact).await
+                get_total_weighted_price(graph, node, sol_index, max_price_impact)
             else {
-                log::trace!("Failed to calculate price for {mint}");
                 continue;
             };
 
-            log::debug!("Calculated price of {mint}: {new_price}");
-
-            if update_nodes {
-                log::trace!("Getting price write lock for price calc");
-                let mut price_mut = node_weight.usd_price.write().await;
-                log::trace!("Got price write lock for price calc");
-                if let Some(old_price) = price_mut.as_ref() {
-                    let old_price = old_price.extract_price();
-
-                    if !is_significant_change(old_price, &new_price) {
-                        continue;
-                    }
-                }
-
-                price_mut.replace(USDPriceWithSource::Relation(new_price));
-                log::trace!("Replaced price for price calc");
-            }
-
-            let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-                mint: mint.to_owned(),
-                price_usd: new_price,
-                time: Utc::now().naive_utc(),
-            });
-
-            log::trace!("Sending price calc Dooot");
-            dooot_tx
-                .send(dooot)
-                .await
-                .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
-            log::trace!("Sent price calc Dooot");
+            price_updates.push((node, mint.clone(), new_price));
         } else if !is_start {
             // Stop at oracles when travering throughout the graph, but allow us to at least start at one
             continue;
@@ -103,10 +77,48 @@ pub async fn bfs_recalculate(
         }
     }
 
+    if update_nodes {
+        let update_time = Utc::now().naive_utc();
+
+        for (node, mint, new_price) in price_updates {
+            let Some(node_weight) = graph.node_weight(node) else {
+                log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
+                return Ok(());
+            };
+
+            let should_update = node_weight
+                .usd_price
+                .read()
+                .expect("Node Price lock poisoned")
+                .as_ref()
+                .map(|p| is_significant_change(p.extract_price(), &new_price))
+                .unwrap_or(true);
+
+            if should_update {
+                node_weight
+                    .usd_price
+                    .write()
+                    .expect("Node price lock poisoned")
+                    .replace(USDPriceWithSource::Relation(new_price));
+
+                let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                    mint,
+                    price_usd: new_price,
+                    time: update_time,
+                });
+
+                dooot_tx
+                    .send(dooot)
+                    .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
+            }
+        }
+    }
+
+    log::info!("BFS Recalc Took {:?}", now.elapsed());
     Ok(())
 }
 
-pub async fn get_total_weighted_price(
+pub fn get_total_weighted_price(
     graph: &MintPricingGraph,
     this_node: NodeIndex,
     sol_index: &Option<Decimal>,
@@ -119,7 +131,10 @@ pub async fn get_total_weighted_price(
             log::error!("UNREACHABLE - This node should always exist");
             return None;
         };
-        *this_node_weight.cached_fixed_relation.read().await
+        *this_node_weight
+            .cached_fixed_relation
+            .read()
+            .expect("Cached fixed relation read lock poisoned")
     };
 
     if let Some(cached_fixed_relation) = cached_fixed_relation {
@@ -128,15 +143,18 @@ pub async fn get_total_weighted_price(
             return None;
         };
 
-        let origin_price = get_price_by_node_idx(graph, origin).await?;
+        let origin_price = get_price_by_node_idx(graph, origin)?;
 
         let Some(edge_weight) = graph.edge_weight(cached_fixed_relation) else {
             log::error!("UNREACHABLE - Cached fixed relation should always exist");
             return None;
         };
 
-        let relation = edge_weight.inner_relation.read().await;
-        let price = relation.get_price(origin_price, graph).await?;
+        let relation = edge_weight
+            .inner_relation
+            .read()
+            .expect("Inner relation read lock poisoned");
+        let price = relation.get_price(origin_price, graph)?;
 
         return Some(price);
     }
@@ -148,13 +166,16 @@ pub async fn get_total_weighted_price(
     };
 
     {
-        let non_vertex_relations = this_node_weight.non_vertex_relations.read().await;
+        let non_vertex_relations = this_node_weight
+            .non_vertex_relations
+            .read()
+            .expect("Non vertex relations read lock poisoned");
         for (_, relation) in non_vertex_relations.iter() {
-            let relation = relation.read().await;
+            let relation = relation.read().expect("Relation read lock poisoned");
 
             // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
             let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
-            let derived_price = relation.get_price(Decimal::ZERO, graph).await;
+            let derived_price = relation.get_price(Decimal::ZERO, graph);
 
             match liquidity_amount {
                 Some(amt) => match amt {
@@ -180,24 +201,8 @@ pub async fn get_total_weighted_price(
         .neighbors_directed(this_node, Direction::Incoming)
         .unique()
     {
-        let neighbor_mint = {
-            let Some(neighbor_mint) = graph.node_weight(neighbor).map(|n| &n.mint) else {
-                log::error!("UNREACHABLE - Neighbor node should always exist");
-                continue;
-            };
-
-            neighbor_mint
-        };
-        log::trace!("Getting single weighted price from neighbor {neighbor_mint}");
-        let Some((weighted, liq, fixed_edge_id)) = get_single_wighted_price(
-            neighbor,
-            this_node,
-            graph,
-            sol_index,
-            max_price_impact,
-            neighbor_mint,
-        )
-        .await
+        let Some((weighted, liq, fixed_edge_id)) =
+            get_single_wighted_price(neighbor, this_node, graph, sol_index, max_price_impact)
         else {
             // Illiquid or price doesn't exist. Skip
             continue;
@@ -211,7 +216,10 @@ pub async fn get_total_weighted_price(
                 continue;
             };
 
-            let mut this_node_weight_mut = this_node_weight.cached_fixed_relation.write().await;
+            let mut this_node_weight_mut = this_node_weight
+                .cached_fixed_relation
+                .write()
+                .expect("Cached fixed relation write lock poisoned");
             if this_node_weight_mut.is_none() {
                 this_node_weight_mut.replace(edge_id);
             }
@@ -243,15 +251,14 @@ pub async fn get_total_weighted_price(
 /// # Returns (weighted_price, total_liquidity, edge_id if fixed)
 ///
 /// ## `total_liquidity` is denominated in **`token_a_units`**
-pub async fn get_single_wighted_price(
+pub fn get_single_wighted_price(
     a: NodeIndex,
     b: NodeIndex,
     graph: &MintPricingGraph,
     sol_index: &Option<Decimal>,
     max_price_impact: &Decimal,
-    neighbor_mint: &str,
 ) -> Option<(Decimal, LiqAmount, Option<EdgeIndex>)> {
-    let price_a = get_price_by_node_idx(graph, a).await?;
+    let price_a = get_price_by_node_idx(graph, a)?;
 
     let edges_iter = graph.edges_connecting(a, b);
 
@@ -261,7 +268,10 @@ pub async fn get_single_wighted_price(
     for edge in edges_iter {
         let e_read = edge.weight();
 
-        let relation = e_read.inner_relation.read().await;
+        let relation = e_read
+            .inner_relation
+            .read()
+            .expect("Inner relation read lock poisoned");
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
         let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
@@ -277,7 +287,7 @@ pub async fn get_single_wighted_price(
             }
             LiqAmount::Inf => {
                 return Some((
-                    relation.get_price(price_a, graph).await?,
+                    relation.get_price(price_a, graph)?,
                     LiqAmount::Inf,
                     Some(edge.id()),
                 ))
@@ -293,20 +303,18 @@ pub async fn get_single_wighted_price(
                 continue;
             };
 
-            log::trace!("Getting liq levels for {neighbor_mint}");
             let Some(liq_levels) = relation.get_liq_levels(tokens_a_per_sol) else {
                 // Math overflow in calc'ing liq levels.
                 // We can assume this to be illiquid if values got that high
                 continue;
             };
-            log::trace!("Got liq levels for {neighbor_mint}");
 
             if !liq_levels.acceptable(max_price_impact) {
                 continue;
             }
         }
 
-        let Some(price_b_usd) = relation.get_price(price_a, graph).await else {
+        let Some(price_b_usd) = relation.get_price(price_a, graph) else {
             continue;
         };
 
@@ -325,12 +333,15 @@ pub async fn get_single_wighted_price(
 
 #[cfg(test)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::{
+        collections::{HashMap, HashSet},
+        sync::RwLock,
+    };
 
     use chrono::Utc;
     use petgraph::Graph;
     use rust_decimal::{prelude::FromPrimitive, Decimal};
-    use tokio::sync::RwLock;
+    use step_ingestooor_sdk::dooot::Dooot;
     use veritas_sdk::{
         liq_relation::LiqRelation,
         ppl_graph::{
@@ -421,9 +432,7 @@ mod tests {
         let max_price_impact = Decimal::from_f64(0.25).unwrap();
 
         let (weighted, liq, _) =
-            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact, "USDC")
-                .await
-                .unwrap();
+            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact).unwrap();
 
         assert_eq!(
             weighted,
@@ -431,7 +440,7 @@ mod tests {
             "Single weighted price should be 3.5"
         );
 
-        let total = get_total_weighted_price(&graph, step_x, &None, &max_price_impact).await;
+        let total = get_total_weighted_price(&graph, step_x, &None, &max_price_impact);
         assert!(total.is_some());
         assert_eq!(
             total.unwrap(),
@@ -555,7 +564,7 @@ mod tests {
         );
 
         // Recalc the graph starting from token A (this should NOT calc token B!)
-        let (tx, _rx) = tokio::sync::mpsc::channel(100);
+        let (tx, _rx) = std::sync::mpsc::sync_channel::<Dooot>(100);
         let mut oracle_mint_set = HashSet::new();
         oracle_mint_set.insert(oracle_token_mint);
 
@@ -571,11 +580,17 @@ mod tests {
             &max_price_impact,
             true,
         )
-        .await
         .unwrap();
 
         let b_node = graph.node_weight(test_token_b).unwrap();
-        let price_exists = { b_node.usd_price.read().await.as_ref().is_some() };
+        let price_exists = {
+            b_node
+                .usd_price
+                .read()
+                .expect("Price read lock poisoned")
+                .as_ref()
+                .is_some()
+        };
 
         assert!(
             !price_exists,

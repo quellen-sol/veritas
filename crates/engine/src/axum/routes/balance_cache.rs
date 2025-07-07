@@ -24,7 +24,10 @@ pub async fn get_balance_cache_token(
 ) -> Result<Json<BalanceCacheResponse>, StatusCode> {
     let token = params.get("mint").ok_or(StatusCode::BAD_REQUEST)?;
 
-    let token_balance_cache = state.token_balance_cache.read().await;
+    let token_balance_cache = state
+        .token_balance_cache
+        .read()
+        .expect("Token balance cache read lock poisoned");
     let balance = token_balance_cache.get(token).cloned();
 
     let resp = match balance {

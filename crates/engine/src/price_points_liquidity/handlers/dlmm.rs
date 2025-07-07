@@ -1,14 +1,11 @@
 use std::{
     collections::HashMap,
-    sync::{atomic::AtomicBool, Arc},
+    sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock},
 };
 
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{DlmmGlobalDooot, LPInfoUnderlyingMintVault};
-use tokio::{
-    sync::{mpsc::Sender, RwLock},
-    time::Instant,
-};
+use tokio::time::Instant;
 use veritas_sdk::{
     liq_relation::{relations::dlmm::DlmmBinParsed, LiqRelation},
     types::{EdgeIndiciesMap, MintIndiciesMap, WrappedMintPricingGraph},
@@ -29,16 +26,16 @@ use crate::{
 ///
 /// The edge from Y -> X is NOT the `reverse` relation, since Y is expected to price X in most cases.
 #[allow(clippy::unwrap_used)]
-pub async fn handle_dlmm(
+pub fn handle_dlmm(
     dooot: DlmmGlobalDooot,
     graph: WrappedMintPricingGraph,
     lp_cache: Arc<RwLock<LpCache>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
-    sender_arc: Sender<String>,
+    sender_arc: SyncSender<String>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
-    _calculator_sender: Sender<CalculatorUpdate>,
+    _calculator_sender: SyncSender<CalculatorUpdate>,
     _bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let now = Instant::now();
@@ -51,9 +48,8 @@ pub async fn handle_dlmm(
     } = &dooot;
 
     let pool_info = {
-        log::trace!("Getting lp cache read lock");
-        let lc_read = lp_cache.read().await;
-        log::trace!("Got lp cache read lock");
+        let lc_read = lp_cache.read().expect("LP cache read lock poisoned");
+
         let Some(lp) = lc_read.get(pool_pubkey).cloned() else {
             // log::warn!("LP NOT FOUND IN CACHE: {pool_pubkey}");
             return;
@@ -81,9 +77,9 @@ pub async fn handle_dlmm(
     } = underlyings_y;
 
     let (decimals_x, decimals_y) = {
-        log::trace!("Getting decimal cache read lock");
-        let dc_read = decimal_cache.read().await;
-        log::trace!("Got decimal cache read lock");
+        let dc_read = decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
 
         let Some(decimals_x) = get_or_dispatch_decimals(&sender_arc, &dc_read, mint_x) else {
             return;
@@ -106,9 +102,10 @@ pub async fn handle_dlmm(
 
     let (x_balance, y_balance) = {
         let (x_bal_cache_op, y_bal_cache_op) = {
-            log::trace!("Getting token balance cache read lock");
-            let tbc_read = token_balance_cache.read().await;
-            log::trace!("Got token balance cache read lock");
+            let tbc_read = token_balance_cache
+                .read()
+                .expect("Token balance cache read lock poisoned");
+
             (
                 tbc_read.get(vault_x).cloned(),
                 tbc_read.get(vault_y).cloned(),
@@ -124,9 +121,10 @@ pub async fn handle_dlmm(
             (x_vault_balance, y_vault_balance)
         } else {
             // One or more balance is missing, need to dispatch to cache that we're looking for this token account
-            log::trace!("Getting token balance cache write lock");
-            let mut tbc_write = token_balance_cache.write().await;
-            log::trace!("Got token balance cache write lock");
+
+            let mut tbc_write = token_balance_cache
+                .write()
+                .expect("Token balance cache write lock poisoned");
 
             if x_bal_cache_op.is_none() {
                 tbc_write.insert(vault_x.clone(), None);
@@ -149,12 +147,10 @@ pub async fn handle_dlmm(
         return;
     };
 
-    let (mint_x_ix, add_mint_x) =
-        get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone()).await;
-    let (mint_y_ix, add_mint_y) =
-        get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone()).await;
+    let (mint_x_ix, add_mint_x) = get_or_add_mint_ix(mint_x, graph.clone(), mint_indicies.clone());
+    let (mint_y_ix, add_mint_y) = get_or_add_mint_ix(mint_y, graph.clone(), mint_indicies.clone());
 
-    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey).await;
+    let edges = get_two_way_edges_by_discriminant(edge_indicies.clone(), pool_pubkey);
 
     if add_mint_x || add_mint_y || edges.is_none() {
         let mut bins_by_account = HashMap::new();
@@ -191,8 +187,7 @@ pub async fn handle_dlmm(
             new_relation_rev,
             pool_pubkey,
             *time,
-        )
-        .await;
+        );
 
         match new_edges_res {
             Ok(_) => {}
@@ -218,15 +213,16 @@ pub async fn handle_dlmm(
             .enumerate()
             .find(|(_ix, bin)| bin.token_amounts.iter().all(|amt| *amt > Decimal::ZERO));
 
-        log::trace!("Getting graph read lock");
-        let g_read = graph.read().await;
-        log::trace!("Got graph read lock");
+        let g_read = graph.read().expect("Graph read lock poisoned");
 
         {
             let weight = g_read.edge_weight(edge).unwrap();
-            log::trace!("Getting weight write lock");
-            let mut w_write = weight.inner_relation.write().await;
-            log::trace!("Got weight write lock");
+
+            let mut w_write = weight
+                .inner_relation
+                .write()
+                .expect("Inner relation write lock poisoned");
+
             let LiqRelation::Dlmm {
                 ref mut amt_origin,
                 ref mut amt_dest,
@@ -255,9 +251,11 @@ pub async fn handle_dlmm(
         {
             let weight_rev = g_read.edge_weight(edge_rev).unwrap();
 
-            log::trace!("Getting weight rev write lock");
-            let mut w_rev_write = weight_rev.inner_relation.write().await;
-            log::trace!("Got weight rev write lock");
+            let mut w_rev_write = weight_rev
+                .inner_relation
+                .write()
+                .expect("Inner relation write lock poisoned");
+
             let LiqRelation::Dlmm {
                 amt_origin: ref mut amt_origin_rev,
                 amt_dest: ref mut amt_dest_rev,

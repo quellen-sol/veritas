@@ -1,8 +1,7 @@
-use std::sync::Arc;
+use std::sync::{mpsc::SyncSender, Arc, RwLock};
 
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{CurveType, MintUnderlyingsGlobalDooot};
-use tokio::sync::{mpsc::Sender, RwLock};
 use veritas_sdk::{
     liq_relation::LiqRelation,
     types::{EdgeIndiciesMap, MintIndiciesMap, MintPricingGraph},
@@ -13,12 +12,12 @@ use crate::price_points_liquidity::task::{
     add_or_update_two_way_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
 };
 
-pub async fn handle_amm_lp(
+pub fn handle_amm_lp(
     mu_dooot: MintUnderlyingsGlobalDooot,
     lp_cache: Arc<RwLock<LpCache>>,
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
-    cache_updator_sender: Sender<String>,
+    cache_updator_sender: SyncSender<String>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
 ) {
@@ -33,9 +32,9 @@ pub async fn handle_amm_lp(
     let mint_b = &mints[1];
 
     let (decimals_a, decimals_b) = {
-        log::trace!("Getting decimal cache read lock");
-        let dc_read = decimal_cache.read().await;
-        log::trace!("Got decimal cache read lock");
+        let dc_read = decimal_cache
+            .read()
+            .expect("Decimal cache read lock poisoned");
 
         let Some(decimals_a) = get_or_dispatch_decimals(&cache_updator_sender, &dc_read, mint_a)
         else {
@@ -49,12 +48,8 @@ pub async fn handle_amm_lp(
         (decimals_a, decimals_b)
     };
 
-    let mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone())
-        .await
-        .0;
-    let mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone())
-        .await
-        .0;
+    let mint_a_ix = get_or_add_mint_ix(mint_a, graph.clone(), mint_indicies.clone()).0;
+    let mint_b_ix = get_or_add_mint_ix(mint_b, graph.clone(), mint_indicies.clone()).0;
 
     let Some(relation) = build_mu_relation(
         &mu_dooot,
@@ -64,9 +59,7 @@ pub async fn handle_amm_lp(
         mint_b,
         decimals_a,
         decimals_b,
-    )
-    .await
-    else {
+    ) else {
         return;
     };
 
@@ -81,9 +74,7 @@ pub async fn handle_amm_lp(
         relation_rev,
         parent_mint,
         *time,
-    )
-    .await
-    {
+    ) {
         Ok(_) => {}
         Err(e) => {
             log::error!("Error adding or updating relation edge for {mint_a} -> {mint_b}: {e}");
@@ -91,7 +82,7 @@ pub async fn handle_amm_lp(
     };
 }
 
-async fn build_mu_relation(
+fn build_mu_relation(
     mu_dooot: &MintUnderlyingsGlobalDooot,
     lp_cache: Arc<RwLock<LpCache>>,
     discriminant_id: &str,
@@ -100,14 +91,12 @@ async fn build_mu_relation(
     decimals_a: u8,
     decimals_b: u8,
 ) -> Option<LiqRelation> {
-    log::trace!("Getting lp cache read lock");
     let curve_type = lp_cache
         .read()
-        .await
+        .expect("LP cache read lock poisoned")
         .get(discriminant_id)
         .cloned()?
         .curve_type;
-    log::trace!("Got lp cache read lock");
 
     match curve_type {
         CurveType::ConstantProduct => {
