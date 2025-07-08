@@ -173,6 +173,7 @@ async fn main() -> Result<()> {
         paused_ingestion.clone(),
         paused_calculation.clone(),
         oracle_mint_set.clone(),
+        dooot_publisher_tx.clone(),
     );
 
     let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
