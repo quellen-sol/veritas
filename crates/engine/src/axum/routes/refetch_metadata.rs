@@ -14,5 +14,13 @@ pub async fn refetch_metadata(
     State(state): State<Arc<VeritasServerState>>,
     Json(body): Json<RefetchMetadataBody>,
 ) -> StatusCode {
+    let mints = body.mints;
+
+    let client = reqwest::Client::new();
+    let mut futures_v = Vec::new();
+    for mint in mints {
+        
+    }
+
     StatusCode::OK
 }

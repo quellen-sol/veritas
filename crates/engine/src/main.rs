@@ -69,6 +69,9 @@ pub struct Args {
 
     #[clap(long, env, default_value = "0.25")]
     pub max_price_impact: f64,
+
+    #[clap(long, env)]
+    pub ipfs_url: Option<String>,
 }
 
 #[derive(Parser)]
@@ -109,6 +112,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    let step_utils = StepUtils
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let sol_price_index = Arc::new(RwLock::new(None));
     let paused_ingestion = Arc::new(AtomicBool::new(false));
