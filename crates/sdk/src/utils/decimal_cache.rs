@@ -12,7 +12,10 @@ pub struct MintDecimals {
     pub decimals: Option<u8>,
 }
 
-pub async fn build_decimal_cache(clickhouse_client: &clickhouse::Client) -> Result<DecimalCache> {
+pub async fn build_decimal_cache(clickhouse_client: &clickhouse::Client, skip_preloads: bool) -> Result<DecimalCache> {
+    if skip_preloads {
+        return Ok(DecimalCache::new());
+    }
     log::info!("Building decimal cache...");
     // Allow for 100M mints
     let mut decimal_cache = DecimalCache::with_capacity(100_000_000);

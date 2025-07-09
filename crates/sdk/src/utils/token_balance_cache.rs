@@ -13,7 +13,10 @@ pub struct TokenBalanceRow {
     pub balance: u64,
 }
 
-pub async fn build_token_balance_cache(client: &Client) -> Result<TokenBalanceCache> {
+pub async fn build_token_balance_cache(client: &Client, skip_preloads: bool) -> Result<TokenBalanceCache> {
+    if skip_preloads {
+        return Ok(TokenBalanceCache::new());
+    }
     log::info!("Building token balance cache...");
 
     let query = "

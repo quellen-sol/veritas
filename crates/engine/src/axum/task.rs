@@ -41,6 +41,7 @@ pub struct VeritasServerState {
     pub oracle_mint_set: HashSet<String>,
     pub dooot_publisher_sender: SyncSender<Dooot>,
     pub step_utils: StepUtils,
+    pub clickhouse_client: clickhouse::Client,
 }
 
 pub fn spawn_axum_server(
@@ -57,6 +58,7 @@ pub fn spawn_axum_server(
     oracle_mint_set: HashSet<String>,
     dooot_publisher_sender: SyncSender<Dooot>,
     step_utils: StepUtils,
+    clickhouse_client: clickhouse::Client,
 ) -> JoinHandle<()> {
     spawn_task_as_thread(
         #[allow(clippy::unwrap_used)]
@@ -75,6 +77,7 @@ pub fn spawn_axum_server(
                 oracle_mint_set,
                 dooot_publisher_sender,
                 step_utils,
+                clickhouse_client,
             });
 
             let app = Router::new()
