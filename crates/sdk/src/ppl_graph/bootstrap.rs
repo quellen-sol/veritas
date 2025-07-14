@@ -152,6 +152,10 @@ impl From<ClmmTickBootstrapRow> for Dooot {
 }
 
 const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
+    WITH excluded_programs AS (
+        SELECT
+            arrayJoin(arrayMap(x -> base58Decode(x), ['SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr'])) as excluded_program
+    )
     SELECT
         time,
         base58Encode(mint_pubkey) as mint,
@@ -162,6 +166,7 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
     FROM current_mint_underlyings_global_by_mint FINAL
     WHERE time > now() - 86400
     AND length(mints) > 1
+    AND platform_program_pubkey NOT IN (SELECT excluded_program FROM excluded_programs)
 ";
 
 /// Grabs all MUs that only have one underlying, since that price is fixed by a contract and
