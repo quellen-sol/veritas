@@ -174,7 +174,7 @@ impl AMQPManager {
                     channel
                         .basic_publish(
                             &dooot_exchange,
-                            &routing_key,
+                            routing_key,
                             BasicPublishOptions::default(),
                             &payload,
                             BasicProperties::default(),

@@ -7,6 +7,7 @@ use anyhow::Result;
 use axum::{extract::State, http::StatusCode, Json};
 use chrono::Utc;
 use clickhouse::Row;
+use futures::{stream::FuturesUnordered, StreamExt};
 use serde::Deserialize;
 use step_ingestooor_sdk::{
     dooot::{Dooot, MintInfoDooot},
@@ -20,7 +21,7 @@ pub struct RefetchMetadataBody {
     pub mints: Vec<String>,
 }
 
-#[derive(Deserialize, Row)]
+#[derive(Deserialize, Row, Debug)]
 pub struct FetchTokensResp {
     pub mint: String,
     pub metadata_uri: Option<String>,
@@ -57,7 +58,7 @@ pub async fn refetch_metadata(
     let mints = body.mints;
 
     let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
+        .timeout(Duration::from_secs(5))
         .build()
         .map_err(|e| {
             log::error!("Failed to build reqwest client {e:?}");
@@ -67,7 +68,7 @@ pub async fn refetch_metadata(
     let clickhouse = state.clickhouse_client.clone();
     let dooot_sender = state.dooot_publisher_sender.clone();
 
-    match refetch_metadata_for_mint(&mints, &state.step_utils, client, clickhouse, dooot_sender)
+    match refetch_metadata_for_mints(&mints, &state.step_utils, client, clickhouse, dooot_sender)
         .await
     {
         Ok(_) => Ok(StatusCode::OK),
@@ -78,7 +79,7 @@ pub async fn refetch_metadata(
     }
 }
 
-pub async fn refetch_metadata_for_mint(
+pub async fn refetch_metadata_for_mints(
     mints: &[String],
     step_utils: &StepUtils,
     client: reqwest::Client,
@@ -89,22 +90,23 @@ pub async fn refetch_metadata_for_mint(
     let res = clickhouse
         .query(
             "
-                WITH decoded_mints AS (
-                    SELECT arrayJoin(arrayMap(x -> base58Decode(x), ?)) AS mint_pk
+                WITH mints AS (
+                    SELECT arrayJoin(?) AS mint
                 )
                 SELECT
-                    base58Encode(mint_pk) AS mint,
+                    mint,
                     fnSF_getTokenMetadataUri(mint) as metadata_uri
-                FROM decoded_mints
+                FROM mints
             ",
         )
         .bind(mints)
         .fetch_all::<FetchTokensResp>()
         .await?;
 
-    let mut futs = Vec::new();
+    let mut futs = FuturesUnordered::new();
 
     for token in res {
+        log::info!("{token:?}");
         let Some(uri) = token.metadata_uri else {
             // TODO: Fetch from onchain
             log::info!("No meta uri for {}", token.mint);
@@ -118,6 +120,11 @@ pub async fn refetch_metadata_for_mint(
 
         let new_uri = step_utils.transform_ipfs_url(&uri).unwrap_or(uri);
 
+        if reqwest::Url::parse(&new_uri).is_err() {
+            log::info!("Bad url for {}: {new_uri}", token.mint);
+            continue;
+        }
+
         let client = client.clone();
         let fut = async move {
             let resp = client.get(new_uri).send().await;
@@ -127,11 +134,9 @@ pub async fn refetch_metadata_for_mint(
         futs.push(fut);
     }
 
-    let final_all = futures::future::join_all(futs).await;
-
     let time = Utc::now().naive_utc();
 
-    for (mint, res) in final_all {
+    while let Some((mint, res)) = futs.next().await {
         let res = match res {
             Ok(res) => res,
             Err(e) => {
@@ -149,7 +154,7 @@ pub async fn refetch_metadata_for_mint(
             continue;
         };
 
-        dooot_sender.send(Dooot::MintInfo(MintInfoDooot {
+        let dooot = Dooot::MintInfo(MintInfoDooot {
             time,
             mint,
             description: meta.description,
@@ -158,7 +163,11 @@ pub async fn refetch_metadata_for_mint(
             name: meta.name,
             symbol: meta.symbol,
             ..Default::default()
-        }))?;
+        });
+
+        log::info!("{dooot:?}");
+
+        dooot_sender.send(dooot)?;
     }
 
     Ok(())

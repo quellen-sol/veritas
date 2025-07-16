@@ -22,7 +22,10 @@ pub struct LiquidityPoolRow {
     pub curve_type: u16,
 }
 
-pub async fn build_lp_cache(clickhouse_client: &clickhouse::Client, skip_preloads: bool) -> Result<LpCache> {
+pub async fn build_lp_cache(
+    clickhouse_client: &clickhouse::Client,
+    skip_preloads: bool,
+) -> Result<LpCache> {
     if skip_preloads {
         return Ok(LpCache::new());
     }

@@ -155,7 +155,8 @@ async fn main() -> Result<()> {
     let decimal_cache = build_decimal_cache(&clickhouse_client, args.skip_preloads).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
-    let token_balance_cache = build_token_balance_cache(&clickhouse_client, args.skip_preloads).await?;
+    let token_balance_cache =
+        build_token_balance_cache(&clickhouse_client, args.skip_preloads).await?;
     let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
 
     let max_price_impact =
