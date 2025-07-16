@@ -27,7 +27,7 @@ pub async fn force_recalc(
         .and_then(|p| p.start_mint.clone())
         .unwrap_or(WSOL_MINT.to_string());
 
-    let g_read = state.graph.read().expect("Graph read lock poisoned");
+    let g_read = state.graph.write().expect("Graph read lock poisoned");
 
     let sol_ix = *state
         .mint_indicies

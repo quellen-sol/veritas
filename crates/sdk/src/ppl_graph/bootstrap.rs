@@ -152,6 +152,10 @@ impl From<ClmmTickBootstrapRow> for Dooot {
 }
 
 const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
+    WITH excluded_programs AS (
+        SELECT
+            arrayJoin(arrayMap(x -> base58Decode(x), ['SSwapUtytfBdBn1b9NUGG6foMVPtcWgpRU32HToDUZr'])) as excluded_program
+    )
     SELECT
         time,
         base58Encode(mint_pubkey) as mint,
@@ -161,6 +165,22 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
         total_underlying_amounts
     FROM current_mint_underlyings_global_by_mint FINAL
     WHERE time > now() - 86400
+    AND length(mints) > 1
+    AND platform_program_pubkey NOT IN (SELECT excluded_program FROM excluded_programs)
+";
+
+/// Grabs all MUs that only have one underlying, since that price is fixed by a contract and
+/// should not be considered "old" (e.g. sphSOL missing price, but it is still completely valid, despite no activity)
+const MINT_UNDERLYINGS_FIXED_RELATIONS_QUERY: &str = "
+    SELECT
+        time,
+        base58Encode(mint_pubkey) as mint,
+        base58Encode(platform_program_pubkey) as platform_program_pubkey,
+        arrayMap(x -> base58Encode(x), mints) as mints,
+        mints_qty_per_one_parent,
+        total_underlying_amounts
+    FROM current_mint_underlyings_global_by_mint FINAL
+    WHERE length(mints) = 1
 ";
 
 const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
@@ -209,6 +229,14 @@ pub async fn bootstrap_graph(
     load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
         MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY,
         "MintUnderlyingsGlobal",
+        clickhouse_client.clone(),
+        dooot_tx.clone(),
+    )
+    .await?;
+
+    load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
+        MINT_UNDERLYINGS_FIXED_RELATIONS_QUERY,
+        "MintUnderlyingsGlobal Fixed Relations",
         clickhouse_client.clone(),
         dooot_tx.clone(),
     )
