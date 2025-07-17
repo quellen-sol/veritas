@@ -170,7 +170,7 @@ impl AMQPManager {
                     }
                     let routing_key = dooot.get_dooot_name();
 
-                    let payload = serde_json::to_string(&dooot).unwrap().into_bytes();
+                    let payload = serde_json::to_vec(&dooot).unwrap();
                     channel
                         .basic_publish(
                             &dooot_exchange,

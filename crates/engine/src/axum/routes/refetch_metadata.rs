@@ -36,7 +36,7 @@ pub struct MetaplexJSONMetadata {
 }
 
 impl MetaplexJSONMetadata {
-    pub fn as_trimmed(self) -> Self {
+    pub fn trimmed(self) -> Self {
         MetaplexJSONMetadata {
             name: self.name.as_ref().map(|s| trim_padding_bytes(s)),
             symbol: self.symbol.as_ref().map(|s| trim_padding_bytes(s)),
@@ -148,7 +148,7 @@ pub async fn refetch_metadata_for_mints(
         let Ok(meta) = res
             .json::<MetaplexJSONMetadata>()
             .await
-            .map(|b| b.as_trimmed())
+            .map(|b| b.trimmed())
         else {
             log::error!("Failed to fetch metadata for {mint}");
             continue;
