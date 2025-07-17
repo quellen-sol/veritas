@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::{
     collections::{HashSet, VecDeque},
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use petgraph::{
@@ -54,13 +54,14 @@ pub fn bfs_recalculate(
 
         // Don't calc this token if it's an oracle
         if !is_oracle {
-            let Some(new_price) =
-                get_total_weighted_price(graph, node, sol_index, max_price_impact)
-            else {
+            let now = Instant::now();
+            let new_price_res = get_total_weighted_price(graph, node, sol_index, max_price_impact);
+            let Some(new_price) = new_price_res else {
                 continue;
             };
+            let elapsed = now.elapsed();
 
-            price_updates.push((node, mint.clone(), new_price));
+            price_updates.push((node, mint.clone(), new_price, elapsed));
         } else if !is_start {
             // Stop at oracles when travering throughout the graph, but allow us to at least start at one
             continue;
@@ -80,11 +81,17 @@ pub fn bfs_recalculate(
     if update_nodes {
         let update_time = Utc::now().naive_utc();
 
-        for (node, mint, new_price) in price_updates {
+        // TODO: Don't do it this way, do updates as we move along the graph
+        for (node, mint, new_price, calc_duration) in price_updates {
             let Some(node_weight) = graph.node_weight(node) else {
                 log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
                 return Ok(());
             };
+
+            // `from_millis` is const, gucci
+            if calc_duration > Duration::from_millis(10) {
+                log::warn!("{mint} took a long time to calculate: {calc_duration:?}");
+            }
 
             let should_update = node_weight
                 .usd_price
