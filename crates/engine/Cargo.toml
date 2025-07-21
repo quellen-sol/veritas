@@ -34,3 +34,4 @@ chrono = { workspace = true }
 bs58 = { workspace = true }
 axum = { workspace = true }
 itertools = { workspace = true }
+reqwest = { workspace = true }

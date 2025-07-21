@@ -36,6 +36,7 @@ bs58 = "0.5.1"
 axum = "0.8.1"
 itertools = "0.14.0"
 primitive-types = "0.13.1"
+reqwest = "0.12.22"
 
 [patch.crates-io]
 solana-cost-model = { git = 'https://github.com/step-finance/agave', rev = "9bd691f78d3e1a9c281a52e5358a5850b7372cca" }
