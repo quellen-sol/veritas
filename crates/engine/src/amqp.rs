@@ -17,7 +17,7 @@ use lapin::{
     types::{AMQPValue, FieldTable},
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
-use step_ingestooor_sdk::dooot::Dooot;
+use step_ingestooor_sdk::dooot::{Dooot, DoootTrait};
 use veritas_sdk::utils::r#async::spawn_task_as_thread;
 pub struct AMQPManager {
     channel: Channel,
@@ -168,12 +168,13 @@ impl AMQPManager {
                     if !db_writes {
                         continue;
                     }
+                    let routing_key = dooot.get_dooot_name();
 
-                    let payload = serde_json::to_string(&dooot).unwrap().into_bytes();
+                    let payload = serde_json::to_vec(&dooot).unwrap();
                     channel
                         .basic_publish(
                             &dooot_exchange,
-                            "TokenPriceGlobal",
+                            routing_key,
                             BasicPublishOptions::default(),
                             &payload,
                             BasicProperties::default(),
