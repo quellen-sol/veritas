@@ -79,6 +79,7 @@ pub fn bfs_recalculate(
     }
 
     if update_nodes {
+        let now = Instant::now();
         let update_time = Utc::now().naive_utc();
 
         // TODO: Don't do it this way, do updates as we move along the graph
@@ -89,7 +90,7 @@ pub fn bfs_recalculate(
             };
 
             // `from_millis` is const, gucci
-            if calc_duration > Duration::from_millis(10) {
+            if calc_duration > Duration::from_millis(1) {
                 log::warn!("{mint} took a long time to calculate: {calc_duration:?}");
             }
 
@@ -119,6 +120,8 @@ pub fn bfs_recalculate(
                     .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
             }
         }
+
+        log::info!("Sending dooots took {:?}", now.elapsed());
     }
 
     log::info!("BFS Recalc Took {:?}", now.elapsed());
