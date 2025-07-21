@@ -56,10 +56,16 @@ pub fn bfs_recalculate(
         if !is_oracle {
             let now = Instant::now();
             let new_price_res = get_total_weighted_price(graph, node, sol_index, max_price_impact);
+            let elapsed = now.elapsed();
+
+            // `from_millis` is const, gucci
+            if elapsed > Duration::from_millis(1) {
+                log::warn!("{mint} took a long time to calculate: {elapsed:?}");
+            }
+
             let Some(new_price) = new_price_res else {
                 continue;
             };
-            let elapsed = now.elapsed();
 
             price_updates.push((node, mint.clone(), new_price, elapsed));
         } else if !is_start {
@@ -83,16 +89,11 @@ pub fn bfs_recalculate(
         let update_time = Utc::now().naive_utc();
 
         // TODO: Don't do it this way, do updates as we move along the graph
-        for (node, mint, new_price, calc_duration) in price_updates {
+        for (node, mint, new_price, _) in price_updates {
             let Some(node_weight) = graph.node_weight(node) else {
                 log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
                 return Ok(());
             };
-
-            // `from_millis` is const, gucci
-            if calc_duration > Duration::from_millis(1) {
-                log::warn!("{mint} took a long time to calculate: {calc_duration:?}");
-            }
 
             let should_update = node_weight
                 .usd_price
