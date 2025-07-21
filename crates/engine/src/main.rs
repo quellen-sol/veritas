@@ -14,7 +14,7 @@ use ch_cache_updator::task::spawn_ch_cache_updator_tasks;
 use clap::Parser;
 use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
-use step_ingestooor_sdk::dooot::Dooot;
+use step_ingestooor_sdk::{dooot::Dooot, utils::step_utils::StepUtils};
 use veritas_sdk::{
     constants::ORACLE_FEED_MAP_PAIRS,
     ppl_graph::bootstrap::bootstrap_graph,
@@ -67,8 +67,14 @@ pub struct Args {
     #[clap(long, env, default_value = "false")]
     pub skip_bootstrap: bool,
 
+    #[clap(long, env, default_value = "false")]
+    pub skip_preloads: bool,
+
     #[clap(long, env, default_value = "0.25")]
     pub max_price_impact: f64,
+
+    #[clap(long, env)]
+    pub ipfs_url: Option<String>,
 }
 
 #[derive(Parser)]
@@ -109,6 +115,7 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
+    let step_utils = StepUtils::new(args.ipfs_url);
     let mint_price_graph = Arc::new(RwLock::new(MintPricingGraph::new()));
     let sol_price_index = Arc::new(RwLock::new(None));
     let paused_ingestion = Arc::new(AtomicBool::new(false));
@@ -142,13 +149,14 @@ async fn main() -> Result<()> {
         clickhouse_client.clone(),
     ));
 
-    let lp_cache = build_lp_cache(&clickhouse_client).await?;
+    let lp_cache = build_lp_cache(&clickhouse_client, args.skip_preloads).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
 
-    let decimal_cache = build_decimal_cache(&clickhouse_client).await?;
+    let decimal_cache = build_decimal_cache(&clickhouse_client, args.skip_preloads).await?;
     let decimal_cache = Arc::new(RwLock::new(decimal_cache));
 
-    let token_balance_cache = build_token_balance_cache(&clickhouse_client).await?;
+    let token_balance_cache =
+        build_token_balance_cache(&clickhouse_client, args.skip_preloads).await?;
     let token_balance_cache = Arc::new(RwLock::new(token_balance_cache));
 
     let max_price_impact =
@@ -158,47 +166,6 @@ async fn main() -> Result<()> {
         .iter()
         .map(|(_, v)| v.to_string())
         .collect::<HashSet<String>>();
-
-    // Start serving the axum server as early as possible
-    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
-    let axum_server_task = spawn_axum_server(
-        bootstrap_in_progress.clone(),
-        mint_price_graph.clone(),
-        mint_indicies.clone(),
-        sol_price_index.clone(),
-        lp_cache.clone(),
-        decimal_cache.clone(),
-        token_balance_cache.clone(),
-        max_price_impact,
-        paused_ingestion.clone(),
-        paused_calculation.clone(),
-        oracle_mint_set.clone(),
-    );
-
-    let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
-        ORACLE_FEED_MAP_PAIRS
-            .iter()
-            .map(|(k, v)| (k.to_string(), v.to_string()))
-            .collect::<HashMap<String, String>>(),
-    );
-
-    // Connect to amqp
-    let AMQPArgs {
-        amqp_url,
-        ingestooor_dooot_exchange,
-        amqp_debug_user,
-        amqp_prefetch,
-    } = args.amqp;
-    let amqp_manager = Arc::new(
-        AMQPManager::new(
-            amqp_url,
-            ingestooor_dooot_exchange,
-            amqp_debug_user,
-            amqp_prefetch,
-            args.enable_db_writes,
-        )
-        .await?,
-    );
 
     // CHANNELS for tasks
     log::info!("Creating channels with the following buffer sizes...");
@@ -226,6 +193,50 @@ async fn main() -> Result<()> {
         std::sync::mpsc::sync_channel::<CalculatorUpdate>(args.calculator_update_buffer_size);
     let (publish_dooot_tx, publish_dooot_rx) =
         std::sync::mpsc::sync_channel::<Dooot>(args.dooot_publisher_buffer_size);
+
+    // Start serving the axum server as early as possible
+    let bootstrap_in_progress = Arc::new(AtomicBool::new(true));
+    let axum_server_task = spawn_axum_server(
+        bootstrap_in_progress.clone(),
+        mint_price_graph.clone(),
+        mint_indicies.clone(),
+        sol_price_index.clone(),
+        lp_cache.clone(),
+        decimal_cache.clone(),
+        token_balance_cache.clone(),
+        max_price_impact,
+        paused_ingestion.clone(),
+        paused_calculation.clone(),
+        oracle_mint_set.clone(),
+        publish_dooot_tx.clone(),
+        step_utils,
+        clickhouse_client.clone(),
+    );
+
+    let oracle_feed_map: Arc<HashMap<String, String>> = Arc::new(
+        ORACLE_FEED_MAP_PAIRS
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect::<HashMap<String, String>>(),
+    );
+
+    // Connect to amqp
+    let AMQPArgs {
+        amqp_url,
+        ingestooor_dooot_exchange,
+        amqp_debug_user,
+        amqp_prefetch,
+    } = args.amqp;
+    let amqp_manager = Arc::new(
+        AMQPManager::new(
+            amqp_url,
+            ingestooor_dooot_exchange,
+            amqp_debug_user,
+            amqp_prefetch,
+            args.enable_db_writes,
+        )
+        .await?,
+    );
 
     // "DP" or "Dooot Publisher" Task
     let dooot_publisher_task = amqp_manager.spawn_dooot_publisher(publish_dooot_rx).await;
@@ -272,7 +283,7 @@ async fn main() -> Result<()> {
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
 
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
-    if !args.skip_bootstrap {
+    if !args.skip_bootstrap && !args.skip_preloads {
         let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
         bootstrap_graph(
             clickhouse_client.clone(),

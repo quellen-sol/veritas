@@ -1,6 +1,6 @@
 use std::{
     collections::HashSet,
-    sync::{atomic::AtomicBool, Arc, RwLock},
+    sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock},
     thread::JoinHandle,
 };
 
@@ -11,6 +11,7 @@ use axum::{
     Router,
 };
 use rust_decimal::Decimal;
+use step_ingestooor_sdk::{dooot::Dooot, utils::step_utils::StepUtils};
 use veritas_sdk::{
     types::{MintIndiciesMap, WrappedMintPricingGraph},
     utils::{
@@ -22,8 +23,8 @@ use veritas_sdk::{
 use crate::axum::routes::{
     balance_cache::get_balance_cache_token, debug_node::debug_node_info,
     decimal_cache::get_decimal_cache_token, diagnose::diagnose_node, force_recalc::force_recalc,
-    lp_cache::get_lp_cache_pool, node_info::get_node_info, stats::get_stats,
-    toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
+    lp_cache::get_lp_cache_pool, node_info::get_node_info, refetch_metadata::refetch_metadata,
+    stats::get_stats, toggle_calculation::toggle_calculation, toggle_ingestion::toggle_ingestion,
 };
 
 pub struct VeritasServerState {
@@ -38,6 +39,9 @@ pub struct VeritasServerState {
     pub paused_ingestion: Arc<AtomicBool>,
     pub paused_calculation: Arc<AtomicBool>,
     pub oracle_mint_set: HashSet<String>,
+    pub dooot_publisher_sender: SyncSender<Dooot>,
+    pub step_utils: StepUtils,
+    pub clickhouse_client: clickhouse::Client,
 }
 
 pub fn spawn_axum_server(
@@ -52,6 +56,9 @@ pub fn spawn_axum_server(
     paused_ingestion: Arc<AtomicBool>,
     paused_calculation: Arc<AtomicBool>,
     oracle_mint_set: HashSet<String>,
+    dooot_publisher_sender: SyncSender<Dooot>,
+    step_utils: StepUtils,
+    clickhouse_client: clickhouse::Client,
 ) -> JoinHandle<()> {
     spawn_task_as_thread(
         #[allow(clippy::unwrap_used)]
@@ -68,6 +75,9 @@ pub fn spawn_axum_server(
                 paused_ingestion,
                 paused_calculation,
                 oracle_mint_set,
+                dooot_publisher_sender,
+                step_utils,
+                clickhouse_client,
             });
 
             let app = Router::new()
@@ -82,6 +92,7 @@ pub fn spawn_axum_server(
                 .route("/force-recalc", post(force_recalc))
                 .route("/diagnose-mint", get(diagnose_node))
                 .route("/node-info", get(get_node_info))
+                .route("/refetch-metadata", post(refetch_metadata))
                 .with_state(state);
 
             let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
