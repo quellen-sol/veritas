@@ -4,7 +4,7 @@ use itertools::Itertools;
 use rust_decimal::Decimal;
 use std::{
     collections::{HashSet, VecDeque},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use petgraph::{
@@ -54,20 +54,20 @@ pub fn bfs_recalculate(
 
         // Don't calc this token if it's an oracle
         if !is_oracle {
-            let now = Instant::now();
+            // let now = Instant::now();
             let new_price_res = get_total_weighted_price(graph, node, sol_index, max_price_impact);
-            let elapsed = now.elapsed();
+            // let elapsed = now.elapsed();
 
-            // `from_millis` is const, gucci
-            if elapsed > Duration::from_millis(1) {
-                log::warn!("{mint} took a long time to calculate: {elapsed:?}");
-            }
+            // // `from_millis` is const, gucci
+            // if elapsed > Duration::from_millis(1) {
+            //     log::warn!("{mint} took a long time to calculate: {elapsed:?}");
+            // }
 
             let Some(new_price) = new_price_res else {
                 continue;
             };
 
-            price_updates.push((node, mint.clone(), new_price, elapsed));
+            price_updates.push((node, mint.clone(), new_price));
         } else if !is_start {
             // Stop at oracles when travering throughout the graph, but allow us to at least start at one
             continue;
@@ -85,11 +85,11 @@ pub fn bfs_recalculate(
     }
 
     if update_nodes {
-        let now = Instant::now();
+        // let now = Instant::now();
         let update_time = Utc::now().naive_utc();
 
         // TODO: Don't do it this way, do updates as we move along the graph
-        for (node, mint, new_price, _) in price_updates {
+        for (node, mint, new_price) in price_updates {
             let Some(node_weight) = graph.node_weight(node) else {
                 log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
                 return Ok(());
@@ -122,7 +122,7 @@ pub fn bfs_recalculate(
             }
         }
 
-        log::info!("Sending dooots took {:?}", now.elapsed());
+        // log::info!("Sending dooots took {:?}", now.elapsed());
     }
 
     log::info!("BFS Recalc Took {:?}", now.elapsed());
