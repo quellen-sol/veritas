@@ -54,9 +54,16 @@ pub fn bfs_recalculate(
 
         // Don't calc this token if it's an oracle
         if !is_oracle {
-            let Some(new_price) =
-                get_total_weighted_price(graph, node, sol_index, max_price_impact)
-            else {
+            // let now = Instant::now();
+            let new_price_res = get_total_weighted_price(graph, node, sol_index, max_price_impact);
+            // let elapsed = now.elapsed();
+
+            // // `from_millis` is const, gucci
+            // if elapsed > Duration::from_millis(1) {
+            //     log::warn!("{mint} took a long time to calculate: {elapsed:?}");
+            // }
+
+            let Some(new_price) = new_price_res else {
                 continue;
             };
 
@@ -78,8 +85,10 @@ pub fn bfs_recalculate(
     }
 
     if update_nodes {
+        // let now = Instant::now();
         let update_time = Utc::now().naive_utc();
 
+        // TODO: Don't do it this way, do updates as we move along the graph
         for (node, mint, new_price) in price_updates {
             let Some(node_weight) = graph.node_weight(node) else {
                 log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
@@ -112,6 +121,8 @@ pub fn bfs_recalculate(
                     .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
             }
         }
+
+        // log::info!("Sending dooots took {:?}", now.elapsed());
     }
 
     log::info!("BFS Recalc Took {:?}", now.elapsed());
