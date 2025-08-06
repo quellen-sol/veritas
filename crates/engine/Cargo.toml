@@ -14,7 +14,6 @@ workspace = true
 veritas-sdk = { path = "../sdk" }
 step-ingestooor-sdk = { workspace = true }
 solana-transaction-status = { workspace = true }
-solana-program = { workspace = true }
 solana-sdk = { workspace = true }
 solana-client = { workspace = true }
 lapin = { workspace = true }
