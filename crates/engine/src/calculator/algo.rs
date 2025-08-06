@@ -393,6 +393,7 @@ mod tests {
                     pool_id: "SomeMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -408,6 +409,7 @@ mod tests {
                     pool_id: "OtherMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -423,6 +425,7 @@ mod tests {
                     pool_id: "IlliquidMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -513,6 +516,7 @@ mod tests {
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN A (To be priced)
                     pool_id: "SomeMarket".into(),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
         graph.add_edge(
@@ -527,6 +531,7 @@ mod tests {
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
                     pool_id: "SomeMarket".into(),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -543,6 +548,7 @@ mod tests {
                     amt_dest: Decimal::from(10_000),    // 10k TOKEN B (To be priced)
                     pool_id: "SomeMarket".into(),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
         graph.add_edge(
@@ -557,6 +563,7 @@ mod tests {
                     amt_dest: Decimal::from(100_000),  // 100k ORACLE TOKEN @ $100
                     pool_id: "SomeMarket".into(),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 

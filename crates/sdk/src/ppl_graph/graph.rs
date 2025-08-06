@@ -39,6 +39,7 @@ pub struct MintEdge {
     pub dirty: bool,
     pub last_updated: RwLock<NaiveDateTime>,
     pub inner_relation: RwLock<LiqRelation>,
+    pub cached_price_and_liq: RwLock<Option<CachedPriceAndLiq>>,
 }
 
 #[cfg(feature = "debug-graph")]
@@ -46,6 +47,12 @@ impl Debug for MintEdge {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:.5}\n{:?}", self.id, self.inner_relation)
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CachedPriceAndLiq {
+    pub price: Decimal,
+    pub liq: Decimal,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

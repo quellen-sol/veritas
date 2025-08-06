@@ -355,6 +355,7 @@ pub fn add_or_update_two_way_relation_edge(
                 dirty: true,
                 last_updated: RwLock::new(time),
                 inner_relation: RwLock::new(update_with),
+                cached_price_and_liq: RwLock::new(None),
             };
 
             let new_edge_rev = MintEdge {
@@ -362,6 +363,7 @@ pub fn add_or_update_two_way_relation_edge(
                 dirty: true,
                 last_updated: RwLock::new(time),
                 inner_relation: RwLock::new(update_with_rev),
+                cached_price_and_liq: RwLock::new(None),
             };
 
             let (new_ix, new_ix_rev) = {
@@ -468,6 +470,7 @@ where
                     dirty: true,
                     last_updated: RwLock::new(time),
                     inner_relation: RwLock::new(update_with),
+                    cached_price_and_liq: RwLock::new(None),
                 };
 
                 let new_ix = edge.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge));
@@ -560,6 +563,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -573,6 +577,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -656,6 +661,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -669,6 +675,7 @@ mod tests {
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
