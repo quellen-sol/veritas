@@ -114,6 +114,7 @@ pub fn bfs_recalculate(
                     mint,
                     price_usd: new_price,
                     time: update_time,
+                    deleted: false,
                 });
 
                 dooot_tx
