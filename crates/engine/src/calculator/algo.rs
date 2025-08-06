@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use chrono::Utc;
 use itertools::Itertools;
 use rust_decimal::Decimal;
@@ -17,7 +17,10 @@ use step_ingestooor_sdk::dooot::{Dooot, TokenPriceGlobalDooot};
 use veritas_sdk::{
     ppl_graph::{graph::USDPriceWithSource, structs::LiqAmount, utils::get_price_by_node_idx},
     types::MintPricingGraph,
-    utils::checked_math::{clamp_to_scale, is_significant_change},
+    utils::{
+        checked_math::{clamp_to_scale, is_significant_change},
+        traits::option_helper::VeritasOptionHelper,
+    },
 };
 
 pub fn bfs_recalculate(
@@ -30,11 +33,12 @@ pub fn bfs_recalculate(
     max_price_impact: &Decimal,
     update_nodes: bool,
 ) -> Result<()> {
+    let calc_time = Utc::now().naive_utc();
     let now = Instant::now();
     let mut is_start = true;
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
-    let mut price_updates = Vec::with_capacity(graph.node_count());
+    let mut price_dooots = Vec::with_capacity(graph.node_count());
 
     while !queue.is_empty() {
         let Some(node) = queue.pop_front() else {
@@ -55,6 +59,7 @@ pub fn bfs_recalculate(
         // Don't calc this token if it's an oracle
         if !is_oracle {
             // let now = Instant::now();
+            // Last time we checked, this takes about 1ms per node, no bueno
             let new_price_res = get_total_weighted_price(graph, node, sol_index, max_price_impact);
             // let elapsed = now.elapsed();
 
@@ -67,7 +72,25 @@ pub fn bfs_recalculate(
                 continue;
             };
 
-            price_updates.push((node, mint.clone(), new_price));
+            if !update_nodes {
+                continue;
+            }
+
+            let (replaced, _) = node_weight
+                .usd_price
+                .write()
+                .expect("Node price lock poisoned")
+                .replace_if(USDPriceWithSource::Relation(new_price), |p| {
+                    is_significant_change(p.extract_price(), &new_price)
+                });
+
+            if replaced {
+                price_dooots.push(Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
+                    mint: mint.clone(),
+                    price_usd: new_price,
+                    time: calc_time,
+                }));
+            }
         } else if !is_start {
             // Stop at oracles when travering throughout the graph, but allow us to at least start at one
             continue;
@@ -84,45 +107,8 @@ pub fn bfs_recalculate(
         }
     }
 
-    if update_nodes {
-        // let now = Instant::now();
-        let update_time = Utc::now().naive_utc();
-
-        // TODO: Don't do it this way, do updates as we move along the graph
-        for (node, mint, new_price) in price_updates {
-            let Some(node_weight) = graph.node_weight(node) else {
-                log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
-                return Ok(());
-            };
-
-            let should_update = node_weight
-                .usd_price
-                .read()
-                .expect("Node Price lock poisoned")
-                .as_ref()
-                .map(|p| is_significant_change(p.extract_price(), &new_price))
-                .unwrap_or(true);
-
-            if should_update {
-                node_weight
-                    .usd_price
-                    .write()
-                    .expect("Node price lock poisoned")
-                    .replace(USDPriceWithSource::Relation(new_price));
-
-                let dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
-                    mint,
-                    price_usd: new_price,
-                    time: update_time,
-                });
-
-                dooot_tx
-                    .send(dooot)
-                    .map_err(|e| anyhow!("Error sending Dooot after price calc: {e}"))?;
-            }
-        }
-
-        // log::info!("Sending dooots took {:?}", now.elapsed());
+    for dooot in price_dooots {
+        dooot_tx.send(dooot).unwrap();
     }
 
     log::info!("BFS Recalc Took {:?}", now.elapsed());
