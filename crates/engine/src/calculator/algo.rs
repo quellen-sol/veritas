@@ -108,7 +108,7 @@ pub fn bfs_recalculate(
     }
 
     for dooot in price_dooots {
-        dooot_tx.send(dooot).unwrap();
+        dooot_tx.send(dooot)?;
     }
 
     log::info!("BFS Recalc Took {:?}", now.elapsed());
