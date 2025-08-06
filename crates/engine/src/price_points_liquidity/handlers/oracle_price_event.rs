@@ -35,6 +35,7 @@ pub fn handle_oracle_price_event(
             mint: feed_mint.clone(),
             price_usd: price,
             time: oracle_price.time,
+            deleted: false,
         }))
         .unwrap();
 
@@ -45,6 +46,7 @@ pub fn handle_oracle_price_event(
                 mint: EMPTY_PUBKEY.to_string(),
                 price_usd: price,
                 time: oracle_price.time,
+                deleted: false,
             }))
             .unwrap();
     }
