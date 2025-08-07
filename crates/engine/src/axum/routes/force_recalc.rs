@@ -30,6 +30,16 @@ pub async fn force_recalc(
     let mut g_read = state.graph.write().expect("Graph read lock poisoned");
     let mut g_scan_copy = g_read.clone();
 
+    for node in g_read.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_read.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
+    drop(g_read);
+
     let sol_ix = *state
         .mint_indicies
         .read()
@@ -41,7 +51,7 @@ pub async fn force_recalc(
         .read()
         .expect("Sol price index read lock poisoned");
 
-    let node_count = g_read.node_count();
+    let node_count = g_scan_copy.node_count();
     let (price_tx, price_rx) = std::sync::mpsc::sync_channel::<Dooot>(node_count);
 
     let mut visited_nodes = HashSet::new();
@@ -57,14 +67,6 @@ pub async fn force_recalc(
     )
     .inspect_err(|e| log::error!("Error during force recalc: {:?}", e))
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-
-    for node in g_read.node_weights_mut() {
-        node.dirty = false;
-    }
-
-    for edge in g_read.edge_weights_mut() {
-        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
-    }
 
     let mut updated_nodes = HashMap::new();
     while let Ok(Dooot::TokenPriceGlobal(price)) = price_rx.recv() {

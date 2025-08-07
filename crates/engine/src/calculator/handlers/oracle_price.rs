@@ -63,6 +63,16 @@ pub fn handle_oracle_price_update(
         *sol_index.read().expect("Sol index read lock poisoned")
     };
 
+    for node in g_write.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_write.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
+    drop(g_write);
+
     let recalc_result = bfs_recalculate(
         &mut g_scan_copy,
         token,
@@ -79,13 +89,5 @@ pub fn handle_oracle_price_update(
         Err(e) => {
             log::error!("Error during BFS recalculation for OracleUSDPrice update: {e}");
         }
-    }
-
-    for node in g_write.node_weights_mut() {
-        node.dirty = false;
-    }
-
-    for edge in g_write.edge_weights_mut() {
-        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
     }
 }

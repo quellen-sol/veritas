@@ -22,11 +22,21 @@ pub async fn _handle_token_relation_update(
     let mut g_read = graph.write().expect("Graph read lock poisoned");
     let mut g_scan_copy = g_read.clone();
 
+    for node in g_read.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_read.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
     let mut visited = HashSet::with_capacity(g_read.node_count());
 
     let Some((src, _)) = g_read.edge_endpoints(updated_edge) else {
         return;
     };
+
+    drop(g_read);
 
     // Do not consider the source token of this relation
     visited.insert(src);
@@ -43,14 +53,6 @@ pub async fn _handle_token_relation_update(
         max_price_impact,
         true,
     );
-
-    for node in g_read.node_weights_mut() {
-        node.dirty = false;
-    }
-
-    for edge in g_read.edge_weights_mut() {
-        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
-    }
 
     match recalc_result {
         Ok(_) => {}
