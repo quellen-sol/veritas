@@ -27,18 +27,18 @@ pub async fn force_recalc(
         .and_then(|p| p.start_mint.clone())
         .unwrap_or(WSOL_MINT.to_string());
 
-    let mut g_read = state.graph.write().expect("Graph read lock poisoned");
-    let mut g_scan_copy = g_read.clone();
+    let mut g_write = state.graph.write().expect("Graph write lock poisoned");
+    let mut g_scan_copy = g_write.clone();
 
-    for node in g_read.node_weights_mut() {
+    for node in g_write.node_weights_mut() {
         node.dirty = false;
     }
 
-    for edge in g_read.edge_weights_mut() {
+    for edge in g_write.edge_weights_mut() {
         *edge.dirty.write().expect("Dirty write lock poisoned") = false;
     }
 
-    drop(g_read);
+    drop(g_write);
 
     let sol_ix = *state
         .mint_indicies
