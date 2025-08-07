@@ -24,13 +24,13 @@ pub fn handle_oracle_price_update(
     max_price_impact: &Decimal,
 ) {
     // Grab an exclusive lock on the graph, to prevent non-atomic updates.
-    // This does require, though, that bfs_recalculate finishes quickly to release the lock
-    let g_write = graph.write().expect("Graph write lock poisoned");
+    let mut g_write = graph.write().expect("Graph write lock poisoned");
+    let mut g_scan_copy = g_write.clone();
 
     let mut visited = HashSet::with_capacity(g_write.node_count());
 
     // Update the price of the mint in the graph
-    let Some(node_weight) = g_write.node_weight(token) else {
+    let Some(node_weight) = g_write.node_weight_mut(token) else {
         return;
     };
 
@@ -48,6 +48,8 @@ pub fn handle_oracle_price_update(
             }
         }
 
+        node_weight.dirty = true;
+
         p_write.replace(USDPriceWithSource::Oracle(new_price));
     }
 
@@ -60,8 +62,18 @@ pub fn handle_oracle_price_update(
         *sol_index.read().expect("Sol index read lock poisoned")
     };
 
+    for node in g_write.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_write.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
+    drop(g_write);
+
     let recalc_result = bfs_recalculate(
-        &g_write,
+        &mut g_scan_copy,
         token,
         &mut visited,
         dooot_tx.clone(),

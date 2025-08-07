@@ -19,13 +19,24 @@ pub async fn _handle_token_relation_update(
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: &Decimal,
 ) {
-    let g_read = graph.read().expect("Graph read lock poisoned");
+    let mut g_write = graph.write().expect("Graph write lock poisoned");
+    let mut g_scan_copy = g_write.clone();
 
-    let mut visited = HashSet::with_capacity(g_read.node_count());
+    for node in g_write.node_weights_mut() {
+        node.dirty = false;
+    }
 
-    let Some((src, _)) = g_read.edge_endpoints(updated_edge) else {
+    for edge in g_write.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
+    let mut visited = HashSet::with_capacity(g_write.node_count());
+
+    let Some((src, _)) = g_write.edge_endpoints(updated_edge) else {
         return;
     };
+
+    drop(g_write);
 
     // Do not consider the source token of this relation
     visited.insert(src);
@@ -33,7 +44,7 @@ pub async fn _handle_token_relation_update(
     let sol_index = sol_index.read().expect("Sol index read lock poisoned");
 
     let recalc_result = bfs_recalculate(
-        &g_read,
+        &mut g_scan_copy,
         token,
         &mut visited,
         dooot_tx.clone(),

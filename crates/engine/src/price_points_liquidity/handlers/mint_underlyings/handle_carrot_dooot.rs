@@ -48,6 +48,7 @@ pub fn handle_carrot_dooot(
 
             let new_node = MintNode {
                 mint: mint_str.clone(),
+                dirty: false,
                 usd_price: RwLock::new(None),
                 cached_fixed_relation: RwLock::new(None),
                 non_vertex_relations: RwLock::new(HashMap::new()),
@@ -175,6 +176,7 @@ pub fn handle_carrot_dooot(
 
             let new_node = MintNode {
                 mint: pk.clone(),
+                dirty: false,
                 usd_price: RwLock::new(None),
                 cached_fixed_relation: RwLock::new(None),
                 non_vertex_relations: RwLock::new(relation_map),

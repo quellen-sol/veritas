@@ -27,7 +27,18 @@ pub async fn force_recalc(
         .and_then(|p| p.start_mint.clone())
         .unwrap_or(WSOL_MINT.to_string());
 
-    let g_read = state.graph.write().expect("Graph read lock poisoned");
+    let mut g_write = state.graph.write().expect("Graph write lock poisoned");
+    let mut g_scan_copy = g_write.clone();
+
+    for node in g_write.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_write.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
+
+    drop(g_write);
 
     let sol_ix = *state
         .mint_indicies
@@ -40,12 +51,12 @@ pub async fn force_recalc(
         .read()
         .expect("Sol price index read lock poisoned");
 
-    let node_count = g_read.node_count();
+    let node_count = g_scan_copy.node_count();
     let (price_tx, price_rx) = std::sync::mpsc::sync_channel::<Dooot>(node_count);
 
     let mut visited_nodes = HashSet::new();
     bfs_recalculate(
-        &g_read,
+        &mut g_scan_copy,
         sol_ix,
         &mut visited_nodes,
         price_tx,
