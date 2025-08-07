@@ -371,10 +371,6 @@ fn calc_price_and_liq_info(
         relation.get_liq_levels(tokens_a_per_sol)
     });
 
-    println!("liq: {:?}", liq);
-    println!("price: {:?}", price);
-    println!("liq_levels: {:?}", liq_levels);
-
     PriceAndLiqInfo {
         liq,
         price,
