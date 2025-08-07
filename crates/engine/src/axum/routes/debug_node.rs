@@ -73,8 +73,8 @@ pub async fn debug_node_info(
                 .expect("Relation read lock poisoned")
                 .clone();
 
-            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
-            let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
+            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO, &g_read);
+            let liquidity_levels = relation.get_liq_levels(Decimal::ZERO, &sol_price, &g_read);
             let derived_price = relation.get_price(Decimal::ZERO, &g_read);
 
             let relation_with_liq = RelationWithLiq {
@@ -113,8 +113,9 @@ pub async fn debug_node_info(
                     .clone();
                 let calc_res = if let Some(p) = this_price {
                     let this_tokens_per_sol = sol_price.and_then(|s| s.checked_div(p));
-                    let liq = relation.get_liquidity(p, Decimal::ZERO);
-                    let levels = this_tokens_per_sol.and_then(|tps| relation.get_liq_levels(tps));
+                    let liq = relation.get_liquidity(p, Decimal::ZERO, &g_read);
+                    let levels = this_tokens_per_sol
+                        .and_then(|tps| relation.get_liq_levels(tps, &sol_price, &g_read));
                     let derived = relation.get_price(p, &g_read);
 
                     Some((liq, levels, derived))
@@ -159,7 +160,7 @@ pub async fn debug_node_info(
                     .clone();
                 let price_neighbor = get_price_by_node_idx(&g_read, neighbor);
                 let liquidity_amount =
-                    price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO));
+                    price_neighbor.and_then(|p| relation.get_liquidity(p, Decimal::ZERO, &g_read));
                 let derived_price = if let Some(p) = price_neighbor {
                     relation.get_price(p, &g_read)
                 } else {
@@ -168,7 +169,7 @@ pub async fn debug_node_info(
                 let liquidity_levels = price_neighbor.and_then(|p| {
                     let sol_price = sol_price?;
                     let tokens_per_sol = sol_price.checked_div(p)?;
-                    relation.get_liq_levels(tokens_per_sol)
+                    relation.get_liq_levels(tokens_per_sol, &Some(sol_price), &g_read)
                 });
 
                 if only_acceptable

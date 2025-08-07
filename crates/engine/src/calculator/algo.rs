@@ -186,7 +186,7 @@ pub fn get_total_weighted_price(
             let relation = relation.read().expect("Relation read lock poisoned");
 
             // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
-            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
+            let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO, graph);
             let derived_price = relation.get_price(Decimal::ZERO, graph);
 
             match liquidity_amount {
@@ -286,7 +286,7 @@ pub fn get_single_wighted_price(
             .expect("Inner relation read lock poisoned");
         // THIS MAY BE WRONG AF
         // Just get liquidity based on A, since this token may be exclusively "priced" by A
-        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO) else {
+        let Some(liq) = relation.get_liquidity(price_a, Decimal::ZERO, graph) else {
             continue;
         };
 
@@ -315,7 +315,9 @@ pub fn get_single_wighted_price(
                 continue;
             };
 
-            let Some(liq_levels) = relation.get_liq_levels(tokens_a_per_sol) else {
+            let Some(liq_levels) =
+                relation.get_liq_levels(tokens_a_per_sol, &Some(*sol_price), graph)
+            else {
                 // Math overflow in calc'ing liq levels.
                 // We can assume this to be illiquid if values got that high
                 continue;
@@ -482,7 +484,8 @@ mod tests {
         let token_a_price = Decimal::TEN;
         let tokens_a_per_sol = sol_price / token_a_price;
 
-        let levels = relation.get_liq_levels(tokens_a_per_sol);
+        let levels =
+            relation.get_liq_levels(tokens_a_per_sol, &Some(sol_price), &MintPricingGraph::new());
 
         assert!(levels.is_some(), "Liq levels calc should not overflow")
     }

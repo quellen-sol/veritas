@@ -6,12 +6,12 @@ use axum::{
     Json,
 };
 use petgraph::graph::NodeIndex;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use veritas_sdk::{liq_relation::LiqRelation, ppl_graph::graph::USDPriceWithSource};
 
 use crate::axum::task::VeritasServerState;
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize)]
 pub struct NodeInfo {
     pub mint: String,
     pub usd_price: Option<USDPriceWithSource>,

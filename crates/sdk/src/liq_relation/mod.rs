@@ -1,8 +1,13 @@
+use petgraph::graph::EdgeIndex;
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    liq_relation::relations::{clmm::get_clmm_liq_levels_dumb, index_like::get_index_like_price},
+    liq_relation::relations::{
+        clmm::get_clmm_liq_levels_dumb,
+        fixed_ref::{get_fixed_ref_liq_levels, get_fixed_ref_liquidity, get_fixed_ref_price},
+        index_like::get_index_like_price,
+    },
     ppl_graph::structs::{LiqAmount, LiqLevels},
     types::{MintGraphNodeIndexType, MintPricingGraph},
 };
@@ -25,7 +30,7 @@ pub struct IndexPart {
 }
 
 /// Each variant should contain minimum information to calculate price, liquidity, and liq levels
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
 pub enum LiqRelation {
     /// Constant Product LP
@@ -72,6 +77,11 @@ pub enum LiqRelation {
         market_id: String,
         decimals_parent: u8,
         parts: Vec<IndexPart>,
+    },
+    FixedRef {
+        amt_parent_per_dest: Decimal,
+        #[serde(serialize_with = "crate::utils::serde::serialize_edge_index")]
+        market_ref: EdgeIndex,
     },
     // /// CLOBs
     // Clob,
@@ -127,18 +137,27 @@ impl LiqRelation {
                 market_id,
                 decimals_parent,
             } => get_index_like_price(graph, market_id, parts, *decimals_parent),
+            LiqRelation::FixedRef {
+                amt_parent_per_dest,
+                market_ref,
+            } => get_fixed_ref_price(amt_parent_per_dest, market_ref, graph),
         }
     }
 
-    /// `tokens_per_sol` is tokens_a_per_sol (aka source of the incoming relation) IN UNITS
+    /// `tokens_origin_per_sol` is tokens_a_per_sol (aka source of the incoming relation) IN UNITS
     #[inline]
-    pub fn get_liq_levels(&self, tokens_per_sol: Decimal) -> Option<LiqLevels> {
+    pub fn get_liq_levels(
+        &self,
+        tokens_origin_per_sol: Decimal,
+        sol_index: &Option<Decimal>,
+        graph: &MintPricingGraph,
+    ) -> Option<LiqLevels> {
         match self {
             LiqRelation::CpLp {
                 amt_origin: amt_a,
                 amt_dest: amt_b,
                 ..
-            } => get_cplp_liq_levels(amt_a, amt_b, &tokens_per_sol),
+            } => get_cplp_liq_levels(amt_a, amt_b, &tokens_origin_per_sol),
             LiqRelation::Fixed { .. } => get_fixed_liq_levels(),
             LiqRelation::Dlmm {
                 bins_by_account,
@@ -150,7 +169,7 @@ impl LiqRelation {
             } => get_dlmm_liq_levels(
                 bins_by_account,
                 active_bin_account,
-                &tokens_per_sol,
+                &tokens_origin_per_sol,
                 *is_reverse,
                 *decimals_x,
                 *decimals_y,
@@ -175,9 +194,12 @@ impl LiqRelation {
             //     *decimals_b,
             // ),
             LiqRelation::Clmm { amt_origin, .. } => {
-                get_clmm_liq_levels_dumb(amt_origin, &tokens_per_sol)
+                get_clmm_liq_levels_dumb(amt_origin, &tokens_origin_per_sol)
             }
             LiqRelation::IndexLike { .. } => Some(LiqLevels::ZERO),
+            LiqRelation::FixedRef { market_ref, .. } => {
+                get_fixed_ref_liq_levels(market_ref, graph, sol_index)
+            }
         }
     }
 
@@ -187,6 +209,7 @@ impl LiqRelation {
         &self,
         price_source_usd: Decimal,
         price_dest_usd: Decimal,
+        graph: &MintPricingGraph,
     ) -> Option<LiqAmount> {
         match self {
             LiqRelation::CpLp {
@@ -206,6 +229,7 @@ impl LiqRelation {
                 ..
             } => get_clmm_liquidity(amt_origin, amt_dest, price_source_usd, price_dest_usd),
             LiqRelation::IndexLike { .. } => Some(LiqAmount::Inf),
+            LiqRelation::FixedRef { market_ref, .. } => get_fixed_ref_liquidity(market_ref, graph),
         }
     }
 
@@ -245,7 +269,7 @@ impl LiqRelation {
                 pool_id: pool_id.clone(),
             },
             LiqRelation::Fixed { amt_per_parent } => LiqRelation::Fixed {
-                amt_per_parent: *amt_per_parent,
+                amt_per_parent: Decimal::ONE / amt_per_parent,
             },
             LiqRelation::Dlmm {
                 amt_origin,
@@ -267,6 +291,13 @@ impl LiqRelation {
                 pool_id: pool_id.clone(),
             },
             LiqRelation::IndexLike { .. } => self.clone(),
+            LiqRelation::FixedRef {
+                amt_parent_per_dest,
+                market_ref,
+            } => LiqRelation::FixedRef {
+                market_ref: *market_ref,
+                amt_parent_per_dest: Decimal::ONE / *amt_parent_per_dest,
+            },
         }
     }
 }
