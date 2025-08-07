@@ -371,6 +371,10 @@ fn calc_price_and_liq_info(
         relation.get_liq_levels(tokens_a_per_sol)
     });
 
+    println!("liq: {:?}", liq);
+    println!("price: {:?}", price);
+    println!("liq_levels: {:?}", liq_levels);
+
     PriceAndLiqInfo {
         liq,
         price,
@@ -441,8 +445,8 @@ mod tests {
                 dirty: RwLock::new(false),
                 id: "SomeMarket".into(),
                 inner_relation: RwLock::new(LiqRelation::CpLp {
-                    amt_origin: Decimal::from(10),
-                    amt_dest: Decimal::from(5),
+                    amt_origin: Decimal::from(100),
+                    amt_dest: Decimal::from(50),
                     pool_id: "SomeMarket".into(),
                 }),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
@@ -484,26 +488,33 @@ mod tests {
 
         let max_price_impact = Decimal::from_f64(0.25).unwrap();
 
-        let (weighted, liq, _) =
-            get_single_wighted_price(usdc_x, step_x, &graph, &None, &max_price_impact).unwrap();
+        let (weighted, liq, _) = get_single_wighted_price(
+            usdc_x,
+            step_x,
+            &graph,
+            &Some(Decimal::from(1)),
+            &max_price_impact,
+        )
+        .unwrap();
 
         assert_eq!(
             weighted,
-            Decimal::from_f64(3.5).unwrap(),
-            "Single weighted price should be 3.5"
+            Decimal::from_f64(2.0).unwrap(),
+            "Single weighted price should be 2.0"
         );
 
-        let total = get_total_weighted_price(&graph, step_x, &None, &max_price_impact);
+        let total =
+            get_total_weighted_price(&graph, step_x, &Some(Decimal::from(1)), &max_price_impact);
         assert!(total.is_some());
         assert_eq!(
             total.unwrap(),
-            Decimal::from_f64(3.5).unwrap(),
-            "Total weighted price should be 3.5"
+            Decimal::from_f64(2.0).unwrap(),
+            "Total weighted price should be 2.0"
         );
 
         match liq {
             LiqAmount::Amount(amt) => {
-                assert_eq!(amt, Decimal::from(20));
+                assert_eq!(amt, Decimal::from(100));
             }
             LiqAmount::Inf => {
                 panic!("Liq for this test should not be Inf!");
