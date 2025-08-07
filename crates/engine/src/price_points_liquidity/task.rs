@@ -226,6 +226,7 @@ pub fn get_or_add_mint_ix(
                     (
                         g_write.add_node(MintNode {
                             mint: mint.to_string(),
+                            dirty: false,
                             usd_price: RwLock::new(None),
                             cached_fixed_relation: RwLock::new(None),
                             non_vertex_relations: RwLock::new(HashMap::new()),
@@ -340,7 +341,10 @@ pub fn add_or_update_two_way_relation_edge(
                     .expect("Inner relation write lock poisoned");
 
                 *relation = update_with;
+                *e_r.dirty.write().expect("Dirty write lock poisoned") = true;
+
                 *relation_rev = update_with_rev;
+                *e_r_rev.dirty.write().expect("Dirty write lock poisoned") = true;
             }
 
             Ok((edge, edge_rev))
@@ -352,16 +356,18 @@ pub fn add_or_update_two_way_relation_edge(
         }) => {
             let new_edge = MintEdge {
                 id: discriminant_id.to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(time),
                 inner_relation: RwLock::new(update_with),
+                cached_price_and_liq: RwLock::new(None),
             };
 
             let new_edge_rev = MintEdge {
                 id: discriminant_id.to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(time),
                 inner_relation: RwLock::new(update_with_rev),
+                cached_price_and_liq: RwLock::new(None),
             };
 
             let (new_ix, new_ix_rev) = {
@@ -446,6 +452,13 @@ where
 
                     *relation = update_with;
                 }
+
+                // Quick update of `dirty`
+                {
+                    let mut dirty = e_r.dirty.write().expect("Dirty write lock poisoned");
+
+                    *dirty = true;
+                }
             }
 
             Ok(edge_ix)
@@ -465,9 +478,10 @@ where
 
                 let new_edge = MintEdge {
                     id: discriminant_id.to_string(),
-                    dirty: true,
+                    dirty: RwLock::new(true),
                     last_updated: RwLock::new(time),
                     inner_relation: RwLock::new(update_with),
+                    cached_price_and_liq: RwLock::new(None),
                 };
 
                 let new_ix = edge.unwrap_or_else(|| g_write.add_edge(ix_a, ix_b, new_edge));
@@ -539,12 +553,14 @@ mod tests {
 
         let ix_a = graph.add_node(MintNode {
             mint: "test_mint_a".to_string(),
+            dirty: false,
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
+            dirty: false,
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
@@ -555,11 +571,12 @@ mod tests {
             ix_b,
             MintEdge {
                 id: "test_disc".to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -568,11 +585,12 @@ mod tests {
             ix_a,
             MintEdge {
                 id: "test_disc".to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -635,12 +653,14 @@ mod tests {
 
         let ix_a = graph.add_node(MintNode {
             mint: "test_mint_a".to_string(),
+            dirty: false,
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
         });
         let ix_b = graph.add_node(MintNode {
             mint: "test_mint_b".to_string(),
+            dirty: false,
             usd_price: RwLock::new(None),
             cached_fixed_relation: RwLock::new(None),
             non_vertex_relations: RwLock::new(HashMap::new()),
@@ -651,11 +671,12 @@ mod tests {
             ix_b,
             MintEdge {
                 id: "test_disc".to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
@@ -664,11 +685,12 @@ mod tests {
             ix_a,
             MintEdge {
                 id: "test_disc".to_string(),
-                dirty: true,
+                dirty: RwLock::new(true),
                 last_updated: RwLock::new(Utc::now().naive_utc()),
                 inner_relation: RwLock::new(LiqRelation::Fixed {
                     amt_per_parent: Decimal::from(100),
                 }),
+                cached_price_and_liq: RwLock::new(None),
             },
         );
 
