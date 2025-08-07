@@ -89,6 +89,7 @@ pub fn bfs_recalculate(
                     mint: mint.clone(),
                     price_usd: new_price,
                     time: calc_time,
+                    deleted: false,
                 }));
             }
         } else if !is_start {
