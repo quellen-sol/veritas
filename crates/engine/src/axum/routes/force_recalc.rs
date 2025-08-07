@@ -27,7 +27,8 @@ pub async fn force_recalc(
         .and_then(|p| p.start_mint.clone())
         .unwrap_or(WSOL_MINT.to_string());
 
-    let g_read = state.graph.write().expect("Graph read lock poisoned");
+    let mut g_read = state.graph.write().expect("Graph read lock poisoned");
+    let mut g_scan_copy = g_read.clone();
 
     let sol_ix = *state
         .mint_indicies
@@ -45,7 +46,7 @@ pub async fn force_recalc(
 
     let mut visited_nodes = HashSet::new();
     bfs_recalculate(
-        &g_read,
+        &mut g_scan_copy,
         sol_ix,
         &mut visited_nodes,
         price_tx,
@@ -56,6 +57,14 @@ pub async fn force_recalc(
     )
     .inspect_err(|e| log::error!("Error during force recalc: {:?}", e))
     .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    for node in g_read.node_weights_mut() {
+        node.dirty = false;
+    }
+
+    for edge in g_read.edge_weights_mut() {
+        *edge.dirty.write().expect("Dirty write lock poisoned") = false;
+    }
 
     let mut updated_nodes = HashMap::new();
     while let Ok(Dooot::TokenPriceGlobal(price)) = price_rx.recv() {

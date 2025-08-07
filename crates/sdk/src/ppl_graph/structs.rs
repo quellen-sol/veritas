@@ -1,7 +1,7 @@
 use rust_decimal::Decimal;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LiqLevels {
     /// pct change, `None` is infinite change, and therefore unacceptable
     pub one_sol_depth: Option<Decimal>,
@@ -38,7 +38,7 @@ impl LiqLevels {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum LiqAmount {
     Amount(Decimal),
     /// Used by `Fixed` relations, that will ALWAYS take precedence when calculating price
