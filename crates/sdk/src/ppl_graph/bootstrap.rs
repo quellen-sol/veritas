@@ -164,7 +164,7 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
         mints_qty_per_one_parent,
         total_underlying_amounts
     FROM current_mint_underlyings_global_by_mint FINAL
-    WHERE time > now() - 604800
+    WHERE time > now() - 86400
     AND length(mints) > 1
     AND platform_program_pubkey NOT IN (SELECT excluded_program FROM excluded_programs)
 ";
@@ -191,7 +191,7 @@ const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
         part_index,
         parts
     FROM current_dlmm_global_by_pool_parts FINAL
-    WHERE time > now() - 604800
+    WHERE time > now() - 86400
 ";
 
 const CLMM_GLOBAL_DOOOTS_QUERY: &str = "
@@ -203,7 +203,7 @@ const CLMM_GLOBAL_DOOOTS_QUERY: &str = "
         current_tick_index,
         tick_spacing
     FROM current_clmm_global ccg FINAL
-    WHERE time > now() - 604800
+    WHERE time > now() - 86400
 ";
 
 const CLMM_TICKS_DOOOTS_QUERY: &str = "
@@ -214,7 +214,7 @@ const CLMM_TICKS_DOOOTS_QUERY: &str = "
         tick_index,
         ticks
     FROM current_clmm_tick_global cctg FINAL
-    WHERE time > now() - 604800
+    WHERE time > now() - 86400
 ";
 
 pub async fn bootstrap_graph(
