@@ -1,7 +1,6 @@
 use std::{
     collections::HashSet,
     sync::{Arc, RwLock},
-    time::Instant,
 };
 
 use petgraph::graph::NodeIndex;
@@ -25,11 +24,8 @@ pub fn handle_oracle_price_update(
     max_price_impact: &Decimal,
 ) {
     // Grab an exclusive lock on the graph, to prevent non-atomic updates.
-    // This does require, though, that bfs_recalculate finishes quickly to release the lock
     let mut g_write = graph.write().expect("Graph write lock poisoned");
-    let now = Instant::now();
     let mut g_scan_copy = g_write.clone();
-    log::info!("Graph cloned in {:?}", now.elapsed());
 
     let mut visited = HashSet::with_capacity(g_write.node_count());
 
