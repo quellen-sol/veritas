@@ -25,6 +25,8 @@ pub fn handle_fixed(
         mint_pubkey: parent_mint,
         mints,
         mints_qty_per_one_parent,
+        platform_program_pubkey,
+        total_underlying_amounts,
         ..
     } = &mu_dooot;
 
@@ -79,8 +81,8 @@ pub fn handle_fixed(
     let update_res = add_or_update_relation_edge(
         mint_underlying_ix,
         mint_parent_ix,
-        edge_indicies,
-        graph,
+        edge_indicies.clone(),
+        graph.clone(),
         relation,
         parent_mint,
         *time,
@@ -91,6 +93,39 @@ pub fn handle_fixed(
         Ok(_) => {}
         Err(e) => {
             log::error!("Error adding or updating Fixed relation: {e}");
+        }
+    }
+
+    // SPECIAL CASE: If the program id is meteora vaults, we need to add a FixedRef relation
+    if platform_program_pubkey == "24Uqj9JCLxUeoC3hGfh5W3s9FM9uCHDS2SG3LYwBpyTi" {
+        // Meteora Vaults
+        let Some(amt_parent_per_dest) = Decimal::ONE.checked_div(ratio) else {
+            return;
+        };
+
+        let amt_parent = total_underlying_amounts[0];
+
+        let relation = LiqRelation::FixedRef {
+            amt_parent_per_dest,
+            amt_parent,
+        };
+
+        let update_res = add_or_update_relation_edge(
+            mint_parent_ix,
+            mint_underlying_ix,
+            edge_indicies,
+            graph,
+            relation,
+            parent_mint,
+            *time,
+            true,
+        );
+
+        match update_res {
+            Ok(_) => {}
+            Err(e) => {
+                log::error!("Error adding or updating FixedRef relation: {e}");
+            }
         }
     }
 }
