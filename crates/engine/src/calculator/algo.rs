@@ -187,7 +187,7 @@ pub fn get_total_weighted_price(
         let relation = relation.read().expect("Relation read lock poisoned");
 
         // let liquidity_levels = relation.get_liq_levels(Decimal::ZERO);
-        let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO, graph);
+        let liquidity_amount = relation.get_liquidity(Decimal::ZERO, Decimal::ZERO);
         let derived_price = relation.get_price(Decimal::ZERO, graph);
 
         match liquidity_amount {
@@ -366,10 +366,10 @@ fn calc_price_and_liq_info(
     sol_index: &Option<Decimal>,
 ) -> PriceAndLiqInfo {
     let price = relation.get_price(price_a, graph);
-    let liq = relation.get_liquidity(price_a, Decimal::ZERO, graph);
+    let liq = relation.get_liquidity(price_a, Decimal::ZERO);
     let liq_levels = sol_index.and_then(|sol_price| {
         let tokens_a_per_sol = sol_price.checked_div(price_a)?;
-        relation.get_liq_levels(tokens_a_per_sol, sol_index, graph)
+        relation.get_liq_levels(tokens_a_per_sol)
     });
 
     PriceAndLiqInfo {
@@ -531,8 +531,7 @@ mod tests {
         let token_a_price = Decimal::TEN;
         let tokens_a_per_sol = sol_price / token_a_price;
 
-        let levels =
-            relation.get_liq_levels(tokens_a_per_sol, &Some(sol_price), &MintPricingGraph::new());
+        let levels = relation.get_liq_levels(tokens_a_per_sol);
 
         assert!(levels.is_some(), "Liq levels calc should not overflow")
     }
