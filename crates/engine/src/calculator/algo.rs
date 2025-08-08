@@ -38,6 +38,7 @@ pub fn bfs_recalculate(
     max_price_impact: &Decimal,
     update_nodes: bool,
 ) -> Result<()> {
+    log::info!("Starting BFS Calculation of all tokens from index {start:?}...");
     let calc_time = Utc::now().naive_utc();
     let now = Instant::now();
     let mut is_start = true;
