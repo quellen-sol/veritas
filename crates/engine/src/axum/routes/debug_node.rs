@@ -166,9 +166,8 @@ pub async fn debug_node_info(
                     None
                 };
                 let liquidity_levels = price_neighbor.and_then(|p| {
-                    let sol_price = sol_price?;
-                    let tokens_per_sol = sol_price.checked_div(p)?;
-                    relation.get_liq_levels(tokens_per_sol)
+                    let tokens_per_sol = sol_price.and_then(|s| s.checked_div(p));
+                    tokens_per_sol.and_then(|tps| relation.get_liq_levels(tps))
                 });
 
                 if only_acceptable
