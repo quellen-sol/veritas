@@ -59,6 +59,50 @@ pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Clie
             }
         }
         log::info!(
+            "Starting to clear current_token_price_global_by_mint_string older than {}...",
+            one_week_ago_time
+        );
+
+        let q_result = clickhouse_client
+            .query(
+                format!(
+                    "DELETE FROM current_token_price_global_by_mint_string WHERE time < {}",
+                    one_week_ago_timestamp
+                )
+                .as_str(),
+            )
+            .execute()
+            .await;
+
+        match q_result {
+            Ok(_) => {
+                log::info!(
+                    "Cleared current_token_price_global_by_mint_string older than {}.",
+                    one_week_ago_time
+                );
+            }
+            Err(e) => {
+                log::error!("Error during reaper task: {:?}", e);
+            }
+        }
+
+        log::info!("Cleared current_token_price_global_by_mint_string older than {}. Reloading price dictionary...", one_week_ago_time);
+
+        let q_result = clickhouse_client
+            .query("SYSTEM RELOAD DICTIONARY dict_token_price")
+            .execute()
+            .await;
+
+        match q_result {
+            Ok(_) => {
+                log::info!("Reloaded price dictionary.");
+            }
+            Err(e) => {
+                log::error!("Error during reaper task: {:?}", e);
+            }
+        }
+
+        log::info!(
             "Reaper task completed at {}. Sleeping for 1 day...",
             Utc::now()
         );
