@@ -25,8 +25,8 @@ pub fn handle_fixed(
         mint_pubkey: parent_mint,
         mints,
         mints_qty_per_one_parent,
-        platform_program_pubkey,
-        total_underlying_amounts,
+        // platform_program_pubkey,
+        // total_underlying_amounts,
         ..
     } = &mu_dooot;
 
