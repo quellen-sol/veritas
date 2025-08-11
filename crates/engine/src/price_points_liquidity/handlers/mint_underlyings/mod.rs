@@ -51,7 +51,6 @@ pub fn handle_mint_underlyings(
         }
         _ => {
             handle_special_mint_underlyings(&mu_dooot, graph, mint_indicies, decimal_cache);
-            // We can't handle yet
         }
     }
 }
