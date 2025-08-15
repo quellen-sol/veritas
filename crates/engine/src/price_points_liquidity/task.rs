@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet},
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
         mpsc::{Receiver, SyncSender},
@@ -27,7 +27,7 @@ use crate::{
     price_points_liquidity::handlers::{
         clmm::handle_clmm, dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
         mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event,
-        token_balance::handle_token_balance,
+        token_balance::handle_token_balance, token_prices::handle_token_price,
     },
 };
 
@@ -44,6 +44,7 @@ pub fn spawn_price_points_liquidity_task(
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     price_sender: SyncSender<Dooot>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
+    oracle_mint_set: Arc<HashSet<String>>,
 ) -> JoinHandle<()> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -74,6 +75,7 @@ pub fn spawn_price_points_liquidity_task(
                 let bootstrap_in_progress = bootstrap_in_progress.clone();
                 let price_sender = price_sender.clone();
                 let token_balance_cache = token_balance_cache.clone();
+                let oracle_mint_set = oracle_mint_set.clone();
 
                 thread::spawn(move || {
                     match dooot {
@@ -134,6 +136,9 @@ pub fn spawn_price_points_liquidity_task(
                                 calculator_sender,
                                 bootstrap_in_progress,
                             );
+                        }
+                        Dooot::TokenPriceGlobal(dooot) => {
+                            handle_token_price(dooot, graph, &oracle_mint_set, mint_indicies);
                         }
                         _ => {}
                     }
