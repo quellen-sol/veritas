@@ -29,7 +29,7 @@ pub fn spawn_calculator_task(
     graph: Arc<RwLock<MintPricingGraph>>,
     dooot_tx: SyncSender<Dooot>,
     bootstrap_in_progress: Arc<AtomicBool>,
-    oracle_mint_set: HashSet<String>,
+    oracle_mint_set: Arc<HashSet<String>>,
     sol_index: Arc<RwLock<Option<Decimal>>>,
     max_price_impact: Decimal,
     paused_calculation: Arc<AtomicBool>,
