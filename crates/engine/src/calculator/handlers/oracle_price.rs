@@ -25,7 +25,6 @@ pub fn handle_oracle_price_update(
 ) {
     // Grab an exclusive lock on the graph, to prevent non-atomic updates.
     let mut g_write = graph.write().expect("Graph write lock poisoned");
-    let mut g_scan_copy = g_write.clone();
 
     let mut visited = HashSet::with_capacity(g_write.node_count());
 
@@ -61,6 +60,8 @@ pub fn handle_oracle_price_update(
     } else {
         *sol_index.read().expect("Sol index read lock poisoned")
     };
+
+    let mut g_scan_copy = g_write.clone();
 
     for node in g_write.node_weights_mut() {
         node.dirty = false;
