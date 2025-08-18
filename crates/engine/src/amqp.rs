@@ -131,6 +131,7 @@ impl AMQPManager {
                                                 | Dooot::TokenBalanceUser(_)
                                                 | Dooot::ClmmGlobal(_)
                                                 | Dooot::ClmmTickGlobal(_)
+                                                | Dooot::TokenPriceGlobal(_)
                                         ) {
                                             msg_tx.send(dooot).unwrap();
                                         }

@@ -162,10 +162,12 @@ async fn main() -> Result<()> {
     let max_price_impact =
         Decimal::from_f64(args.max_price_impact).context("Invalid max price impact")?;
 
-    let oracle_mint_set = ORACLE_FEED_MAP_PAIRS
-        .iter()
-        .map(|(_, v)| v.to_string())
-        .collect::<HashSet<String>>();
+    let oracle_mint_set = Arc::new(
+        ORACLE_FEED_MAP_PAIRS
+            .iter()
+            .map(|(_, v)| v.to_string())
+            .collect::<HashSet<String>>(),
+    );
 
     // CHANNELS for tasks
     log::info!("Creating channels with the following buffer sizes...");
@@ -247,7 +249,7 @@ async fn main() -> Result<()> {
         mint_price_graph.clone(),
         publish_dooot_tx.clone(),
         bootstrap_in_progress.clone(),
-        oracle_mint_set,
+        oracle_mint_set.clone(),
         sol_price_index,
         max_price_impact,
         paused_calculation.clone(),
@@ -277,6 +279,7 @@ async fn main() -> Result<()> {
         mint_indicies.clone(),
         publish_dooot_tx.clone(),
         token_balance_cache.clone(),
+        oracle_mint_set.clone(),
     );
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
