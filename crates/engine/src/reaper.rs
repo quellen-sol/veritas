@@ -1,11 +1,10 @@
 use std::time::Duration;
 
-use chrono::{DateTime, Utc};
-use clickhouse::Client;
+use chrono::Utc;
 use veritas_sdk::types::WrappedMintPricingGraph;
 
 #[allow(clippy::unwrap_used)]
-pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Client) {
+pub async fn reaper_task(graph: WrappedMintPricingGraph) {
     loop {
         let now = Utc::now();
         log::info!("Starting reaper task at {}", now);
@@ -20,86 +19,6 @@ pub async fn reaper_task(graph: WrappedMintPricingGraph, clickhouse_client: Clie
                 p_write.take();
             }
             log::info!("Cleared nodes. Unlocking graph...");
-        }
-
-        let now_timestamp = now.timestamp();
-        let one_week_ago_timestamp = now_timestamp - (86400 * 7);
-        let Some(one_week_ago_time) = DateTime::from_timestamp(one_week_ago_timestamp, 0) else {
-            log::error!(
-                "Failed to convert one_week_ago_timestamp to DateTime ({})",
-                one_week_ago_timestamp
-            );
-            continue;
-        };
-        log::info!(
-            "Cleared usd_price from nodes. Starting to clear current_token_price_global_by_mint older than {}...",
-            one_week_ago_time
-        );
-
-        let q_result = clickhouse_client
-            .query(
-                format!(
-                    "DELETE FROM current_token_price_global_by_mint WHERE time < {}",
-                    one_week_ago_timestamp
-                )
-                .as_str(),
-            )
-            .execute()
-            .await;
-
-        match q_result {
-            Ok(_) => {
-                log::info!(
-                    "Cleared current_token_price_global_by_mint older than {}.",
-                    one_week_ago_time
-                );
-            }
-            Err(e) => {
-                log::error!("Error during reaper task: {:?}", e);
-            }
-        }
-        log::info!(
-            "Starting to clear current_token_price_global_by_mint_string older than {}...",
-            one_week_ago_time
-        );
-
-        let q_result = clickhouse_client
-            .query(
-                format!(
-                    "DELETE FROM current_token_price_global_by_mint_string WHERE time < {}",
-                    one_week_ago_timestamp
-                )
-                .as_str(),
-            )
-            .execute()
-            .await;
-
-        match q_result {
-            Ok(_) => {
-                log::info!(
-                    "Cleared current_token_price_global_by_mint_string older than {}.",
-                    one_week_ago_time
-                );
-            }
-            Err(e) => {
-                log::error!("Error during reaper task: {:?}", e);
-            }
-        }
-
-        log::info!("Cleared current_token_price_global_by_mint_string older than {}. Reloading price dictionary...", one_week_ago_time);
-
-        let q_result = clickhouse_client
-            .query("SYSTEM RELOAD DICTIONARY dict_token_price")
-            .execute()
-            .await;
-
-        match q_result {
-            Ok(_) => {
-                log::info!("Reloaded price dictionary.");
-            }
-            Err(e) => {
-                log::error!("Error during reaper task: {:?}", e);
-            }
         }
 
         log::info!(

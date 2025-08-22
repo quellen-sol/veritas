@@ -144,10 +144,7 @@ async fn main() -> Result<()> {
 
     log::info!("Created Clickhouse client");
 
-    let reaper_task = spawn_task_as_thread(reaper::reaper_task(
-        mint_price_graph.clone(),
-        clickhouse_client.clone(),
-    ));
+    let reaper_task = spawn_task_as_thread(reaper::reaper_task(mint_price_graph.clone()));
 
     let lp_cache = build_lp_cache(&clickhouse_client, args.skip_preloads).await?;
     let lp_cache = Arc::new(RwLock::new(lp_cache));
