@@ -151,6 +151,7 @@ mod tests {
             out_amount: 10.into(),
             in_mint_pubkey: in_mint.clone(),
             out_mint_pubkey: out_mint.clone(),
+            program_pubkey: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4".to_string(),
             ..Default::default()
         };
 
