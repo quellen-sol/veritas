@@ -87,8 +87,10 @@ pub fn spawn_price_points_liquidity_task(
                                 graph,
                                 decimal_cache,
                                 sender_arc,
+                                calculator_sender,
                                 mint_indicies,
                                 edge_indicies,
+                                bootstrap_in_progress,
                             );
                         }
                         Dooot::OraclePriceEvent(oracle_price) => {

@@ -1,4 +1,4 @@
-use std::sync::{mpsc::SyncSender, Arc, RwLock};
+use std::sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock};
 
 use rust_decimal::{prelude::FromPrimitive, Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
@@ -8,8 +8,12 @@ use veritas_sdk::{
     utils::decimal_cache::DecimalCache,
 };
 
-use crate::price_points_liquidity::task::{
-    add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals,
+use crate::{
+    calculator::task::CalculatorUpdate,
+    price_points_liquidity::{
+        handlers::utils::send_update_to_calculator,
+        task::{add_or_update_relation_edge, get_or_add_mint_ix, get_or_dispatch_decimals},
+    },
 };
 
 pub fn handle_fixed(
@@ -17,8 +21,10 @@ pub fn handle_fixed(
     graph: Arc<RwLock<MintPricingGraph>>,
     decimal_cache: Arc<RwLock<DecimalCache>>,
     cache_updator_sender: SyncSender<String>,
+    calc_update_sender: SyncSender<CalculatorUpdate>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
+    bootstrap_in_progress: Arc<AtomicBool>,
 ) {
     let MintUnderlyingsGlobalDooot {
         time,
@@ -90,7 +96,10 @@ pub fn handle_fixed(
     );
 
     match update_res {
-        Ok(_) => {}
+        Ok(ix) => {
+            let update = CalculatorUpdate::NewTokenRatio(mint_parent_ix, ix);
+            send_update_to_calculator(update, &calc_update_sender, &bootstrap_in_progress);
+        }
         Err(e) => {
             log::error!("Error adding or updating Fixed relation: {e}");
         }
