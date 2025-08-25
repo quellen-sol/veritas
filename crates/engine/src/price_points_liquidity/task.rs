@@ -27,7 +27,8 @@ use crate::{
     price_points_liquidity::handlers::{
         clmm::handle_clmm, dlmm::handle_dlmm, lp_info::handle_lp_info, mint_info::handle_mint_info,
         mint_underlyings::handle_mint_underlyings, oracle_price_event::handle_oracle_price_event,
-        token_balance::handle_token_balance, token_prices::handle_token_price,
+        swap::handle_swap_event, token_balance::handle_token_balance,
+        token_prices::handle_token_price,
     },
 };
 
@@ -86,13 +87,16 @@ pub fn spawn_price_points_liquidity_task(
                                 graph,
                                 decimal_cache,
                                 sender_arc,
+                                calculator_sender,
                                 mint_indicies,
                                 edge_indicies,
+                                bootstrap_in_progress,
                             );
                         }
                         Dooot::OraclePriceEvent(oracle_price) => {
                             handle_oracle_price_event(
                                 oracle_price,
+                                graph,
                                 oracle_feed_map,
                                 mint_indicies,
                                 calculator_sender,
@@ -139,6 +143,16 @@ pub fn spawn_price_points_liquidity_task(
                         }
                         Dooot::TokenPriceGlobal(dooot) => {
                             handle_token_price(dooot, graph, &oracle_mint_set, mint_indicies);
+                        }
+                        Dooot::SwapEvent(swap) => {
+                            handle_swap_event(
+                                swap,
+                                graph,
+                                mint_indicies,
+                                decimal_cache,
+                                oracle_mint_set,
+                                price_sender,
+                            );
                         }
                         _ => {}
                     }

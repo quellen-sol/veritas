@@ -25,7 +25,6 @@ pub fn handle_oracle_price_update(
 ) {
     // Grab an exclusive lock on the graph, to prevent non-atomic updates.
     let mut g_write = graph.write().expect("Graph write lock poisoned");
-
     let mut visited = HashSet::with_capacity(g_write.node_count());
 
     // Update the price of the mint in the graph

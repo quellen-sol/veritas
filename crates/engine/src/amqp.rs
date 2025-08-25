@@ -121,18 +121,7 @@ impl AMQPManager {
                             match dooots {
                                 Ok(dooots) => {
                                     for dooot in dooots {
-                                        if matches!(
-                                            dooot,
-                                            Dooot::MintUnderlyingsGlobal(_)
-                                                | Dooot::OraclePriceEvent(_)
-                                                | Dooot::MintInfo(_)
-                                                | Dooot::LPInfo(_)
-                                                | Dooot::DlmmGlobal(_)
-                                                | Dooot::TokenBalanceUser(_)
-                                                | Dooot::ClmmGlobal(_)
-                                                | Dooot::ClmmTickGlobal(_)
-                                                | Dooot::TokenPriceGlobal(_)
-                                        ) {
+                                        if Self::is_dooot_allowed(&dooot) {
                                             msg_tx.send(dooot).unwrap();
                                         }
                                     }
@@ -155,6 +144,37 @@ impl AMQPManager {
         );
 
         Ok(handle)
+    }
+
+    #[inline]
+    fn is_dooot_allowed(dooot: &Dooot) -> bool {
+        #[cfg(feature = "swaps-only")]
+        {
+            matches!(
+                dooot,
+                Dooot::OraclePriceEvent(_)
+                    | Dooot::MintInfo(_)
+                    | Dooot::SwapEvent(_)
+                    | Dooot::MintUnderlyingsGlobal(_)
+                    | Dooot::TokenPriceGlobal(_)
+            )
+        }
+
+        #[cfg(not(feature = "swaps-only"))]
+        {
+            matches!(
+                dooot,
+                Dooot::MintUnderlyingsGlobal(_)
+                    | Dooot::OraclePriceEvent(_)
+                    | Dooot::MintInfo(_)
+                    | Dooot::LPInfo(_)
+                    | Dooot::DlmmGlobal(_)
+                    | Dooot::TokenBalanceUser(_)
+                    | Dooot::ClmmGlobal(_)
+                    | Dooot::ClmmTickGlobal(_)
+                    | Dooot::TokenPriceGlobal(_)
+            )
+        }
     }
 
     pub async fn spawn_dooot_publisher(&self, dooot_rx: Receiver<Dooot>) -> JoinHandle<()> {

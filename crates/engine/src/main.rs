@@ -1,3 +1,6 @@
+#![cfg_attr(feature = "swaps-only", allow(unused_imports))]
+#![cfg_attr(feature = "swaps-only", allow(unused_variables))]
+#![cfg_attr(feature = "swaps-only", allow(dead_code))]
 use std::{
     collections::{HashMap, HashSet},
     sync::{
@@ -283,6 +286,7 @@ async fn main() -> Result<()> {
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
 
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
+
     if !args.skip_bootstrap && !args.skip_preloads {
         let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
         bootstrap_graph(
