@@ -286,30 +286,23 @@ async fn main() -> Result<()> {
     // We'll use this incomplete pipeline to bootstrap the graph, and then attach the AMQP task for normal operation.
 
     // Bootstrap the graph, sending Dooots through the AMQP Sender to act as though we're receiving them from the AMQP listener
-    #[cfg(feature = "swaps-only")]
-    {
-        log::info!("Skipping bootstrap (swaps-only feature enabled)");
-    }
 
-    #[cfg(not(feature = "swaps-only"))]
-    {
-        if !args.skip_bootstrap && !args.skip_preloads {
-            let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
-            bootstrap_graph(
-                clickhouse_client.clone(),
-                amqp_dooot_tx_bootstrap_copy,
-                bootstrap_in_progress.clone(),
-            )
-            .await?;
+    if !args.skip_bootstrap && !args.skip_preloads {
+        let amqp_dooot_tx_bootstrap_copy = amqp_dooot_tx.clone();
+        bootstrap_graph(
+            clickhouse_client.clone(),
+            amqp_dooot_tx_bootstrap_copy,
+            bootstrap_in_progress.clone(),
+        )
+        .await?;
 
-            let g_read = mint_price_graph.read().expect("Graph read lock poisoned");
-            let nodes = g_read.node_count();
-            let edges = g_read.edge_count();
+        let g_read = mint_price_graph.read().expect("Graph read lock poisoned");
+        let nodes = g_read.node_count();
+        let edges = g_read.edge_count();
 
-            log::info!("Pricing Graph contains {nodes} nodes and {edges} edges post-bootstrap");
-        } else {
-            log::info!("Skipping bootstrap (flag set)");
-        }
+        log::info!("Pricing Graph contains {nodes} nodes and {edges} edges post-bootstrap");
+    } else {
+        log::info!("Skipping bootstrap (flag set)");
     }
 
     // Wait 3 seconds to ensure that the graph is fully bootstrapped
