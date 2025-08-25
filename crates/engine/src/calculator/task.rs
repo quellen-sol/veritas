@@ -1,4 +1,6 @@
-// #![allow(unused)]
+#![cfg_attr(not(feature = "swaps-only"), allow(unused_imports))]
+#![cfg_attr(not(feature = "swaps-only"), allow(unused_variables))]
+#![cfg_attr(not(feature = "swaps-only"), allow(dead_code))]
 use std::{
     collections::HashSet,
     sync::{
@@ -67,6 +69,7 @@ pub fn spawn_calculator_task(
                     );
                 }
                 CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
+                    #[cfg(feature = "swaps-only")]
                     handle_token_relation_update(
                         graph,
                         token,

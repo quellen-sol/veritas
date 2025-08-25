@@ -1,3 +1,4 @@
+#![allow(unused)]
 use std::{
     collections::{HashSet, VecDeque},
     sync::{mpsc::SyncSender, Arc, RwLock},
