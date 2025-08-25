@@ -91,7 +91,7 @@ fn clean_downstream_from(start: NodeIndex, graph: &mut MintPricingGraph) {
                 .expect("Dirty write lock poisoned") = false;
         }
 
-        for neighbor in graph.neighbors_directed(node, Direction::Outgoing) {
+        for neighbor in graph.neighbors_directed(node, Direction::Outgoing).unique() {
             if !visited.insert(neighbor) {
                 continue;
             }
