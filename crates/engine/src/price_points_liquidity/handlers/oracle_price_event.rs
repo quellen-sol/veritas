@@ -6,17 +6,20 @@ use std::{
 use step_ingestooor_sdk::dooot::{Dooot, OraclePriceEventDooot, TokenPriceGlobalDooot};
 use veritas_sdk::{
     constants::{EMPTY_PUBKEY, WSOL_MINT},
-    types::MintIndiciesMap,
+    types::{MintIndiciesMap, WrappedMintPricingGraph},
 };
 
 use crate::{
     calculator::task::CalculatorUpdate,
-    price_points_liquidity::handlers::utils::send_update_to_calculator,
+    price_points_liquidity::{
+        handlers::utils::send_update_to_calculator, task::get_or_add_mint_ix,
+    },
 };
 
 #[allow(clippy::unwrap_used)]
 pub fn handle_oracle_price_event(
     oracle_price: OraclePriceEventDooot,
+    graph: WrappedMintPricingGraph,
     oracle_feed_map: Arc<HashMap<String, String>>,
     mint_indicies: Arc<RwLock<MintIndiciesMap>>,
     calculator_sender: SyncSender<CalculatorUpdate>,
@@ -53,19 +56,8 @@ pub fn handle_oracle_price_event(
 
     log::info!("New oracle price for {feed_mint}: {price}");
 
-    let ix = mint_indicies
-        .read()
-        .expect("Mint indicies read lock poisoned")
-        .get(&feed_mint)
-        .cloned();
+    let ix = get_or_add_mint_ix(&feed_mint, graph, mint_indicies).0;
 
-    if let Some(ix) = ix {
-        let update = CalculatorUpdate::OracleUSDPrice(ix, price);
-        send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress);
-    } else {
-        log::warn!(
-            "Mint {} not in graph, cannot send OracleUSDPrice update",
-            feed_mint
-        );
-    }
+    let update = CalculatorUpdate::OracleUSDPrice(ix, price);
+    send_update_to_calculator(update, &calculator_sender, &bootstrap_in_progress);
 }
