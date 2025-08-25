@@ -68,12 +68,11 @@ pub fn handle_token_relation_update(
 
 fn clean_downstream_from(start: NodeIndex, graph: &mut MintPricingGraph) {
     let mut visited = HashSet::with_capacity(graph.node_count());
+    visited.insert(start);
     let mut queue = VecDeque::with_capacity(graph.node_count());
     queue.push_back(start);
 
     while let Some(node) = queue.pop_front() {
-        visited.insert(node);
-
         let Some(node_weight_mut) = graph.node_weight_mut(node) else {
             log::error!("UNREACHABLE - NodeIndex {node:?} should always exist");
             return;
@@ -93,7 +92,7 @@ fn clean_downstream_from(start: NodeIndex, graph: &mut MintPricingGraph) {
         }
 
         for neighbor in graph.neighbors_directed(node, Direction::Outgoing) {
-            if visited.contains(&neighbor) {
+            if !visited.insert(neighbor) {
                 continue;
             }
 
