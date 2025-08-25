@@ -6,6 +6,7 @@ use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{Dooot, SwapEventDooot, TokenPriceGlobalDooot};
 use veritas_sdk::ppl_graph::utils::get_price_by_mint;
 use veritas_sdk::types::{MintIndiciesMap, WrappedMintPricingGraph};
+use veritas_sdk::utils::checked_math::clamp_to_scale;
 use veritas_sdk::utils::decimal_cache::DecimalCache;
 
 #[allow(clippy::unwrap_used)]
@@ -113,6 +114,7 @@ pub fn handle_swap_event(
     let Some(final_price) = token_ratio
         .checked_mul(decimal_factor)
         .and_then(|x| x.checked_mul(oracle_mint_price))
+        .and_then(|p| clamp_to_scale(&p))
     else {
         return;
     };
