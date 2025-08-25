@@ -117,8 +117,6 @@ pub fn handle_swap_event(
         return;
     };
 
-    log::warn!("Got final price for {mint_to_set_price}: {final_price}");
-
     let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
         deleted: false,
         mint: mint_to_set_price.clone(),
