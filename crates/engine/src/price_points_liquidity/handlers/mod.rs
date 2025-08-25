@@ -4,6 +4,7 @@ pub mod lp_info;
 pub mod mint_info;
 pub mod mint_underlyings;
 pub mod oracle_price_event;
+pub mod swap;
 pub mod token_balance;
 pub mod token_prices;
 pub mod utils;

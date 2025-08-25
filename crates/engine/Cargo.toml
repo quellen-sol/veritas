@@ -5,7 +5,9 @@ edition = "2021"
 authors = ["Quellen <quellen@step.finance>"]
 
 [features]
+default = ["swaps-only"]
 debug-graph = ["veritas-sdk/debug-graph"]
+swaps-only = ["veritas-sdk/swaps-only"]
 
 [lints]
 workspace = true
