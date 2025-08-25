@@ -14,14 +14,16 @@ use rust_decimal::Decimal;
 use step_ingestooor_sdk::dooot::Dooot;
 use veritas_sdk::types::MintPricingGraph;
 
-use crate::calculator::handlers::oracle_price::handle_oracle_price_update;
+use crate::calculator::handlers::{
+    oracle_price::handle_oracle_price_update, token_relation::handle_token_relation_update,
+};
 
 #[derive(Debug)]
 pub enum CalculatorUpdate {
     /// Price of USD (from oracle) and index in the graph
     OracleUSDPrice(NodeIndex, Decimal),
     /// A Relation pointing TO this token has changed (edge id provided)
-    _NewTokenRatio(NodeIndex, EdgeIndex),
+    NewTokenRatio(NodeIndex, EdgeIndex),
 }
 
 pub fn spawn_calculator_task(
@@ -64,17 +66,16 @@ pub fn spawn_calculator_task(
                         &max_price_impact,
                     );
                 }
-                CalculatorUpdate::_NewTokenRatio(_token, _updated_edge) => {
-                    // handle_token_relation_update(
-                    //     graph,
-                    //     token,
-                    //     updated_edge,
-                    //     dooot_tx,
-                    //     &oracle_mint_set,
-                    //     sol_index,
-                    //     &max_price_impact,
-                    // )
-                    // .await;
+                CalculatorUpdate::NewTokenRatio(token, updated_edge) => {
+                    handle_token_relation_update(
+                        graph,
+                        token,
+                        updated_edge,
+                        dooot_tx,
+                        &oracle_mint_set,
+                        sol_index,
+                        &max_price_impact,
+                    );
                 }
             }
         }
