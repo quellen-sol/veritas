@@ -1,3 +1,6 @@
+#![cfg_attr(feature = "swaps-only", allow(unused_imports))]
+#![cfg_attr(feature = "swaps-only", allow(unused_variables))]
+#![cfg_attr(feature = "swaps-only", allow(dead_code))]
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     mpsc::SyncSender,
@@ -227,14 +230,6 @@ pub async fn bootstrap_graph(
     bootstrap_in_progress.store(true, Ordering::Relaxed);
 
     load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
-        MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY,
-        "MintUnderlyingsGlobal",
-        clickhouse_client.clone(),
-        dooot_tx.clone(),
-    )
-    .await?;
-
-    load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
         MINT_UNDERLYINGS_FIXED_RELATIONS_QUERY,
         "MintUnderlyingsGlobal Fixed Relations",
         clickhouse_client.clone(),
@@ -242,29 +237,40 @@ pub async fn bootstrap_graph(
     )
     .await?;
 
-    load_and_send_dooots::<DlmmGlobalBootstrapRow, DlmmGlobalDooot>(
-        DLMM_GLOBAL_DOOOTS_QUERT,
-        "DlmmGlobal",
-        clickhouse_client.clone(),
-        dooot_tx.clone(),
-    )
-    .await?;
+    #[cfg(not(feature = "swaps-only"))]
+    {
+        load_and_send_dooots::<MintUnderlyingBootstrapRow, MintUnderlyingsGlobalDooot>(
+            MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY,
+            "MintUnderlyingsGlobal",
+            clickhouse_client.clone(),
+            dooot_tx.clone(),
+        )
+        .await?;
 
-    load_and_send_dooots::<ClmmGlobalBootstrapRow, ClmmGlobalDooot>(
-        CLMM_GLOBAL_DOOOTS_QUERY,
-        "ClmmGlobal",
-        clickhouse_client.clone(),
-        dooot_tx.clone(),
-    )
-    .await?;
+        load_and_send_dooots::<DlmmGlobalBootstrapRow, DlmmGlobalDooot>(
+            DLMM_GLOBAL_DOOOTS_QUERT,
+            "DlmmGlobal",
+            clickhouse_client.clone(),
+            dooot_tx.clone(),
+        )
+        .await?;
 
-    load_and_send_dooots::<ClmmTickBootstrapRow, ClmmTickGlobalDooot>(
-        CLMM_TICKS_DOOOTS_QUERY,
-        "ClmmTickGlobal",
-        clickhouse_client.clone(),
-        dooot_tx.clone(),
-    )
-    .await?;
+        load_and_send_dooots::<ClmmGlobalBootstrapRow, ClmmGlobalDooot>(
+            CLMM_GLOBAL_DOOOTS_QUERY,
+            "ClmmGlobal",
+            clickhouse_client.clone(),
+            dooot_tx.clone(),
+        )
+        .await?;
+
+        load_and_send_dooots::<ClmmTickBootstrapRow, ClmmTickGlobalDooot>(
+            CLMM_TICKS_DOOOTS_QUERY,
+            "ClmmTickGlobal",
+            clickhouse_client.clone(),
+            dooot_tx.clone(),
+        )
+        .await?;
+    }
 
     // TODO: Add other Dooots (CLOBs?)
 

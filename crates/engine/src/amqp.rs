@@ -152,7 +152,11 @@ impl AMQPManager {
         {
             matches!(
                 dooot,
-                &Dooot::OraclePriceEvent(_) | &Dooot::MintInfo(_) | &Dooot::SwapEvent(_)
+                Dooot::OraclePriceEvent(_)
+                    | Dooot::MintInfo(_)
+                    | Dooot::SwapEvent(_)
+                    | Dooot::MintUnderlyingsGlobal(_)
+                    | Dooot::TokenPriceGlobal(_)
             )
         }
 
