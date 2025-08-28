@@ -9,6 +9,8 @@ use veritas_sdk::types::{MintIndiciesMap, WrappedMintPricingGraph};
 use veritas_sdk::utils::checked_math::clamp_to_scale;
 use veritas_sdk::utils::decimal_cache::DecimalCache;
 
+use crate::price_points_liquidity::task::get_or_add_mint_ix;
+
 #[allow(clippy::unwrap_used)]
 pub fn handle_swap_event(
     swap: SwapEventDooot,
@@ -122,6 +124,9 @@ pub fn handle_swap_event(
     if final_price.is_zero() {
         return;
     }
+
+    // Add the mint for the sake of debugging using endpoint
+    get_or_add_mint_ix(mint_to_set_price, graph, mint_indicies);
 
     let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
         deleted: false,
