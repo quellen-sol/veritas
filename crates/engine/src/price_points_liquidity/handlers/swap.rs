@@ -119,6 +119,10 @@ pub fn handle_swap_event(
         return;
     };
 
+    if final_price.is_zero() {
+        return;
+    }
+
     let price_dooot = Dooot::TokenPriceGlobal(TokenPriceGlobalDooot {
         deleted: false,
         mint: mint_to_set_price.clone(),
