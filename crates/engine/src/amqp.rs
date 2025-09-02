@@ -18,7 +18,7 @@ use lapin::{
     BasicProperties, Channel, Connection, ConnectionProperties,
 };
 use step_ingestooor_sdk::dooot::{Dooot, DoootTrait};
-use veritas_sdk::utils::r#async::spawn_task_as_thread;
+use veritas_sdk::{constants::MAX_SENSIBLE_PRICE_USD, utils::r#async::spawn_task_as_thread};
 pub struct AMQPManager {
     channel: Channel,
     dooot_exchange: String,
@@ -190,6 +190,12 @@ impl AMQPManager {
                         continue;
                     }
                     let routing_key = dooot.get_dooot_name();
+
+                    if let Dooot::TokenPriceGlobal(price_dooot) = &dooot {
+                        if price_dooot.price_usd > MAX_SENSIBLE_PRICE_USD {
+                            continue;
+                        }
+                    }
 
                     let payload = serde_json::to_vec(&dooot).unwrap();
                     channel
