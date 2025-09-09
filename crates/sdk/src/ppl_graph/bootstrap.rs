@@ -91,6 +91,7 @@ impl From<DlmmGlobalBootstrapRow> for Dooot {
             parts_account_pubkey: value.parts_account_pubkey,
             part_index: value.part_index,
             parts: parsed_parts,
+            closed: false,
         })
     }
 }

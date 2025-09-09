@@ -76,6 +76,9 @@ pub struct Args {
     #[clap(long, env, default_value = "0.25")]
     pub max_price_impact: f64,
 
+    #[clap(long, env, default_value = "1000")]
+    pub max_slippage_bps: u16,
+
     #[clap(long, env)]
     pub ipfs_url: Option<String>,
 }
@@ -280,6 +283,7 @@ async fn main() -> Result<()> {
         publish_dooot_tx.clone(),
         token_balance_cache.clone(),
         oracle_mint_set.clone(),
+        args.max_slippage_bps,
     );
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
