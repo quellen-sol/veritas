@@ -46,6 +46,7 @@ pub fn spawn_price_points_liquidity_task(
     price_sender: SyncSender<Dooot>,
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
     oracle_mint_set: Arc<HashSet<String>>,
+    max_slippage_bps: u16,
 ) -> JoinHandle<()> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -152,6 +153,7 @@ pub fn spawn_price_points_liquidity_task(
                                 decimal_cache,
                                 oracle_mint_set,
                                 price_sender,
+                                max_slippage_bps,
                             );
                         }
                         _ => {}

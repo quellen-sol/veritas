@@ -19,6 +19,7 @@ pub fn handle_swap_event(
     decimal_cache: Arc<RwLock<DecimalCache>>,
     oracle_mint_set: Arc<HashSet<String>>,
     price_sender: SyncSender<Dooot>,
+    max_slippage_bps: u16,
 ) {
     let SwapEventDooot {
         in_amount,
@@ -26,10 +27,15 @@ pub fn handle_swap_event(
         out_amount,
         out_mint_pubkey,
         program_pubkey,
+        slippage_bps,
         ..
     } = &swap;
 
     if program_pubkey != "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4" {
+        return;
+    }
+
+    if slippage_bps.is_some_and(|bps| bps > max_slippage_bps) {
         return;
     }
 
@@ -203,6 +209,7 @@ mod tests {
             decimal_cache,
             oracle_mint_set,
             price_sender,
+            1000,
         );
 
         let price_dooot = price_receiver.try_recv().unwrap();
