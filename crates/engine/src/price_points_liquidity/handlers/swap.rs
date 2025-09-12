@@ -35,7 +35,11 @@ pub fn handle_swap_event(
         return;
     }
 
-    if slippage_bps.is_some_and(|bps| bps > max_slippage_bps) {
+    let Some(slippage_bps) = slippage_bps else {
+        return;
+    };
+
+    if *slippage_bps > max_slippage_bps {
         return;
     }
 
