@@ -35,7 +35,7 @@ pub fn handle_swap_event(
         return;
     }
 
-    if slippage_bps.is_some_and(|bps| bps > max_slippage_bps) {
+    if slippage_bps.is_some_and(|bps| bps > max_slippage_bps) || slippage_bps.is_none() {
         return;
     }
 
