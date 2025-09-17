@@ -177,14 +177,16 @@ mod tests {
 
     use crate::price_points_liquidity::handlers::swap::handle_swap_event;
 
-    fn setup_graph() -> (
-        String,
-        String,
-        Arc<RwLock<MintPricingGraph>>,
-        Arc<RwLock<MintIndiciesMap>>,
-        Arc<RwLock<DecimalCache>>,
-        Arc<HashSet<String>>,
-    ) {
+    struct SwapTestItems {
+        in_mint: String,
+        out_mint: String,
+        graph: Arc<RwLock<MintPricingGraph>>,
+        mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+        decimal_cache: Arc<RwLock<DecimalCache>>,
+        oracle_mint_set: Arc<HashSet<String>>,
+    }
+
+    fn setup_graph() -> SwapTestItems {
         let in_mint = "IN_MINT".to_string();
         let out_mint = "OUT_MINT".to_string();
         let graph = Arc::new(RwLock::new(MintPricingGraph::new()));
@@ -218,20 +220,26 @@ mod tests {
 
         let oracle_mint_set = Arc::new(oracle_mints);
 
-        (
+        SwapTestItems {
             in_mint,
             out_mint,
             graph,
             mint_indicies,
             decimal_cache,
             oracle_mint_set,
-        )
+        }
     }
 
     #[test]
     fn valid_swap_event() {
-        let (in_mint, out_mint, graph, mint_indicies, decimal_cache, oracle_mint_set) =
-            setup_graph();
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 50000000.into(),
             out_amount: 50000000.into(),
@@ -270,8 +278,14 @@ mod tests {
 
     #[test]
     fn low_volume_swap() {
-        let (in_mint, out_mint, graph, mint_indicies, decimal_cache, oracle_mint_set) =
-            setup_graph();
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 5000000.into(),
             out_amount: 5000000.into(),
@@ -301,8 +315,14 @@ mod tests {
 
     #[test]
     fn high_slippage_swap() {
-        let (in_mint, out_mint, graph, mint_indicies, decimal_cache, oracle_mint_set) =
-            setup_graph();
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 50000000.into(),
             out_amount: 50000000.into(),
