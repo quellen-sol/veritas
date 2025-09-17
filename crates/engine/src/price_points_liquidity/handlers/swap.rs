@@ -133,8 +133,6 @@ pub fn handle_swap_event(
         return;
     };
 
-    println!("oracle_amount_usd: {}", oracle_amount_usd);
-
     if oracle_amount_usd < MIN_SWAP_VOLUME_USD {
         return;
     }
