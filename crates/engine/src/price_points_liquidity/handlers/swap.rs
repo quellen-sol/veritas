@@ -4,6 +4,7 @@ use std::sync::{mpsc::SyncSender, Arc, RwLock};
 use chrono::Utc;
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{Dooot, SwapEventDooot, TokenPriceGlobalDooot};
+use veritas_sdk::constants::MIN_SWAP_VOLUME_USD;
 use veritas_sdk::ppl_graph::utils::get_price_by_mint;
 use veritas_sdk::types::{MintIndiciesMap, WrappedMintPricingGraph};
 use veritas_sdk::utils::checked_math::clamp_to_scale;
@@ -74,8 +75,8 @@ pub fn handle_swap_event(
     let (
         mint_to_get_price,
         mint_to_set_price,
-        df_numerator,
-        df_denominator,
+        dec_numerator,
+        dec_denominator,
         ratio_numerator,
         ratio_denominator,
     ) = if in_mint_is_oracle {
@@ -106,7 +107,7 @@ pub fn handle_swap_event(
     };
 
     let Some(decimal_factor) =
-        Decimal::TEN.checked_powi((df_numerator as i64) - (df_denominator as i64))
+        Decimal::TEN.checked_powi((dec_numerator as i64) - (dec_denominator as i64))
     else {
         return;
     };
@@ -122,6 +123,19 @@ pub fn handle_swap_event(
     let Some(oracle_mint_price) = oracle_mint_price else {
         return;
     };
+
+    let oracle_amount_usd = Decimal::TEN
+        .checked_powi(dec_numerator as i64)
+        .and_then(|df| ratio_numerator.checked_div(df))
+        .and_then(|numerator_units| numerator_units.checked_mul(oracle_mint_price));
+
+    let Some(oracle_amount_usd) = oracle_amount_usd else {
+        return;
+    };
+
+    if oracle_amount_usd < MIN_SWAP_VOLUME_USD {
+        return;
+    }
 
     let Some(final_price) = token_ratio
         .checked_mul(decimal_factor)
@@ -161,19 +175,18 @@ mod tests {
 
     use crate::price_points_liquidity::handlers::swap::handle_swap_event;
 
-    #[test]
-    fn test_swap_event() {
+    struct SwapTestItems {
+        in_mint: String,
+        out_mint: String,
+        graph: Arc<RwLock<MintPricingGraph>>,
+        mint_indicies: Arc<RwLock<MintIndiciesMap>>,
+        decimal_cache: Arc<RwLock<DecimalCache>>,
+        oracle_mint_set: Arc<HashSet<String>>,
+    }
+
+    fn setup_graph() -> SwapTestItems {
         let in_mint = "IN_MINT".to_string();
         let out_mint = "OUT_MINT".to_string();
-        let swap_dooot = SwapEventDooot {
-            in_amount: 10.into(),
-            out_amount: 10.into(),
-            in_mint_pubkey: in_mint.clone(),
-            out_mint_pubkey: out_mint.clone(),
-            program_pubkey: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4".to_string(),
-            ..Default::default()
-        };
-
         let graph = Arc::new(RwLock::new(MintPricingGraph::new()));
 
         let in_ix = {
@@ -204,6 +217,37 @@ mod tests {
         oracle_mints.insert(in_mint.clone());
 
         let oracle_mint_set = Arc::new(oracle_mints);
+
+        SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        }
+    }
+
+    #[test]
+    fn valid_swap_event() {
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
+        let swap_dooot = SwapEventDooot {
+            in_amount: 50000000.into(),
+            out_amount: 50000000.into(),
+            in_mint_pubkey: in_mint.clone(),
+            out_mint_pubkey: out_mint.clone(),
+            program_pubkey: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4".to_string(),
+            slippage_bps: Some(100),
+            ..Default::default()
+        };
+
         let (price_sender, price_receiver) = std::sync::mpsc::sync_channel::<Dooot>(10);
 
         handle_swap_event(
@@ -228,5 +272,79 @@ mod tests {
 
         assert_eq!(mint, &out_mint);
         assert_eq!(price_usd, &Decimal::from(2));
+    }
+
+    #[test]
+    fn low_volume_swap() {
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
+        let swap_dooot = SwapEventDooot {
+            in_amount: 5000000.into(),
+            out_amount: 5000000.into(),
+            in_mint_pubkey: in_mint.clone(),
+            out_mint_pubkey: out_mint.clone(),
+            program_pubkey: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4".to_string(),
+            slippage_bps: Some(100),
+            ..Default::default()
+        };
+
+        let (price_sender, price_receiver) = std::sync::mpsc::sync_channel::<Dooot>(10);
+
+        handle_swap_event(
+            swap_dooot,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+            price_sender,
+            1000,
+        );
+
+        let price_dooot = price_receiver.try_recv();
+
+        assert!(price_dooot.is_err());
+    }
+
+    #[test]
+    fn high_slippage_swap() {
+        let SwapTestItems {
+            in_mint,
+            out_mint,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+        } = setup_graph();
+        let swap_dooot = SwapEventDooot {
+            in_amount: 50000000.into(),
+            out_amount: 50000000.into(),
+            in_mint_pubkey: in_mint.clone(),
+            out_mint_pubkey: out_mint.clone(),
+            program_pubkey: "JUP6LkbZbjS1jKKwapdHNy74zcZ3tLUZoi5QNyVTaV4".to_string(),
+            slippage_bps: Some(10000),
+            ..Default::default()
+        };
+
+        let (price_sender, price_receiver) = std::sync::mpsc::sync_channel::<Dooot>(10);
+
+        handle_swap_event(
+            swap_dooot,
+            graph,
+            mint_indicies,
+            decimal_cache,
+            oracle_mint_set,
+            price_sender,
+            1000,
+        );
+
+        let price_dooot = price_receiver.try_recv();
+
+        assert!(price_dooot.is_err());
     }
 }
