@@ -16,8 +16,12 @@ pub const ORACLE_FEED_MAP_PAIRS: [(&str, &str); 3] = [
     (USDT_FEED_ACCOUNT_ID, USDT_MINT),
 ];
 
+pub const SWAP_LIMIT_EXEMPT_TOKENS: &[&str] = &[STEP_MINT];
+
 /// 0.001
 pub const POINT_ONE_PERCENT: Decimal = Decimal::from_parts(1, 0, 0, false, 3);
 pub const MAX_SENSIBLE_PRICE_USD: Decimal = Decimal::from_parts(175_000, 0, 0, false, 0);
 /// 100 USD atm
 pub const MIN_SWAP_VOLUME_USD: Decimal = Decimal::from_parts(100, 0, 0, false, 0);
+/// 5 USD atm
+pub const MIN_EXEMPT_SWAP_VOLUME_USD: Decimal = Decimal::from_parts(5, 0, 0, false, 0);

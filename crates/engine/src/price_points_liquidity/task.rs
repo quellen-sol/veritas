@@ -47,6 +47,7 @@ pub fn spawn_price_points_liquidity_task(
     token_balance_cache: Arc<RwLock<TokenBalanceCache>>,
     oracle_mint_set: Arc<HashSet<String>>,
     max_slippage_bps: u16,
+    swap_limit_exempt_set: Arc<HashSet<String>>,
 ) -> JoinHandle<()> {
     log::info!("Spawning price points liquidity task (PPL)");
 
@@ -78,6 +79,7 @@ pub fn spawn_price_points_liquidity_task(
                 let price_sender = price_sender.clone();
                 let token_balance_cache = token_balance_cache.clone();
                 let oracle_mint_set = oracle_mint_set.clone();
+                let swap_limit_exempt_set = swap_limit_exempt_set.clone();
 
                 thread::spawn(move || {
                     match dooot {
@@ -154,6 +156,7 @@ pub fn spawn_price_points_liquidity_task(
                                 oracle_mint_set,
                                 price_sender,
                                 max_slippage_bps,
+                                swap_limit_exempt_set,
                             );
                         }
                         _ => {}

@@ -19,7 +19,7 @@ use price_points_liquidity::task::spawn_price_points_liquidity_task;
 use rust_decimal::{prelude::FromPrimitive, Decimal};
 use step_ingestooor_sdk::{dooot::Dooot, utils::step_utils::StepUtils};
 use veritas_sdk::{
-    constants::ORACLE_FEED_MAP_PAIRS,
+    constants::{ORACLE_FEED_MAP_PAIRS, SWAP_LIMIT_EXEMPT_TOKENS},
     ppl_graph::bootstrap::bootstrap_graph,
     types::{MintIndiciesMap, MintPricingGraph},
     utils::{
@@ -172,6 +172,13 @@ async fn main() -> Result<()> {
             .collect::<HashSet<String>>(),
     );
 
+    let swap_limit_exempt_tokens_set = Arc::new(
+        SWAP_LIMIT_EXEMPT_TOKENS
+            .iter()
+            .map(|s| s.to_string())
+            .collect(),
+    );
+
     // CHANNELS for tasks
     log::info!("Creating channels with the following buffer sizes...");
     log::info!(
@@ -284,6 +291,7 @@ async fn main() -> Result<()> {
         token_balance_cache.clone(),
         oracle_mint_set.clone(),
         args.max_slippage_bps,
+        swap_limit_exempt_tokens_set,
     );
 
     // PPL (+CU) -> CS -> DP thread pipeline now set up, note that AMQP is missing.
