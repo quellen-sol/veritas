@@ -136,7 +136,7 @@ pub fn handle_swap_event(
 
     let is_exempt = swap_limit_exempt_set.contains(mint_to_set_price);
     if (is_exempt && oracle_amount_usd < MIN_EXEMPT_SWAP_VOLUME_USD)
-        || oracle_amount_usd < MIN_SWAP_VOLUME_USD
+        || (!is_exempt && oracle_amount_usd < MIN_SWAP_VOLUME_USD)
     {
         return;
     }
