@@ -4,7 +4,7 @@ use std::sync::{mpsc::SyncSender, Arc, RwLock};
 use chrono::Utc;
 use rust_decimal::{Decimal, MathematicalOps};
 use step_ingestooor_sdk::dooot::{Dooot, SwapEventDooot, TokenPriceGlobalDooot};
-use veritas_sdk::constants::MIN_SWAP_VOLUME_USD;
+use veritas_sdk::constants::{MIN_EXEMPT_SWAP_VOLUME_USD, MIN_SWAP_VOLUME_USD};
 use veritas_sdk::ppl_graph::utils::get_price_by_mint;
 use veritas_sdk::types::{MintIndiciesMap, WrappedMintPricingGraph};
 use veritas_sdk::utils::checked_math::clamp_to_scale;
@@ -21,6 +21,7 @@ pub fn handle_swap_event(
     oracle_mint_set: Arc<HashSet<String>>,
     price_sender: SyncSender<Dooot>,
     max_slippage_bps: u16,
+    swap_limit_exempt_set: Arc<HashSet<String>>,
 ) {
     let SwapEventDooot {
         in_amount,
@@ -133,7 +134,10 @@ pub fn handle_swap_event(
         return;
     };
 
-    if oracle_amount_usd < MIN_SWAP_VOLUME_USD {
+    let is_exempt = swap_limit_exempt_set.contains(mint_to_set_price);
+    if (is_exempt && oracle_amount_usd < MIN_EXEMPT_SWAP_VOLUME_USD)
+        || (!is_exempt && oracle_amount_usd < MIN_SWAP_VOLUME_USD)
+    {
         return;
     }
 
@@ -182,6 +186,7 @@ mod tests {
         mint_indicies: Arc<RwLock<MintIndiciesMap>>,
         decimal_cache: Arc<RwLock<DecimalCache>>,
         oracle_mint_set: Arc<HashSet<String>>,
+        exempt_set: Arc<HashSet<String>>,
     }
 
     fn setup_graph() -> SwapTestItems {
@@ -217,6 +222,7 @@ mod tests {
         oracle_mints.insert(in_mint.clone());
 
         let oracle_mint_set = Arc::new(oracle_mints);
+        let exempt_set = Arc::default();
 
         SwapTestItems {
             in_mint,
@@ -225,6 +231,7 @@ mod tests {
             mint_indicies,
             decimal_cache,
             oracle_mint_set,
+            exempt_set,
         }
     }
 
@@ -237,6 +244,7 @@ mod tests {
             mint_indicies,
             decimal_cache,
             oracle_mint_set,
+            exempt_set,
         } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 50000000.into(),
@@ -258,6 +266,7 @@ mod tests {
             oracle_mint_set,
             price_sender,
             1000,
+            exempt_set,
         );
 
         let price_dooot = price_receiver.try_recv().unwrap();
@@ -283,6 +292,7 @@ mod tests {
             mint_indicies,
             decimal_cache,
             oracle_mint_set,
+            exempt_set,
         } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 5000000.into(),
@@ -304,6 +314,7 @@ mod tests {
             oracle_mint_set,
             price_sender,
             1000,
+            exempt_set,
         );
 
         let price_dooot = price_receiver.try_recv();
@@ -320,6 +331,7 @@ mod tests {
             mint_indicies,
             decimal_cache,
             oracle_mint_set,
+            exempt_set,
         } = setup_graph();
         let swap_dooot = SwapEventDooot {
             in_amount: 50000000.into(),
@@ -341,6 +353,7 @@ mod tests {
             oracle_mint_set,
             price_sender,
             1000,
+            exempt_set,
         );
 
         let price_dooot = price_receiver.try_recv();
