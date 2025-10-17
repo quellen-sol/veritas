@@ -1,4 +1,7 @@
-use std::sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock};
+use std::{
+    collections::HashSet,
+    sync::{atomic::AtomicBool, mpsc::SyncSender, Arc, RwLock},
+};
 
 use step_ingestooor_sdk::dooot::MintUnderlyingsGlobalDooot;
 use veritas_sdk::{
@@ -16,6 +19,8 @@ mod handle_carrot_dooot;
 mod handle_fixed;
 mod handle_specials;
 
+const EXCLUDED_MU_PROGRAMS: &[&str] = &["KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd"];
+
 #[allow(clippy::unwrap_used)]
 pub fn handle_mint_underlyings(
     mu_dooot: MintUnderlyingsGlobalDooot,
@@ -28,7 +33,15 @@ pub fn handle_mint_underlyings(
     edge_indicies: Arc<RwLock<EdgeIndiciesMap>>,
     bootstrap_in_progress: Arc<AtomicBool>,
 ) {
-    let MintUnderlyingsGlobalDooot { mints, .. } = &mu_dooot;
+    let MintUnderlyingsGlobalDooot {
+        mints,
+        platform_program_pubkey,
+        ..
+    } = &mu_dooot;
+
+    if EXCLUDED_MU_PROGRAMS.contains(&platform_program_pubkey.as_str()) {
+        return;
+    }
 
     match mints.len() {
         1 => {

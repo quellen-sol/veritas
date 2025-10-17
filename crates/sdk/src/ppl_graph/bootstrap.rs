@@ -176,6 +176,10 @@ const MINT_UNDERLYINGS_GLOBAL_DOOOTS_QUERY: &str = "
 /// Grabs all MUs that only have one underlying, since that price is fixed by a contract and
 /// should not be considered "old" (e.g. sphSOL missing price, but it is still completely valid, despite no activity)
 const MINT_UNDERLYINGS_FIXED_RELATIONS_QUERY: &str = "
+    WITH excluded_programs AS (
+        SELECT
+            arrayJoin(arrayMap(x -> base58Decode(x), ['KvauGMspG5k6rtzrqqn7WNn3oZdyKqLKwK2XWQ8FLjd'])) as excluded_program
+    )
     SELECT
         time,
         base58Encode(mint_pubkey) as mint,
@@ -185,6 +189,7 @@ const MINT_UNDERLYINGS_FIXED_RELATIONS_QUERY: &str = "
         total_underlying_amounts
     FROM current_mint_underlyings_global_by_mint FINAL
     WHERE length(mints) = 1
+    AND platform_program_pubkey NOT IN (SELECT excluded_program FROM excluded_programs)
 ";
 
 const DLMM_GLOBAL_DOOOTS_QUERT: &str = "
